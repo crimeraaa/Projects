@@ -1,16 +1,87 @@
-// standard
-#include "json.h"
+// For test main; see below
+#if 1
 
+// shut the fuck up microsoft
+#define _CRT_SECURE_NO_WARNINGS 1
+#define MEM_IMPLEMENTATION
+
+#endif
+
+
+// standard
 #include <string.h> // memcmp
 
 // local
-#include "parser.h"
+#define ASCII_SET_DISABLED
+#include "../strings/ascii.c"
+#include "lexer.c"
+#include "parser.c"
+
+extern json_Value
+json_make_null(void)
+{
+    json_Value v;
+    memset(&v, 0, sizeof(v));
+    return v;
+}
+
+extern json_Value
+json_make_boolean(bool b)
+{
+    json_Value v;
+    v.type    = JSON_BOOLEAN;
+    v.boolean = b;
+    return v;
+}
+
+extern json_Value
+json_make_number(double n)
+{
+    json_Value v;
+    v.type   = JSON_NUMBER;
+    v.number = n;
+    return v;
+}
+
+extern json_Value
+json_make_string(json_String *s)
+{
+    json_Value v;
+    v.type   = JSON_STRING;
+    v.string = s;
+    return v;
+}
+
+extern json_Value
+json_make_array(json_Array a)
+{
+    json_Value v;
+    v.type  = JSON_ARRAY;
+    v.array = a;
+    return v;
+}
+
+extern json_Value
+json_make_object(json_Object o)
+{
+    json_Value v;
+    v.type   = JSON_OBJECT;
+    v.object = o;
+    return v;
+}
+
 
 extern json_Error
 json_parse_lstring(const char *s, size_t n, mem_Allocator alloc, json_Value *v)
 {
     json_Parser p;
-    json_init_parser(&p, s, n, alloc);
+    json_Error err;
+
+    // Very first token may have already screwed up?
+    err = json_init_parser(&p, s, n, alloc);
+    if (err) {
+        return err;
+    }
     return json_parse(&p, v);
 }
 
@@ -56,7 +127,7 @@ static void
 json_destroy_string(json_String *string, mem_Allocator alloc)
 {
     size_t size = sizeof(*string) + string->len + 1;
-    JSON_LOGFLN("FREE", "(json_String *)%p | %zu bytes", string, size);
+    JSON_LOGFLN("FREE ", "(json_String *)%p | %zu bytes", string, size);
     mem_free_bytes(alloc, string, size, NULL);
 }
 
@@ -66,7 +137,7 @@ json_destroy_array(json_Array a, mem_Allocator alloc)
     for (size_t i = 0; i < a.len; i += 1) {
         json_destroy_value(a.data[i], alloc);
     }
-    JSON_LOGFLN("FREE", "(json_Value *)%p : %zu bytes", a.data,
+    JSON_LOGFLN("FREE ", "(json_Value  *)%p | %zu bytes", a.data,
               sizeof(*a.data) * a.cap);
     mem_free_array(alloc, a.data, a.cap, NULL);
 }
@@ -84,7 +155,7 @@ json_destroy_object(json_Object o, mem_Allocator alloc)
         json_destroy_value(o.data[i].value, alloc);
     }
 
-    JSON_LOGFLN("FREE", "(json_Member *)%p : %zu bytes", cast(void *)o.data,
+    JSON_LOGFLN("FREE ", "(json_Member *)%p | %zu bytes", cast(void *)o.data,
               sizeof(*o.data) * o.cap);
     mem_free_array(alloc, o.data, o.cap, NULL);
 }
@@ -137,12 +208,15 @@ json_string_new(size_t write_len, const char *text, size_t text_len,
     char prev_char = 0, curr_char = 0;
 
     size = sizeof(*s) + write_len + 1;
-    s    = cast(json_String *)mem_alloc_bytes(alloc, size, &err);
+    
+    // Use default, pointer-sized alignment to ensure the len and hash
+    // members themselves are aligned.
+    s = cast(json_String *)mem_alloc_bytes(alloc, size, &err);
     if (err) {
         return json_mem_error(err);
     }
 
-    JSON_LOGFLN("NEW ", "(json_String *)%p | len=%zu, size=%zu",
+    JSON_LOGFLN("NEW  ", "(json_String *)%p | len=%zu, size=%zu",
                 cast(void *)s, write_len, size);
 
     s->len = write_len;
@@ -170,17 +244,18 @@ json_string_new(size_t write_len, const char *text, size_t text_len,
                 // Point to the "\u" in its entirety so we can sanity check...
                 it -= 1;
                 hex4 = json_decode_hex4(it, cast(size_t)(end - it), &byte_count);
-                // JSON_LOGFLN("INFO", "hex4=%#x, hex_count=%zu",
+                // JSON_LOGFLN("INFO ", "hex4=%#x, hex_count=%zu",
                 //             hex4, byte_count);
 
-                // We screwed up by not properly verifying the string
-                // in the lexer phase...
+                // This can occur if we are called by the user outside
+                // of a parse call.
                 if (hex4 == UINT16_MAX) {
                     json_destroy_string(s, alloc);
                     return JSON_INVALID_STRING;
                 }
 
-                // Then skip the whole sequence.
+                // Skip '\\', 'u' and 3 of the hex chars.
+                // The 4th hex char is skipped by the increment.
                 it += 5;
                 memcpy(writer, &hex4, byte_count);
                 writer += byte_count;
@@ -197,7 +272,7 @@ json_string_new(size_t write_len, const char *text, size_t text_len,
     // Hash the actual represented bytes- including now-escaped characters.
     s->hash = json_string_hash(data, s->len);
 
-    // JSON_LOGFLN("INFO", "s = {hash=%u, len=%zu, data=\"%s\"}",
+    // JSON_LOGFLN("INFO ", "s = {hash=%u, len=%zu, data=\"%s\"}",
     //             s->hash, write_len, data);
     *ps = s;
     return JSON_OK;
@@ -461,6 +536,7 @@ print_array(json_Array a, int depth)
         }
         printf("\n");
     }
+    print_indent(depth);
     printf("]");
 }
 
@@ -487,6 +563,7 @@ print_object(json_Object o, int depth)
         }
         printf("\n");
     }
+    print_indent(depth);
     printf("}");
 }
 
@@ -504,8 +581,143 @@ print_helper(json_Value v, int depth)
 }
 
 extern void
-json_print_value(json_Value value)
+json_print_value(json_Value v)
 {
-    print_helper(value, /*depth=*/0);
+    print_helper(v, /*depth=*/0);
 }
 
+#if 1
+
+// horrible
+static int
+read_file(const char *name, mem_Allocator alloc, char **p, size_t *n)
+{
+    FILE *fp;
+    char *buf;
+    size_t buf_len, written;
+    long tmp;
+    int err = 0;
+
+    // Error handling in C is quite atrocious
+    fp = fopen(name, "rb");
+    if (fp == NULL) {
+        err = 1;
+        JSON_LOGFLN("ERROR", "Failed to open file '%s'.", name);
+        goto cleanup_file;
+    }
+
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        err = 2;
+        JSON_LOGFLN("ERROR", "fseek() failed for file '%s'.", name);
+        goto cleanup_file;
+    }
+
+    tmp = ftell(fp);
+    if (tmp == -1L) {
+        JSON_LOGFLN("ERROR", "ftell() failed for file '%s'.", name);
+        goto cleanup_file;
+    }
+
+    buf_len = cast(size_t)tmp;
+    rewind(fp);
+
+    buf = mem_alloc_array(char, alloc, buf_len + 1, NULL);
+    if (buf == NULL) {
+        err = 2;
+        JSON_LOGFLN("ERROR", "Failed to alloc %zu bytes to read '%s'.",
+                    buf_len + 1, name);
+        goto cleanup_file;
+    }
+
+    written = fread(buf, sizeof(buf[0]), buf_len, fp);
+    if (written != buf_len) {
+        err = 2;
+        mem_free_array(alloc, buf, buf_len + 1, NULL);
+        buf = NULL;
+        goto cleanup_file;
+    }
+
+    buf[buf_len] = 0;
+    *p = buf;
+    *n = buf_len;
+
+cleanup_file:
+    fclose(fp);
+    return err;
+}
+
+static void
+run(const char *input, size_t input_len, mem_Allocator alloc)
+{
+    json_Value v;
+    json_Error err;
+
+    err = json_parse_lstring(input, input_len, alloc, &v);
+    if (!err) {
+        json_print_value(v);
+        printf("\n");
+        json_destroy_value(v, alloc);
+    } else {
+        JSON_LOGLN("ERROR", json_error_string(err));
+    }
+}
+
+#ifdef _WIN32
+#define HELP_MESSAGE   "<Ctrl-Z><Enter>"
+#else
+#define HELP_MESSAGE   "<Ctrl-D>"
+#endif
+
+static void
+repl(mem_Allocator alloc)
+{
+    char *s;
+    size_t n;
+    char buf[1024];
+
+    fprintf(stdout, "Type " HELP_MESSAGE " to exit.\n");
+    for (;;) {
+        fputs("json> ", stdout);
+        s = fgets(buf, sizeof(buf), stdin);
+        // EOF?
+        if (s == NULL) {
+            return;
+        }
+
+        n    = strcspn(s, "\r\n");
+        s[n] = 0;
+        run(s, n, alloc);
+    }
+}
+
+int main(int argc, char *argv[])
+{
+    mem_Allocator alloc = mem_global_heap_allocator();
+    if (argc > 1) {
+        char *buf;
+        size_t buf_len;
+        int f_err;
+
+        if (argv[1][0] == '-' && argv[1][1] == 0) {
+            repl(alloc);
+            return 0;
+        }
+
+        f_err = read_file(argv[1], alloc, &buf, &buf_len);
+        if (!f_err) {
+            run(buf, buf_len, alloc);
+            mem_free_array(alloc, buf, buf_len + 1, NULL);
+        }
+        return f_err;
+    }
+
+    static const char test[] = "{\n"
+"   \"\\u0068\\u0069\":        \"\\u006d\\u006f\\u006d\",\n" // "hi": "mom"
+"   \"\\u006d\\u006f\\u006d\": \"\\u0068\\u0069\"\n"        // "mom": "hi"
+"}\n";
+
+    run(test, sizeof(test) - 1, alloc);
+    return 0;
+}
+
+#endif

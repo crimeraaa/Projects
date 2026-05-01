@@ -8,7 +8,7 @@
 
 // standard, configurable
 #if 1
-#include <stdio.h>  // printf
+#include <stdio.h>  // fprintf
 #define JSON_EPRINTF(...)           fprintf(stderr, __VA_ARGS__)
 #else
 #define JSON_EPRINTF(...)
@@ -158,8 +158,26 @@ struct JSON_PACKED json_String {
 #pragma pack(pop)
 #endif
 
+extern json_Value
+json_make_null(void);
+
+extern json_Value
+json_make_boolean(bool b);
+
+extern json_Value
+json_make_number(double n);
+
+extern json_Value
+json_make_string(json_String *s);
+
+extern json_Value
+json_make_array(json_Array a);
+
+extern json_Value
+json_make_object(json_Object o);
+
 extern json_Error
-json_parse_lstring(const char *s, size_t n, mem_Allocator allocator,
+json_parse_lstring(const char *s, size_t n, mem_Allocator alloc,
                    json_Value *v);
 
 extern const char *
@@ -204,35 +222,5 @@ json_object_insert_jstring(json_Object *o, json_String *k, json_Value v,
 
 extern void
 json_print_value(json_Value v);
-
-#define json_make_null()        (json_Value){JSON_NULL,    false}
-#define json_make_boolean(b)    (json_Value){JSON_BOOLEAN, b}
-#define json_init_number(v, n) do                                              \
-{                                                                              \
-    json_Value *_v = v;                                                        \
-    _v->type       = JSON_NUMBER;                                              \
-    _v->number     = n;                                                        \
-} while (false)
-
-#define json_init_string(v, s) do                                              \
-{                                                                              \
-    json_Value *_v = v;                                                        \
-    _v->type       = JSON_STRING;                                              \
-    _v->string     = s;                                                        \
-} while (false)
-
-#define json_init_array(v, a) do                                               \
-{                                                                              \
-    json_Value *_v = v;                                                        \
-    _v->type       = JSON_ARRAY;                                               \
-    _v->array      = a;                                                        \
-} while (false)
-
-#define json_init_object(v, o) do                                              \
-{                                                                              \
-    json_Value *_v = v;                                                        \
-    _v->type       = JSON_OBJECT;                                              \
-    _v->object     = o;                                                        \
-} while (false)
 
 #endif // !JSON_H

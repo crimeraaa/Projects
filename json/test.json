@@ -1,0 +1,6 @@
+{
+    "hi": "mom",
+    "mom": "hi",
+    "array": [3.14, 9.81, 42069, null, true, false, "lol"],
+    "number": 1337.42069
+}

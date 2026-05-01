@@ -2,8 +2,8 @@
 #include <string.h> // memcmp
 
 // local
-#define ASCII_NO_SET
-#include "../strings/ascii.c"
+#define ASCII_SET_DISABLED
+#include "../strings/ascii.h"
 #include "lexer.h"
 #include "json.h"
 
@@ -42,7 +42,7 @@ json_advance_char(json_Lexer *x)
     char c = json_peek_char(x);
     x->current += 1;
     x->col     += 1;
-    // JSON_LOGFLN("INFO", "json:%i:%i: '%c'", x->line, x->col, c);
+    // JSON_LOGFLN("INFO ", "json:%i:%i: '%c'", x->line, x->col, c);
     return c;
 }
 
@@ -104,7 +104,7 @@ json_init_token(const json_Lexer *x, json_Token *t, json_Token_Type type)
     t->text = json_get_lexeme(x, &t->len);
     t->line = x->line;
     t->col  = x->col - cast(int)t->len;
-    // JSON_LOGFLN("INFO", ".json:%i:%i Token(%02i) : \"%.*s\"",
+    // JSON_LOGFLN("INFO ", ".json:%i:%i Token(%02i) : \"%.*s\"",
     //             t->line, t->col, t->type, cast(int)t->len, t->text);
     return JSON_OK;
 }
@@ -213,7 +213,7 @@ json_try_number(json_Lexer *x, json_Token *t)
 static json_Error
 json_validate_string(json_Lexer *x)
 {
-    // JSON_LOGLN("INFO", "Trying a string...");
+    // JSON_LOGLN("INFO ", "Trying a string...");
     while (!json_is_at_end(x) && !json_check_char(x, '"')) {
         char c = json_advance_char(x);
         if (c != '\\') {
@@ -232,7 +232,7 @@ json_validate_string(json_Lexer *x)
         // unicode ::= "\u" hex hex hex hex
         // hex     ::= [0-9a-fA-F]
         case 'u':
-            // JSON_LOGLN("INFO", "Trying a hex4...");
+            // JSON_LOGLN("INFO ", "Trying a hex4...");
             // Skip 'u'
             json_advance_char(x);
             if (json_consume_sequence(x, ascii_is_hexadecimal) != 4) {
@@ -251,7 +251,6 @@ json_validate_string(json_Lexer *x)
     return JSON_OK;
 }
 
-
 static json_Error
 json_try_string(json_Lexer *x, json_Token *t)
 {
@@ -262,11 +261,10 @@ json_try_string(json_Lexer *x, json_Token *t)
     return err;
 }
 
-
 json_Error
 json_scan_token(json_Lexer *x, json_Token *t)
 {
-    char current;
+    char curr;
     skip_whitespace(x);
     if (json_is_at_end(x)) {
         json_init_token(x, t, TOKEN_EOF);
@@ -274,16 +272,16 @@ json_scan_token(json_Lexer *x, json_Token *t)
     }
 
     x->start = x->current;
-    current  = json_advance_char(x);
+    curr  = json_advance_char(x);
     // Maybe a keyword?
-    if (ascii_is_letter(current)) {
+    if (ascii_is_letter(curr)) {
         json_consume_sequence(x, ascii_is_letter);
         return json_try_keyword(x, t);
-    } else if (ascii_is_decimal(current) || current == '.') {
+    } else if (ascii_is_decimal(curr) || curr == '.') {
         return json_try_number(x, t);
     }
 
-    switch (current) {
+    switch (curr) {
     case '{': return json_init_token(x, t, TOKEN_CURLY_OPEN);
     case '}': return json_init_token(x, t, TOKEN_CURLY_CLOSE);
     case '[': return json_init_token(x, t, TOKEN_BRACKET_OPEN);

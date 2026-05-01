@@ -9,7 +9,7 @@
 
 // You can disable this type if you don't want it around,
 // e.g. in unity builds.
-#ifndef ASCII_NO_SET
+#ifndef ASCII_SET_DISABLED
 
 #define ASCII_SET_BITS       128
 #define ASCII_SET_LIMB_TYPE  uint32_t
@@ -39,7 +39,7 @@ ascii_set_intersection(ascii_Set a, ascii_Set b);
 extern bool
 ascii_set_contains(ascii_Set set, char c);
 
-#endif // !ASCII_NO_SET
+#endif // !ASCII_SET_DISABLED
 
 extern bool
 ascii_is_control(char c);

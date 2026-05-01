@@ -1,9 +1,8 @@
 // standard
 #include <stdlib.h> // strtod
-#include <string.h> // memcpy
+#include <string.h> // memset
 
 // local
-#include "json.h"
 #include "parser.h"
 #include "lexer.h"
 
@@ -15,8 +14,9 @@ json_parse_value(json_Parser *p, json_Value *v);
 static json_Token
 token_none(void)
 {
-    static const json_Token token = {0};
-    return token;
+    json_Token t;
+    memset(&t, 0, sizeof(t));
+    return t;
 }
 
 static json_Error
@@ -26,14 +26,14 @@ json_advance_token(json_Parser *p)
     return json_scan_token(&p->lexer, &p->lookahead);
 }
 
-void
-json_init_parser(json_Parser *p, const char *input, size_t len, mem_Allocator allocator)
+json_Error
+json_init_parser(json_Parser *p, const char *input, size_t len, mem_Allocator alloc)
 {
     json_init_lexer(&p->lexer, input, len);
     p->consumed  = token_none();
     p->lookahead = token_none();
-    p->alloc     = allocator;
-    json_advance_token(p);
+    p->alloc     = alloc;
+    return json_advance_token(p);
 }
 
 static bool
@@ -49,9 +49,9 @@ json_allow_token(json_Parser *p, json_Token_Type type)
 static json_Error
 json_expect_token(json_Parser *p, json_Token_Type type)
 {
-    json_Token consumed = p->lookahead;
+    json_Token t = p->lookahead;
     json_advance_token(p);
-    return (consumed.type == type) ? JSON_OK : JSON_UNEXPECTED_TOKEN;
+    return (t.type == type) ? JSON_OK : JSON_UNEXPECTED_TOKEN;
 }
 
 json_Error
@@ -69,15 +69,15 @@ json_parse_number(json_Parser *p, json_Value *v)
 {
     json_Error err = json_advance_token(p);
     if (!err) {
-        json_Token consumed;
-        double number;
+        json_Token t;
+        double d;
         char *end;
 
-        consumed = p->consumed;
-        number   = strtod(consumed.text, &end);
+        t = p->consumed;
+        d = strtod(t.text, &end);
         // Parsed the entire lexeme successfully, no more and no less?
-        if (end == consumed.text + consumed.len) {
-            json_init_number(v, number);
+        if (end == t.text + t.len) {
+            *v = json_make_number(d);
         } else {
             err = JSON_INVALID_NUMBER;
         }
@@ -94,7 +94,7 @@ json_decode_hex4(const char *s, size_t n, size_t *byte_count)
         return UINT16_MAX;
     }
 
-    // JSON_LOG("INFO", "Decoding \"\\u");
+    // JSON_LOG("INFO ", "Decoding \"\\u");
     for (size_t i = 2; i < 6; i += 1) {
         // Try to track the first most significant non-zero hex digit.
         if (prev_hex == 0) {
@@ -139,7 +139,7 @@ json_escape_lstring_len(const char *text, size_t text_len)
     size_t write_len = 0;
     char curr_char = 0, prev_char = 0;
 
-    // JSON_LOGFLN("INFO", "Counting \"%.*s\"...", cast(int)text_len, text);
+    // JSON_LOGFLN("INFO ", "Counting \"%.*s\"...", cast(int)text_len, text);
     for (const char *it = text, *end = it + text_len; it < end; it += 1) {
         prev_char = curr_char;
         curr_char = *it;
@@ -163,7 +163,7 @@ json_escape_lstring_len(const char *text, size_t text_len)
                     return 0;
                 }
 
-                // JSON_LOGFLN("INFO", "hex4=%#x, hex_count=%zu",
+                // JSON_LOGFLN("INFO ", "hex4=%#x, hex_count=%zu",
                 //             hex4, byte_count);
                 it += 5;
 
@@ -177,31 +177,31 @@ json_escape_lstring_len(const char *text, size_t text_len)
             write_len += 1;
         }
     }
-    // JSON_LOGFLN("INFO", "write_len=%zu", write_len);
+    // JSON_LOGFLN("INFO ", "write_len=%zu", write_len);
     return write_len;
 }
 
 static json_Error
 json_parse_string_literal(json_Parser *p, json_Value *v)
 {
+    json_Token t;
     json_Error err;
-    json_Token consumed;
 
-    consumed = p->lookahead;
-    err      = json_expect_token(p, TOKEN_STRING);
+    t   = p->lookahead;
+    err = json_expect_token(p, TOKEN_STRING);
     if (!err) {
         json_String *s;
         const char *text;
-        size_t text_len = 0, write_len = 0;
+        size_t text_len, write_len;
 
         // Skip both quotes
-        text      = consumed.text + 1;
-        text_len  = consumed.len - 2;
+        text      = t.text + 1;
+        text_len  = t.len - 2;
         write_len = json_escape_lstring_len(text, text_len);
 
         err = json_string_new(write_len, text, text_len, p->alloc, &s);
         if (!err) {
-            json_init_string(v, s);
+            *v = json_make_string(s);
         }
     }
     return err;
@@ -220,7 +220,7 @@ json_parse_array(json_Parser *p, json_Value *v)
         return err;
     }
 
-    json_init_array(v, EMPTY_ARRAY);
+    *v    = json_make_array(EMPTY_ARRAY);
     a     = &v->array;
     alloc = p->alloc;
     if (p->lookahead.type != TOKEN_BRACKET_CLOSE) {
@@ -241,7 +241,8 @@ json_parse_array(json_Parser *p, json_Value *v)
 
     err = json_expect_token(p, TOKEN_BRACKET_CLOSE);
     if (err) {
-cleanup: json_destroy_value(*v, alloc);
+cleanup:
+        json_destroy_value(*v, alloc);
     }
     return err;
 }
@@ -259,7 +260,7 @@ json_parse_object(json_Parser *p, json_Value *v)
         return err;
     }
 
-    json_init_object(v, EMPTY_OBJECT);
+    *v    = json_make_object(EMPTY_OBJECT);
     o     = &v->object;
     alloc = p->alloc;
     if (p->lookahead.type != TOKEN_CURLY_CLOSE) {
@@ -283,8 +284,10 @@ json_parse_object(json_Parser *p, json_Value *v)
 
             err = json_object_insert_jstring(o, mkey.string, mvalue, alloc);
             if (err) {
-cleanup_value:  json_destroy_value(mvalue, alloc);
-cleanup_key:    json_destroy_value(mkey, alloc);
+cleanup_value:
+                json_destroy_value(mvalue, alloc);
+cleanup_key:
+                json_destroy_value(mkey, alloc);
                 goto cleanup_object;
             }
         } while (json_allow_token(p, TOKEN_COMMA));
@@ -292,7 +295,8 @@ cleanup_key:    json_destroy_value(mkey, alloc);
 
     err = json_expect_token(p, TOKEN_CURLY_CLOSE);
     if (err) {
-cleanup_object: json_destroy_value(*v, alloc);
+cleanup_object:
+        json_destroy_value(*v, alloc);
     }
     return err;
 }

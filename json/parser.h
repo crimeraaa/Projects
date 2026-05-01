@@ -11,9 +11,9 @@ struct json_Parser {
     mem_Allocator alloc;
 };
 
-extern void
+extern json_Error
 json_init_parser(json_Parser *p, const char *input, size_t len,
-                 mem_Allocator allocator);
+                 mem_Allocator alloc);
 
 extern json_Error
 json_parse(json_Parser *p, json_Value *value);
