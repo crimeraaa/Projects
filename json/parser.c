@@ -163,7 +163,8 @@ json_escape_lstring_len(const char *text, size_t text_len)
                     return 0;
                 }
 
-                // JSON_LOGFLN("INFO", "hex4=%#x, hex_count=%zu", hex4, byte_count);
+                // JSON_LOGFLN("INFO", "hex4=%#x, hex_count=%zu",
+                //             hex4, byte_count);
                 it += 5;
 
                 write_len += byte_count;
@@ -198,11 +199,9 @@ json_parse_string_literal(json_Parser *p, json_Value *v)
         text_len  = consumed.len - 2;
         write_len = json_escape_lstring_len(text, text_len);
 
-        s = json_string_new(write_len, text, text_len, p->alloc);
-        if (s != NULL) {
+        err = json_string_new(write_len, text, text_len, p->alloc, &s);
+        if (!err) {
             json_init_string(v, s);
-        } else {
-            err = JSON_OUT_OF_MEMORY;
         }
     }
     return err;
@@ -265,6 +264,7 @@ json_parse_object(json_Parser *p, json_Value *v)
     alloc = p->alloc;
     if (p->lookahead.type != TOKEN_CURLY_CLOSE) {
         do {
+            // It's easy m'kay?
             json_Value mkey, mvalue;
             err = json_parse_string_literal(p, &mkey);
             if (err) {

@@ -2,6 +2,8 @@
 #include <string.h> // memcmp
 
 // local
+#define ASCII_NO_SET
+#include "../strings/ascii.c"
 #include "lexer.h"
 #include "json.h"
 
@@ -107,37 +109,6 @@ json_init_token(const json_Lexer *x, json_Token *t, json_Token_Type type)
     return JSON_OK;
 }
 
-static bool
-is_lower(char c)
-{
-    return 'a' <= c && c <= 'z';
-}
-
-static bool
-is_upper(char c)
-{
-    return 'A' <= c && c <= 'Z';
-}
-
-static bool
-is_decimal(char c)
-{
-    return '0' <= c && c <= '9';
-}
-
-static bool
-is_hexadecimal(char c)
-{
-    return is_decimal(c) || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F');
-}
-
-
-static bool
-is_alpha(char c)
-{
-    return c == '_' || is_lower(c) || is_upper(c);
-}
-
 static int
 json_consume_sequence(json_Lexer *x, bool (*predicate)(char c))
 {
@@ -190,7 +161,7 @@ json_consume_digits(json_Lexer *x)
     int digit_count;
 
     leading_zero = json_match_char(x, '0');
-    digit_count  = json_consume_sequence(x, is_decimal);
+    digit_count  = json_consume_sequence(x, ascii_is_decimal);
 
     // Leading zero is followed by some number of other digits?
     // This is to disallow octal numbers as in JavaScript.
@@ -233,7 +204,7 @@ json_try_number(json_Lexer *x, json_Token *t)
     }
 
     // Trailing characters were found?
-    if (json_consume_sequence(x, is_alpha) > 0) {
+    if (json_consume_sequence(x, ascii_is_alnum) > 0) {
         return JSON_INVALID_NUMBER;
     }
     return json_init_token(x, t, TOKEN_NUMBER);
@@ -264,7 +235,7 @@ json_validate_string(json_Lexer *x)
             // JSON_LOGLN("INFO", "Trying a hex4...");
             // Skip 'u'
             json_advance_char(x);
-            if (json_consume_sequence(x, is_hexadecimal) != 4) {
+            if (json_consume_sequence(x, ascii_is_hexadecimal) != 4) {
                 return JSON_INVALID_STRING;
             }
             break;
@@ -305,10 +276,10 @@ json_scan_token(json_Lexer *x, json_Token *t)
     x->start = x->current;
     current  = json_advance_char(x);
     // Maybe a keyword?
-    if (is_alpha(current)) {
-        json_consume_sequence(x, is_alpha);
+    if (ascii_is_letter(current)) {
+        json_consume_sequence(x, ascii_is_letter);
         return json_try_keyword(x, t);
-    } else if (is_decimal(current) || current == '.') {
+    } else if (ascii_is_decimal(current) || current == '.') {
         return json_try_number(x, t);
     }
 

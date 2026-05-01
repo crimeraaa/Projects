@@ -45,6 +45,7 @@ json_error_string(json_Error e)
     case JSON_UNEXPECTED_TOKEN:     return "unexpected token";
 
     // Allocation errors
+    case JSON_INVALID_ALLOCATOR:    return "invalid allocator";
     case JSON_OUT_OF_MEMORY:        return "out of memory";
     }
 
@@ -116,18 +117,29 @@ json_string_hash(const char *data, size_t len)
     return hash;
 }
 
-extern json_String *
-json_string_new(size_t write_len, const char *text, size_t text_len, mem_Allocator alloc)
+static json_Error
+json_mem_error(mem_Allocator_Error err)
+{
+    if (err == MEM_OUT_OF_MEMORY) {
+        return JSON_OUT_OF_MEMORY;
+    }
+    return JSON_INVALID_ALLOCATOR;
+}
+
+extern json_Error
+json_string_new(size_t write_len, const char *text, size_t text_len,
+                mem_Allocator alloc, json_String **ps)
 {
     json_String *s;
     size_t size;
     char *data, *writer;
+    mem_Allocator_Error err = MEM_OK;
     char prev_char = 0, curr_char = 0;
 
     size = sizeof(*s) + write_len + 1;
-    s    = cast(json_String *)mem_alloc_bytes(alloc, size, NULL);
-    if (s == NULL) {
-        return NULL;
+    s    = cast(json_String *)mem_alloc_bytes(alloc, size, &err);
+    if (err) {
+        return json_mem_error(err);
     }
 
     JSON_LOGFLN("NEW ", "(json_String *)%p | len=%zu, size=%zu",
@@ -158,13 +170,14 @@ json_string_new(size_t write_len, const char *text, size_t text_len, mem_Allocat
                 // Point to the "\u" in its entirety so we can sanity check...
                 it -= 1;
                 hex4 = json_decode_hex4(it, cast(size_t)(end - it), &byte_count);
-                // JSON_LOGFLN("INFO", "hex4=%#x, hex_count=%zu", hex4, byte_count);
+                // JSON_LOGFLN("INFO", "hex4=%#x, hex_count=%zu",
+                //             hex4, byte_count);
 
                 // We screwed up by not properly verifying the string
                 // in the lexer phase...
                 if (hex4 == UINT16_MAX) {
                     json_destroy_string(s, alloc);
-                    return NULL;
+                    return JSON_INVALID_STRING;
                 }
 
                 // Then skip the whole sequence.
@@ -186,7 +199,8 @@ json_string_new(size_t write_len, const char *text, size_t text_len, mem_Allocat
 
     // JSON_LOGFLN("INFO", "s = {hash=%u, len=%zu, data=\"%s\"}",
     //             s->hash, write_len, data);
-    return s;
+    *ps = s;
+    return JSON_OK;
 }
 
 extern char *
@@ -225,6 +239,7 @@ json_array_append(json_Array *a, json_Value v, mem_Allocator alloc)
     if (a->len + 1 > a->cap) {
         json_Value *new_data;
         size_t old_cap, new_cap;
+        mem_Allocator_Error err = MEM_OK;
 
         old_cap = a->cap;
         new_cap = old_cap * 2;
@@ -232,9 +247,10 @@ json_array_append(json_Array *a, json_Value v, mem_Allocator alloc)
             new_cap = 8;
         }
 
-        new_data = mem_resize_array(json_Value, alloc, a->data, old_cap, new_cap, NULL);
+        new_data = mem_resize_array(json_Value, alloc, a->data, old_cap,
+                                    new_cap, &err);
         if (new_data == NULL) {
-            return JSON_OUT_OF_MEMORY;
+            return json_mem_error(err);
         }
 
         a->data = new_data;
@@ -272,11 +288,16 @@ json_members_get_ptr(json_Member *data, size_t cap, const char *k, size_t n,
 extern json_Value
 json_object_get(json_Object *o, const char *k)
 {
+    size_t n = strlen(k);
+    return json_object_get_lstring(o, k, n);
+}
+
+extern json_Value
+json_object_get_lstring(json_Object *o, const char *k, size_t n)
+{
     json_Member *memb;
-    size_t n;
     uint32_t hash;
 
-    n    = strlen(k);
     hash = json_string_hash(k, n);
     memb = json_members_get_ptr(o->data, o->cap, k, n, hash);
 
@@ -290,12 +311,13 @@ json_object_resize(json_Object *o, size_t new_cap, mem_Allocator alloc)
 {
     json_Member *old_data, *new_data;
     size_t old_cap;
+    mem_Allocator_Error err = MEM_OK;
 
     old_data = o->data;
     old_cap  = o->cap;
-    new_data = mem_alloc_array(json_Member, alloc, new_cap, NULL);
+    new_data = mem_alloc_array(json_Member, alloc, new_cap, &err);
     if (new_data == NULL) {
-        return JSON_OUT_OF_MEMORY;
+        return json_mem_error(err);
     }
 
     // Rehash
@@ -335,9 +357,9 @@ json_object_insert_lstring(json_Object *o, const char *k, size_t n,
     json_String *s;
     json_Error err;
 
-    s = json_string_new(n, k, n, alloc);
-    if (s == NULL) {
-        return JSON_OUT_OF_MEMORY;
+    err = json_string_new(n, k, n, alloc, &s);
+    if (err) {
+        return err;
     }
 
     err = json_object_insert_jstring(o, s, v, alloc);

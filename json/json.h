@@ -46,7 +46,7 @@ enum json_Error {
     JSON_UNEXPECTED_TOKEN,
 
     // Allocation errors
-    JSON_OUT_OF_MEMORY,
+    JSON_INVALID_ALLOCATOR, JSON_OUT_OF_MEMORY,
 };
 
 typedef enum json_Type  json_Type;
@@ -61,7 +61,7 @@ typedef enum json_Error json_Error;
  *          | array
  *          | object
  */
-typedef struct json_Value  json_Value;
+typedef struct json_Value json_Value;
 
 
 /** object  ::= '{' members* '}'
@@ -129,16 +129,34 @@ struct json_Member {
     json_Value   value;
 };
 
+#if defined (__GNUC__)
+#define JSON_PACKED  __attribute__((__packed__))
+#elif defined(_MSC_VER)
+
+// Align succeeding declarations and types to 1 byte.
+// This is the same as packing their members tightly.
+#pragma pack(push, 1)
+#endif
+
+#ifndef JSON_PACKED
+#define JSON_PACKED
+#endif
+
 // This is more like a header for a C99-style flexible array. The actual
 // string data comes right after, which can be retrieved via pointer
 // arithmetic. This should never be allocated on the stack.
-struct json_String {
-    // Saved hash value to help speed up comparisons.
-    uint32_t hash;
-
+struct JSON_PACKED json_String {
     // Number of bytes in the data, excluding the nul terminator.
     size_t len;
+
+    // Saved hash value to help speed up comparisons.
+    uint32_t hash;
 };
+
+#undef JSON_PACKED
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
 
 extern json_Error
 json_parse_lstring(const char *s, size_t n, mem_Allocator allocator,
@@ -156,9 +174,9 @@ json_type_name(json_Type t);
 extern void
 json_destroy_value(json_Value value, mem_Allocator alloc);
 
-extern json_String *
+extern json_Error
 json_string_new(size_t write_len, const char *text, size_t text_len,
-                mem_Allocator alloc);
+                mem_Allocator alloc, json_String **ps);
 
 extern char *
 json_string_data(json_String *s, size_t *n);
@@ -168,6 +186,9 @@ json_array_append(json_Array *a, json_Value v, mem_Allocator alloc);
 
 extern json_Value
 json_object_get(json_Object *o, const char *k);
+
+extern json_Value
+json_object_get_lstring(json_Object *o, const char *k, size_t n);
 
 extern json_Error
 json_object_insert(json_Object *o, const char *k, json_Value v,
