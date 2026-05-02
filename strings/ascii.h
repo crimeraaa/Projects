@@ -15,6 +15,8 @@
 #define ASCII_SET_LIMB_TYPE  uint32_t
 #define ASCII_SET_LIMB_BITS  (sizeof(ascii_Set_Limb) * CHAR_BIT)
 #define ASCII_SET_LIMB_COUNT (ASCII_SET_BITS / ASCII_SET_LIMB_BITS)
+
+// Underlying bitset type
 typedef ASCII_SET_LIMB_TYPE  ascii_Set_Limb;
 
 
