@@ -4,17 +4,17 @@
 #include "lexer.h"
 #include "table.h"
 
+typedef struct Parser Parser;
 struct Parser {
-    struct Lexer lexer;
-    struct Token consumed, lookahead;
-    struct Table *symbols;
+    Lexer lexer;
+    Token consumed, lookahead;
+    Table *symbols;
 };
 
-enum Type_Error
-parser_init(struct Parser *p, const char *input, size_t input_len,
-            struct Table *symbols);
+Type_Error
+parser_init(Parser *p, const char *input, size_t input_len, Table *symbols);
 
-enum Type_Error
-parser_parse(struct Parser *p, const struct Type_Info **out);
+const Type_Info *
+parser_parse(Parser *p, Type_Error *out);
 
 #endif // !CDECL_PARSER_H

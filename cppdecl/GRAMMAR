@@ -1,0 +1,107 @@
+# https://www.cse.chalmers.se/edu/year/2011/course/TIN321/laborations/lab1/lab1.html
+program ::= defs
+
+defs ::= ""
+    | defs def
+    ;
+
+def ::= fn-def
+    | top-level-stmt
+    ;
+
+fn-def ::= type ident '(' fn-args ')' fn-body ;
+
+fn-args ::= ""
+    | arg
+    ; fn-args ',' fn-arg
+
+fn-arg ::= type ident ;
+
+fn-body ::= ';'
+    | block
+    ;
+
+block ::= '{' stmts '}' ;
+
+stmts ::= ""
+    | stmt ';'
+    | stmts stmt
+    ;
+
+stmt ::= top_level_stmt
+    | expr ';'
+    ;
+
+top-level-stmt ::= decl ';'
+
+decl ::= typedef
+    | using
+    | var-decl
+    | struct-def
+    ;
+
+typedef ::= "typedef" type ident ;
+
+using ::= "using" qualified-ident ;
+
+# A declaration like "::new" is valid- it resolves to the global scope.
+qualified-ident ::= ""
+    | ident
+    | qualified-ident '<' type '>'
+    | qualified-ident "::" ident
+    ;
+
+var-decl ::= type ident
+    | var-decl '=' expr
+    ;
+
+struct-def ::= 'struct' ident '{' struct-fields '}' ';' ;
+
+struct-fields ::= ""
+    | struct-fields struct-field
+    ;
+
+struct-field ::= type ident ';'
+
+type ::= qualifier type
+    | qualified-ident
+    | type '&'
+    | type '*'
+    | "bool"
+    | "int"
+    | "double"
+    | "void"
+    | "struct" ident
+    ;
+
+qualifier ::= ""
+    | "const"
+    ;
+
+ident ::= ident-start
+    | ident ident-chars
+    ;
+
+ident-start ::= '_'
+    | lower
+    | upper
+    ;
+
+ident-chars ::= ""
+    | ident-chars ident-char
+    ;
+
+ident-char ::= ident-start
+    | digit
+    ;
+
+digit ::= zero
+    | one-nine
+    ;
+
+zero ::= '0' ;
+
+# Leading zeroes are not allowed for decimal literals.
+one-nine ::= [1-9] ;
+lower ::= [a-z] ;
+upper ::= [A-Z] ;

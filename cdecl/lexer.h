@@ -7,9 +7,6 @@ enum Token_Kind {
     // Zero value, default type for no token yet.
     TOKEN_NONE,
 
-    // End of file- no more input to be had!
-    TOKEN_EOF,
-    
     // C keywords that we care about
     TOKEN_BOOL,   TOKEN_CHAR,   TOKEN_CONST, TOKEN_DOUBLE, TOKEN_ENUM,
     TOKEN_FALSE,  TOKEN_FLOAT,  TOKEN_INT,   TOKEN_LONG,   TOKEN_SHORT,
@@ -37,15 +34,21 @@ enum Token_Kind {
 
     // Nonterminals
     TOKEN_IDENTIFIER,
+
+    // End of file- no more input to be had!
+    TOKEN_EOF,
 };
 
+typedef enum Token_Kind Token_Kind;
+typedef struct Token Token;
 struct Token {
-    enum Token_Kind kind;
+    Token_Kind kind;
     const char *text;
     size_t len;
     int line, col;
 };
 
+typedef struct Lexer Lexer;
 struct Lexer {
     const char *text;
     size_t len;
@@ -58,9 +61,9 @@ struct Lexer {
 };
 
 void
-lexer_init(struct Lexer *x, const char *s, size_t n);
+lexer_init(Lexer *x, const char *s, size_t n);
 
-enum Type_Error
-lexer_scan_token(struct Lexer *x, struct Token *t);
+Type_Error
+lexer_scan_token(Lexer *x, Token *t);
 
 #endif // !CDECL_LEXER_H

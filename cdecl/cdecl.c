@@ -7,52 +7,36 @@
 #include "lexer.c"
 #include "table.c"
 #include "parser.c"
-#include "table.h"
 
-#define X(T, type_class, is_signed) {   \
-    /*quals  =*/ 0,                     \
-    /*size   =*/ sizeof(T),             \
-    /*align  =*/ alignof(T),            \
-    /*name   =*/ #T,                    \
-    /*kind   =*/ type_class,            \
-    /*integer=*/ {is_signed},           \
+static Table cdecl_symbol_table;
+
+// Set up the internal global symbol table.
+extern Type_Error
+cdecl_init(mem_Allocator alloc)
+{
+    return table_init(&cdecl_symbol_table, alloc);
 }
 
-const struct Type_Info
-TYPE_INFO_BASIC[TYPE_KIND_BASIC_COUNT] = {
-    /*TYPE_VOID     =*/ {0, 0, 0, "void", TYPE_VKIND_VOID, {false}},
-    /*TYPE_BOOL     =*/ X(bool,                 TYPE_VKIND_BOOL,      false),
-    /*TYPE_CHAR     =*/ X(char,                 TYPE_VKIND_INTEGER,   false),
-    /*TYPE_SCHAR    =*/ X(signed char,          TYPE_VKIND_INTEGER,   true),
-    /*TYPE_SHORT    =*/ X(short,                TYPE_VKIND_INTEGER,   true),
-    /*TYPE_INT      =*/ X(int,                  TYPE_VKIND_INTEGER,   true),
-    /*TYPE_LONG     =*/ X(long,                 TYPE_VKIND_INTEGER,   true),
-    /*TYPE_LLONG    =*/ X(long long,            TYPE_VKIND_INTEGER,   true),
-    /*TYPE_UCHAR    =*/ X(unsigned char,        TYPE_VKIND_INTEGER,   false),
-    /*TYPE_USHORT   =*/ X(unsigned short,       TYPE_VKIND_INTEGER,   false),
-    /*TYPE_UINT     =*/ X(unsigned int,         TYPE_VKIND_INTEGER,   false),
-    /*TYPE_ULONG    =*/ X(unsigned long,        TYPE_VKIND_INTEGER,   false),
-    /*TYPE_ULLONG   =*/ X(unsigned long long,   TYPE_VKIND_INTEGER,   false),
-    /*TYPE_FLOAT    =*/ X(float,                TYPE_VKIND_FLOATING,  false),
-    /*TYPE_DOUBLE   =*/ X(double,               TYPE_VKIND_FLOATING,  false),
-    /*TYPE_LDOUBLE  =*/ X(long double,          TYPE_VKIND_FLOATING,  false),
-};
-
-#undef X
-
-static const struct Type_Info *
-cdecl_get_basic(enum Type_Kind_Basic t)
+// Clean up the internal global symbol table.
+extern void
+cdecl_destroy(void)
 {
-    return &TYPE_INFO_BASIC[t];
+    table_destroy(&cdecl_symbol_table);
 }
 
-static struct Table global_symbol_table;
-
-extern enum Type_Error
-cdecl_parse(const char *s, size_t n, const struct Type_Info **out)
+extern const Type_Info *
+cdecl_parse(const char *s, size_t n, Type_Error *out)
 {
-    struct Parser p;
-    parser_init(&p, s, n, &global_symbol_table);
+    Parser p;
+    Type_Error err;
+    if (out == NULL) {
+        out = &err;
+    }
+    
+    *out = parser_init(&p, s, n, &cdecl_symbol_table);
+    if (*out) {
+        return NULL;
+    }
     return parser_parse(&p, out);
 }
 
@@ -71,20 +55,18 @@ get_string(char *buf, size_t buf_len, size_t *out_len)
 
 int main(void)
 {
-    mem_Allocator alloc;
-    size_t input_len;
-    const char *input;
-    enum Type_Error err;
-    char buf[256];
-
-    alloc = mem_global_heap_allocator();
-    err   = table_init(&global_symbol_table, alloc);
+    Type_Error err = cdecl_init(mem_global_heap_allocator());
     if (err) {
         printf("Type_Error(%i): Failed to initialize the global symbol table!\n", err);
         return 1;
     }
 
     for (;;) {
+        const Type_Info *p;
+        const char *input;
+        size_t input_len;
+        char buf[256];
+
         printf("cdecl>");
         input = get_string(buf, sizeof(buf), &input_len);
         if (input == NULL) {
@@ -92,13 +74,13 @@ int main(void)
             break;
         }
 
-        err = cdecl_parse(input, input_len, NULL);
+        p = cdecl_parse(input, input_len, &err);
         if (err) {
             printf("\n");
             break;
         }
     }
-    table_destroy(&global_symbol_table);
+    cdecl_destroy();
     return 0;
 }
 

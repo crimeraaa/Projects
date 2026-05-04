@@ -7,7 +7,7 @@
 #include "lexer.h"
 
 void
-lexer_init(struct Lexer *x, const char *s, size_t n)
+lexer_init(Lexer *x, const char *s, size_t n)
 {
     x->text     = s;
     x->len      = n;
@@ -18,33 +18,33 @@ lexer_init(struct Lexer *x, const char *s, size_t n)
 }
 
 static const char *
-lexer_get_lexeme(const struct Lexer *x, size_t *n)
+lexer_get_lexeme(const Lexer *x, size_t *n)
 {
     *n = cast(size_t)(x->current - x->start);
     return x->start;
 }
 
 static char
-lexer_peek_char(const struct Lexer *x)
+lexer_peek_char(const Lexer *x)
 {
     return x->current[0];
 }
 
 static char
-lexer_next_char(struct Lexer *x)
+lexer_next_char(Lexer *x)
 {
     x->col++;
     return *x->current++;
 }
 
 static bool
-lexer_check_char(const struct Lexer *x, char c)
+lexer_check_char(const Lexer *x, char c)
 {
     return lexer_peek_char(x) == c;
 }
 
 static bool
-lexer_allow_char(struct Lexer *x, char c)
+lexer_allow_char(Lexer *x, char c)
 {
     if (lexer_check_char(x, c)) {
         lexer_next_char(x);
@@ -54,13 +54,13 @@ lexer_allow_char(struct Lexer *x, char c)
 }
 
 static bool
-lexer_is_at_end(const struct Lexer *x)
+lexer_is_at_end(const Lexer *x)
 {
     return x->current >= x->text + x->len;
 }
 
 static void
-lexer_skip_whitespace(struct Lexer *x)
+lexer_skip_whitespace(Lexer *x)
 {
     for (;;) {
         char c = lexer_peek_char(x);
@@ -79,8 +79,8 @@ lexer_skip_whitespace(struct Lexer *x)
     }
 }
 
-static enum Type_Error
-lexer_init_token(struct Lexer *x, struct Token *t, enum Token_Kind k)
+static Type_Error
+lexer_init_token(Lexer *x, Token *t, Token_Kind k)
 {
     t->kind = k;
     t->text = lexer_get_lexeme(x, &t->len);
@@ -90,7 +90,7 @@ lexer_init_token(struct Lexer *x, struct Token *t, enum Token_Kind k)
 }
 
 static int
-lexer_consume_sequence(struct Lexer *x, bool (*predicate)(char c))
+lexer_consume_sequence(Lexer *x, bool (*predicate)(char c))
 {
     int count = 0;
     while (!lexer_is_at_end(x)) {
@@ -104,6 +104,7 @@ lexer_consume_sequence(struct Lexer *x, bool (*predicate)(char c))
     return count;
 }
 
+typedef struct Keyword Keyword;
 struct Keyword {
     // least: `int`
     // most:  `unsigned` | `volatile`
@@ -111,8 +112,8 @@ struct Keyword {
     uint8_t len, offset;
 };
 
-static enum Type_Error
-lexer_check_keyword(struct Token *t, struct Keyword kw, enum Token_Kind kind)
+static Type_Error
+lexer_check_keyword(Token *t, Keyword kw, Token_Kind kind)
 {
     if (t->len == cast(size_t)kw.len) {
         // Actual number of bytes to compare
@@ -124,10 +125,10 @@ lexer_check_keyword(struct Token *t, struct Keyword kw, enum Token_Kind kind)
     return TYPE_ERROR_NONE;
 }
 
-#define K(s, offset)   (struct Keyword){s, cast(uint8_t)(sizeof(s) - 1), offset}
+#define K(s, offset)   (Keyword){s, cast(uint8_t)(sizeof(s) - 1), offset}
 
-static enum Type_Error
-lexer_try_keyword(struct Lexer *x, struct Token *t)
+static Type_Error
+lexer_try_keyword(Lexer *x, Token *t)
 {
     lexer_init_token(x, t, TOKEN_IDENTIFIER);
     // length of `int` up to and including `unsigned` | `volatile`
@@ -191,8 +192,8 @@ char_is_ident(char c)
     return c == '_' || ascii_is_alnum(c);
 }
 
-enum Type_Error
-lexer_scan_token(struct Lexer *x, struct Token *t)
+Type_Error
+lexer_scan_token(Lexer *x, Token *t)
 {
     char curr;
 
