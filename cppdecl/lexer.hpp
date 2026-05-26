@@ -8,6 +8,7 @@ using  u8 = std::uint8_t;
 using u16 = std::uint16_t;
 using u32 = std::uint32_t;
 using u64 = std::uint64_t;
+using f64 = double;
 
 enum Error : u8 {
     ERR_NONE,
@@ -86,23 +87,74 @@ enum Token_Kind : u8 {
     TK_ARROW,                // ->
 
     // Terminals: misc. non-operators
-    TK_COMMA,       // ','
-    TK_SEMICOL,     // ';'
+    TK_COMMA,        // ','
+    TK_SEMICOL,      // ';'
     TK_CHAR_LITERAL, // '\'' char '\''
 
     // Nonterminals
-    TK_NUMBER_LITERAL,
-    TK_STRING_LITERAL, // '"' .* '"'
+    TK_LITERAL_INT,
+    TK_LITERAL_FLOAT,
+    TK_LITERAL_STRING,  // '"' .* '"'
     TK_IDENT, 
 
     // Misc.
     TK_EOF,
 };
 
+enum Untyped_Kind : u8 {
+    UNTYPED_NONE, UNTYPED_INT, UNTYPED_FLOAT,
+};
+
+struct Untyped {
+private:
+    Untyped_Kind m_kind;
+    union {
+        u64 m_int;
+        f64 m_float;
+    };
+
+public:
+    Untyped()
+        : m_kind{UNTYPED_NONE}
+        , m_int{0}
+    {}
+
+    Untyped(u64 i)
+        : m_kind{UNTYPED_INT}
+        , m_int{i}
+    {}
+
+    Untyped(f64 f)
+        : m_kind{UNTYPED_FLOAT}
+        , m_float{f}
+    {}
+
+    Untyped_Kind
+    kind() const
+    {
+        return this->m_kind;
+    }
+
+    u64
+    i() const
+    {
+        assert(this->m_kind == UNTYPED_INT);
+        return this->m_int;
+    }
+
+    f64
+    f() const
+    {
+        assert(this->m_kind == UNTYPED_FLOAT);
+        return this->m_float;
+    }
+};
+
 struct Token {
     Token_Kind kind;
     String text;
     int line, col;
+    Untyped data;
 };
 
 struct Lexer {
@@ -197,5 +249,8 @@ private:
 
     Error
     try_keyword(Token *t);
+
+    Error
+    try_number(Token *t);
 };
 

@@ -5,6 +5,42 @@
 
 struct Ast;
 
+enum Ast_Kind {
+    AST_NONE,
+    AST_DECL,
+
+    // Expressions: Terminals
+    AST_LITERAL,
+    AST_VARIABLE,
+
+    // Expressions: Non-terminals
+    AST_PREFIX,
+    AST_INFIX,
+};
+
+enum Ast_Prefix_Kind {
+    AST_DEREF,  // '*' expr
+    AST_NEG,    // '-' expr
+    AST_ADDR,   // '&' expr
+};
+
+enum Ast_Infix_Kind : u8 {
+    AST_ASSIGN, // expr '=' expr
+    AST_INDEX,  // expr '[' expr ']'
+    AST_ADD,    // expr '+' expr
+    AST_SUB,    // expr '-' expr
+    AST_MUL,    // expr '*' expr
+    AST_DIV,    // expr '/' expr
+};
+
+enum Precedence : u8 {
+    PREC_NONE,
+    PREC_TERM,   // + -
+    PREC_FACTOR, // * / %
+    PREC_CALL,   // function calls
+    PREC_UNARY,  // - * &
+};
+
 struct Parser {
     Lexer lexer;
     Token consumed, lookahead;
@@ -48,14 +84,14 @@ private:
     Ast *
     def();
 
-    // func ::= type ident '(' func-args ')' func-body ;
+    // func ::= type IDENT '(' func-args ')' func-body ;
     //
     // func-args ::= ""
     //  | func-arg
     //  | func-args ',' func-arg
     //  ;
     //
-    // func-arg ::= type ident ;
+    // func-arg ::= type IDENT ;
     //
     // func-body ::= ';'
     //  | '{' block '}'
@@ -64,15 +100,15 @@ private:
     Ast *
     func();
 
-    // type ::= qualifier type ptr-or-ref
-    //  | ident
+    // type ::= QUALIFIER type ptr-or-ref
+    //  | IDENT
     //  | "bool"
     //  | "int"
     //  | "double"
     //  | "void"
     //  ;
     //
-    // qualifier ::= ""
+    // QUALIFIER ::= ""
     //  | "const"
     //  ;
     //
@@ -93,46 +129,131 @@ private:
     //
     Ast *
     block();
+
+
+    // expr ::= literal
+    //
+    // literal ::= INT
+    //  | FLOAT
+    //  ;
+    //
+    // INT   ::= prefix digits
+    //  ;
+    //
+    // FLOAT ::= digits '.' digits exponent
+    //  ;
+    //
+    // exponent ::= 'e' sign digits
+    // sign ::= '+'
+    //  | '-'
+    //  | ""
+    //  ;
+    //
+    // prefix ::= '0' [bBdDoOxX]
+    //  | ""
+    //  ;
+    //
+    // digits ::= digit digits
+    //  | ""
+    //  ;
+    //
+    // one_nine ::= [1-9]
+    // digit ::= [0-9]
+    Ast *
+    expr(Precedence prec = PREC_NONE);
+
+    // unary ::= unary_op expr
+    //  ;
+    //
+    // unary_op ::= '-'
+    //  | '*'
+    //  | '&'
+    //  ;
+    Ast *
+    unary(Ast_Prefix_Kind kind);
+
+    Ast *
+    arith(Ast *left, Ast_Infix_Kind kind, Precedence prec);
+
+    struct Rule {
+        Precedence left, right;
+        Ast_Infix_Kind kind;
+        Ast *(Parser::*infix)(Ast *left, Ast_Infix_Kind kind, Precedence prec);
+    };
+
+    static Rule
+    get_rule(Token_Kind kind);
 };
 
-enum Ast_Kind {
-    AST_NONE,
-    AST_DECL,
-
-    // Expressions
-    AST_PREFIX,
-    AST_INFIX,
-};
-
-enum Ast_Op {
-    AST_OP_NONE,
-
-    // Prefix
-    AST_PREFIX_DEREF,   // '*' expr, desugared index expressions
-
-    // Infix: arithmetic
-    AST_INFIX_ASSIGN, // expr '=' expr
-    AST_INFIX_ADD,  // expr '+' expr, desugared compound assignment rvalue
-    AST_INFIX_SUB,  // expr '-' expr, desugared compound assignment rvalue
-    AST_INFIX_MUL,  // expr '*' expr, desugared compound assignment rvalue
-    AST_INFIX_DIV,  // expr '/' expr, desugared compound assignment rvalue
-};
 
 struct Ast_Prefix {
-    Ast_Op op;
+    Ast_Prefix_Kind kind;
     Ast *arg;
 };
 
 struct Ast_Infix {
-    Ast_Op op;
+    Ast_Infix_Kind kind;
     Ast *left;
     Ast *right;
 };
 
 struct Ast {
-    Ast_Kind kind;
+private:
+    Ast_Kind m_kind;
     union {
-        Ast_Prefix prefix;
-        Ast_Infix  infix;
+        Ast_Prefix  m_prefix;
+        Ast_Infix   m_infix;
+        Untyped     m_literal;
     };
+
+public:
+    Ast()
+        : m_kind{AST_NONE}
+        , m_literal{}
+    {}
+
+    Ast(Untyped data)
+        : m_kind{AST_LITERAL}
+        , m_literal{data}
+    {}
+
+    Ast(Ast_Prefix prefix)
+        : m_kind{AST_PREFIX}
+        , m_prefix{prefix}
+    {}
+
+    Ast(Ast_Infix infix)
+        : m_kind{AST_INFIX}
+        , m_infix{infix}
+    {}
+
+    Ast_Kind
+    kind() const
+    {
+        return this->m_kind;
+    }
+
+    Untyped
+    literal() const
+    {
+        assert(this->m_kind == AST_LITERAL);
+        return this->m_literal;
+    }
+
+    const Ast_Prefix *
+    prefix() const
+    {
+        assert(this->m_kind == AST_PREFIX);
+        return &this->m_prefix;
+    }
+
+    const Ast_Infix *
+    infix() const
+    {
+        assert(this->m_kind == AST_INFIX);
+        return &this->m_infix;
+    }
+
+    void
+    dump(const int depth = 0) const;
 };

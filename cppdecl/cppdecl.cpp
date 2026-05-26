@@ -31,7 +31,7 @@ got_line(const char *prompt, Slice<char> buffer, String &line)
 int
 main()
 {
-    char arena_buf[64], input_buf[64];
+    char arena_buf[256], input_buf[256];
     Arena arena({arena_buf, sizeof(arena_buf)});
 
     for (;;) {
@@ -40,7 +40,10 @@ main()
             break;
         }
         Parser parser(line, &arena);
-        parser.program();
+        Ast *program = parser.program();
+        program->dump();
+        printf("\n");
+        arena.free_all();
     }
     return 0;
 }

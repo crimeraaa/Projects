@@ -279,7 +279,7 @@ AND(Cpu *cpu)
     fetch(cpu);
     cpu->a &= cpu->fetched;
     set_flag(cpu, FLAG_Z, cpu->a == 0x00);
-    set_flag(cpu, FLAG_N, cpu->a & 0x00);
+    set_flag(cpu, FLAG_N, cpu->a & 0x80);
 
     // Could potentially require an extra cycle.
     return 1;

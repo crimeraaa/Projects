@@ -1,12 +1,5 @@
 #include "arena.hpp"
 
-Arena::Arena(Arena::Buffer buffer)
-{
-    this->buffer     = buffer;
-    this->curr_index = 0;
-    this->prev_index = 0;
-}
-
 void
 Arena::free_all()
 {

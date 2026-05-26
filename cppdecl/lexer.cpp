@@ -1,4 +1,6 @@
+#include <stdlib.h> // strtod
 #include "lexer.hpp"
+#include "slice.hpp"
 
 static bool
 char_is_ident_start(char c)
@@ -22,10 +24,10 @@ Error
 Lexer::scan_token(Token *t)
 {
     if (!this->skip_whitespace()) {
-
+        return ERR_UNTERMINATED_COMMENT;
     }
-    this->start = this->current;
 
+    this->start = this->current;
     if (this->is_joever()) {
         this->set_token(t, TK_EOF);
         return ERR_EOF;
@@ -36,8 +38,8 @@ Lexer::scan_token(Token *t)
         this->match_func(char_is_ident);
         return this->try_keyword(t);
     } else if (char_is_decimal(c)) {
-        this->match_func(char_is_decimal);
-        return this->set_token(t, TK_NUMBER_LITERAL);
+        this->match_func(char_is_ident);
+        return this->try_number(t);
     }
 
     switch (c) {
@@ -68,7 +70,7 @@ Lexer::scan_token(Token *t)
 
     case '+': return this->set_token3(t, c, TK_INCR,  TK_ADD_ASSIGN,   TK_PLUS);
     case '-': return this->set_token3(t, c, TK_DECR,  TK_SUB_ASSIGN,   TK_MINUS);
-    case '=': return this->set_token2(t, c, TK_EQ,         TK_ASSIGN);
+    case '=': return this->set_token2(t, c, TK_EQ,    TK_ASSIGN);
     case '*': return this->set_token2(t, '=', TK_MUL_ASSIGN, TK_ASTERISK);
     case ',': return this->set_token(t, TK_COMMA);
     case ';': return this->set_token(t, TK_SEMICOL);
@@ -199,6 +201,41 @@ token_set_if(Token *t, Token_Kind kind, String keyword, size_t offset)
 
 // lol
 #define X(kw, i) /*kind=*/TK_##kw, /*keyword=*/#kw##_s, /*offset=*/i
+
+Error
+Lexer::try_number(Token *t)
+{
+    char *endp;
+    String s;
+
+    this->set_token(t, TK_NONE);
+    s = t->text;
+
+    // Maybe a prefixed integer?
+    if (len(s) >= 2 && s[0] == '0') {
+        int base = -1;
+        switch (s[1]) {
+        case 'b': case 'B': base = 2;  break;
+        case 'd': case 'D': base = 10; break;
+        case 'o': case 'O': base = 8;  break;
+        case 'x': case 'X': base = 16; break;
+        default:
+            break;
+        }
+
+        if (base != -1) {
+            t->kind = TK_LITERAL_INT;
+            t->data = cast(u64)strtoul(&s[2], &endp, base);
+            return (endp == s.end()) ? ERR_NONE : ERR_INVALID_NUMBER;
+        }
+    }
+
+    // TODO: Will likely fail for large unprefixed integers, e.g. UINT64_MAX
+    //       Maybe we should try parsing integers first?
+    t->kind = TK_LITERAL_FLOAT;
+    t->data = strtod(raw_data(s), &endp);
+    return (endp == s.end()) ? ERR_NONE : ERR_INVALID_NUMBER;
+}
 
 Error
 Lexer::try_keyword(Token *t)

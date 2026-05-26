@@ -8,7 +8,11 @@ struct Arena {
     Buffer buffer;
     size_t curr_index, prev_index;
 
-    Arena(Buffer buffer);
+    Arena(Buffer buffer)
+        : buffer{buffer}
+        , curr_index{0}
+        , prev_index{0}
+    {}
 
     void
     free_all();
