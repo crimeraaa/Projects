@@ -1,4 +1,4 @@
-#include <cstdio>  // printf
+#include <cstdio>  // printf, snprintf
 #include <cstring> // memcpy
 
 #include "parser.hpp"
@@ -10,22 +10,12 @@ Parser::advance()
 
     m_consumed = m_lookahead;
     err = m_lexer.scan_token(&m_lookahead);
+    // `error()` throws an exception and thus never returns.
     switch (err) {
-    case ERR_NONE:
-    case ERR_EOF:
-        break;
-    case ERR_UNEXPECTED_TOKEN:
-        error("Unexpected token"_s);
-        break;
-    case ERR_UNTERMINATED_COMMENT:
-        error("Unterminated multiline comment"_s);
-        break;
-    case ERR_UNTERMINATED_STRING:
-        error("Unterminated multiline string"_s);
-        break;
-    case ERR_INVALID_NUMBER:
-        error("Invalid number"_s);
-        break;
+    case ERR_UNEXPECTED_TOKEN:     error("Unexpected token"_s);
+    case ERR_UNTERMINATED_COMMENT: error("Unterminated multiline comment"_s);
+    case ERR_UNTERMINATED_STRING:  error("Unterminated multiline string"_s);
+    case ERR_INVALID_NUMBER:       error("Invalid number"_s);
     default:
         break;
     }
@@ -47,13 +37,42 @@ Parser::match(Token_Kind kind)
     return found;
 }
 
+#define X(KW) #KW
+
+// ORDER: Sync with `enum Token_Kind`!
+static const char *
+TOKEN_STRINGS[TK_MULTICHAR_COUNT] = {
+    KEYWORD_LIST(X),
+    "...", "->", "::",
+    "<<", ">>", "&&", "||", "==", "!=", "<=", ">=",
+    "++", "--",
+    "&=", "|=", "^=",
+    "<<=", ">>=",
+    "+-", "-=", "*=", "/=", "%=",
+    "<char>",
+    "<int>", "<float>", "<string>",
+    "<ident>",
+    "<eof>",
+};
+
+#undef X
+
 void
 Parser::expect(Token_Kind kind)
 {
+    using std::snprintf;
     if (!match(kind)) {
-        // Making the token enum to string table is VERY annoying
+        // NOTE: Check assumption if we modify the token kinds!
+        // Longest keyword (that we support) is char[9]: namespace.
+        // The longest ever C++ keyword (as of 2026) is char[16]: reinterpret_cast.
         char buf[32];
-        int n = snprintf(buf, sizeof(buf), "Expected Token_Kind(%i)", kind);
+        int n;
+        if (kind < TK_MULTICHAR_START) {
+            n = snprintf(buf, sizeof(buf), "Expected '%c'", kind);
+        } else {
+            kind = cast(Token_Kind)(cast(int)kind - TK_MULTICHAR_START - 1);
+            n = snprintf(buf, sizeof(buf), "Expected '%s'", TOKEN_STRINGS[kind]);
+        }
         assert(n > 0);
         error({buf, cast(size_t)n});
     }
@@ -67,13 +86,17 @@ Parser::program(String *out)
     try {
         // Put the first token in the lookahead.
         advance();
-        return expr();
+        Ast *root = expr();
+        // Optional, for now.
+        match(TK_SEMICOL);
+        expect(TK_EOF);
+        return root;
     } catch (Error err) {
         if (err == ERR_OUT_OF_MEMORY) {
             *m_message = "Out of memory"_s;
         }
-        return nullptr;
     }
+    return nullptr;
 }
 
 Ast *
@@ -109,13 +132,13 @@ Ast *
 Parser::expr(Precedence prec)
 {
     Ast *node = nullptr;
-    Token t = m_lookahead;
 
     // Prefix
     // Don't advance yet so we can better report errors.
-    switch (t.kind) {
+    switch (m_lookahead.kind) {
     case TK_LPAREN:
         // Consume the left parenthesis.
+        // TODO: Disambiguate from type casts!
         advance();
         node = expr();
         expect(TK_RPAREN);
@@ -125,13 +148,19 @@ Parser::expr(Precedence prec)
     case TK_NOT:  node = unary(AST_NOT);    break;
     case TK_SUB:  node = unary(AST_NEG);    break;
     case TK_MUL:  node = unary(AST_DEREF);  break;
+    case TK_INCR: node = unary(AST_INCR);   break;
+    case TK_DECR: node = unary(AST_DECR);   break;
     case TK_LITERAL_FLOAT:
     case TK_LITERAL_INT:
         // Consume the literal's token.
+        // Literals are always terminals in the grammar.
         advance();
-
-        // New terminal
-        node = Ast::make<Ast_Literal>(m_arena, t.data);
+        node = Ast::make<Ast_Literal>(m_arena, m_consumed.data);
+        break;
+    case TK_IDENT:
+        // TODO: When we introduce functions, track locals.
+        advance();
+        node = Ast::make<Ast_Variable>(m_arena, m_consumed.lexeme, /*scope=*/0);
         break;
     default:
         error("Expected an expression"_s);
@@ -140,14 +169,11 @@ Parser::expr(Precedence prec)
 
     // Infix
     for (;;) {
-        const Rule r = get_rule(m_lookahead.kind);
+        const Rule r = get_rule(node, m_lookahead.kind);
         // Parent caller is of a higher precedence?
         if (r.left < prec) {
             break;
         }
-        // Consume the infix operator so that our lookahead is now the
-        // first token of the right hand side expression.
-        advance();
         node = binary(node, r.kind, r.right);
     }
     return node;
@@ -165,22 +191,58 @@ Parser::unary(Ast_Prefix_Kind kind)
 Ast *
 Parser::binary(Ast *left, Ast_Infix_Kind kind, Precedence prec)
 {
+    // Consume the infix operator so that our lookahead is now the
+    // first token of the right hand side expression.
+    advance();
     Ast *right = expr(prec);
+
+    // TODO: Why does this fail? `array[index + 1]`
+    // but not `array[index]` and not `array[(index + 1)]`
+    if (kind == AST_INDEX) {
+        expect(TK_RSQUARE);
+    }
+    // else if (kind == AST_CALL) {
+    //     expect(TK_RPAREN);
+    // }
     return Ast::make<Ast_Infix>(m_arena, kind, left, right);
 }
 
 Parser::Rule
-Parser::get_rule(Token_Kind kind)
+Parser::get_rule(Ast *left, Token_Kind kind)
 {
 #define LEFT(p, k)   {p, cast(Precedence)(cast(int)p + 1), k}
 #define RIGHT(p, k)  {p, p, k}
     switch (kind) {
-    case TK_ASSIGN: return RIGHT(PREC_ASSIGN, AST_ASSIGN);
-    case TK_ADD:    return LEFT(PREC_TERM,    AST_ADD);
-    case TK_SUB:    return LEFT(PREC_TERM,    AST_SUB);
-    case TK_MUL:    return LEFT(PREC_FACTOR,  AST_MUL);
-    case TK_DIV:    return LEFT(PREC_FACTOR,  AST_DIV);
-    case TK_MOD:    return LEFT(PREC_FACTOR,  AST_MOD);
+    case TK_ASSIGN:  return RIGHT(PREC_ASSIGN, AST_ASSIGN);
+    case TK_LSQUARE: return LEFT(PREC_CALL,    AST_INDEX);
+
+    // Bitwise
+    case TK_BAND: return LEFT(PREC_BAND,   AST_BAND);
+    case TK_BOR:  return LEFT(PREC_BOR,    AST_BOR);
+    case TK_BXOR: return LEFT(PREC_BXOR,   AST_BXOR);
+    case TK_SHL:  return LEFT(PREC_BSHIFT, AST_SHL);
+    case TK_SHR:  return LEFT(PREC_BSHIFT, AST_SHR);
+
+    // Logical
+    case TK_AND: return LEFT(PREC_AND, AST_AND);
+    case TK_OR:  return LEFT(PREC_OR,  AST_OR);
+
+    // Equality
+    case TK_EQ:  return LEFT(PREC_EQ, AST_EQ);
+    case TK_NEQ: return LEFT(PREC_EQ, AST_NEQ);
+
+    // Relational
+    case TK_LT:  return LEFT(PREC_REL, AST_LT);
+    case TK_LEQ: return LEFT(PREC_REL, AST_LEQ);
+    case TK_GT:  return LEFT(PREC_REL, AST_GT);
+    case TK_GEQ: return LEFT(PREC_REL, AST_GEQ);
+
+    // Arithmetic
+    case TK_ADD: return LEFT(PREC_TERM,   AST_ADD);
+    case TK_SUB: return LEFT(PREC_TERM,   AST_SUB);
+    case TK_MUL: return LEFT(PREC_FACTOR, AST_MUL);
+    case TK_DIV: return LEFT(PREC_FACTOR, AST_DIV);
+    case TK_MOD: return LEFT(PREC_FACTOR, AST_MOD);
     default:
         break;
     }
@@ -200,27 +262,51 @@ ast_kind_name(Ast_Kind kind, u8 sub_kind)
         case UNTYPED_NONE:  break;
         case UNTYPED_INT:   return "Int";
         case UNTYPED_FLOAT: return "Float";
+        case UNTYPED_STRING: return "String";
         }
         break;
     case AST_VARIABLE:
         break;
     case AST_PREFIX:
         switch (cast(Ast_Prefix_Kind)sub_kind) {
-        case AST_DEREF:     return "deref";
-        case AST_NEG:       return "neg";
-        case AST_LEA:       return "lea";
-        case AST_NOT:       return "not";
-        case AST_BNOT:      return "bnot";
+        case AST_DEREF: return "DEREF";
+        case AST_NEG:   return "NEG";
+        case AST_LEA:   return "LEA";
+        case AST_NOT:   return "NOT";
+        case AST_BNOT:  return "BNOT";
+        case AST_INCR:  return "INCR";
+        case AST_DECR:  return "DECR";
         }
     case AST_INFIX:
         switch (cast(Ast_Infix_Kind)sub_kind) {
-        case AST_ASSIGN:    return "assign";
-        case AST_INDEX:     return "index";
-        case AST_ADD:       return "add";
-        case AST_SUB:       return "sub";
-        case AST_MUL:       return "mul";
-        case AST_DIV:       return "div";
-        case AST_MOD:       return "mod";
+        case AST_ASSIGN: return "ASSIGN";
+        case AST_INDEX:  return "INDEX";
+
+        // Bitwise
+        case AST_BAND: return "BAND";
+        case AST_BOR:  return "BOR";
+        case AST_BXOR: return "BXOR";
+        case AST_SHL:  return "SHL";
+        case AST_SHR:  return "SHR";
+
+        // Logical
+        case AST_AND: return "AND";
+        case AST_OR:  return "OR";
+
+        // Relational
+        case AST_EQ:  return "EQ";
+        case AST_NEQ: return "NEQ";
+        case AST_LT:  return "LT";
+        case AST_LEQ: return "LEQ";
+        case AST_GT:  return "GT";
+        case AST_GEQ: return "GEQ";
+
+        // Arithmetic
+        case AST_ADD: return "ADD";
+        case AST_SUB: return "SUB";
+        case AST_MUL: return "MUL";
+        case AST_DIV: return "DIV";
+        case AST_MOD: return "MOD";
         }
     }
     return nullptr;
@@ -229,7 +315,7 @@ ast_kind_name(Ast_Kind kind, u8 sub_kind)
 void
 Parser::error(String msg)
 {
-#define X(s)    cast(int)len(s), raw_data(s)
+    using std::snprintf;
 
     String loc = m_lookahead.lexeme;
     if (len(loc) == 0) {
@@ -239,20 +325,19 @@ Parser::error(String msg)
     // We won't return the nodes anyway.
     m_arena->free_all();
 
+    // TODO: clamp length of `loc` similar to how Lua does it.
     size_t cap = len(msg) + len(loc) + 16;
     char  *s   = m_arena->alloc<char>(cap);
     if (s == nullptr) {
         throw ERR_OUT_OF_MEMORY;
     }
 
-    int n = std::snprintf(s, cap, "%.*s at \"%.*s\"\n", X(msg), X(loc));
+    int n = snprintf(s, cap, "%.*s at '%.*s'", STRINGX(msg), STRINGX(loc));
     // Must be non-negative and non-zero (i.e. no errors occured).
     assert(n > 0);
     *m_message = {s, cast(size_t)n};
 
     throw ERR_UNEXPECTED_TOKEN;
-
-#undef X
 }
 
 void
@@ -280,10 +365,12 @@ Ast::dump(const int depth) const
         case UNTYPED_NONE:  break;
         case UNTYPED_INT:   printf("Int(%llu)", lit.i());    break;
         case UNTYPED_FLOAT: printf("Float(%.14g)", lit.f()); break;
+        case UNTYPED_STRING: printf("String('%.*s')", STRINGX(lit.s())); break;
         }
         break;
     }
     case AST_VARIABLE:
+        printf("Var('%.*s')", STRINGX(variable()->ident));
         break;
     case AST_PREFIX:
         printf("%s\n", ast_kind_name(kind(), prefix()->kind));

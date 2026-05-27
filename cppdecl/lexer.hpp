@@ -1,5 +1,6 @@
 #pragma once
 
+#include <climits> // CHAR_MAX
 #include "types.hpp"
 #include "string.hpp"
 #include "ast.hpp"
@@ -24,58 +25,52 @@
 enum Token_Kind : u8 {
     TK_NONE,
 
-#define x(kw) TK_##kw
-    // Terminals: (select) C++ keywords
-    KEYWORD_LIST(x),
-#undef x
+    // Terminals: single-characters
+    TK_LPAREN  = '(',  TK_RPAREN  = ')', TK_LSQUARE = '[',  TK_RSQUARE = ']',
+    TK_LCURLY  = '{',  TK_RCURLY  = '}', TK_COLON   = ':',
+    TK_COMMA   = ',',  TK_SEMICOL = ';',
+    TK_PERIOD = '.',   TK_ASSIGN = '=',
 
-    // Terminals: single characters pairs
-    TK_LPAREN,      TK_RPAREN,   // '(' ')'
-    TK_LSQUARE,     TK_RSQUARE,  // '[' ']'
-    TK_LCURLY,      TK_RCURLY,   // '{' '}'
-    TK_COLON,       TK_SCOPE,    // ':' "::"
+    // Terminals: single-character bitwise operators
+    TK_BNOT = '~', TK_BAND = '&', TK_BOR  = '|', TK_BXOR = '^',
 
-    // Terminals: bitwise operators
-    TK_BNOT,                    // '~'
-    TK_BAND,        TK_BOR,     // '&' '|'
-    TK_SHL,         TK_SHR,     // "<<" ">>"
+    // Terminals: single-character logical operators
+    TK_NOT = '!',
+
+    // Terminals: Single-character relational operators
+    TK_LT = '<', TK_GT = '>',
+
+    // Terminals: Single-character arithmetic operators
+    TK_ADD = '+', TK_SUB = '-',
+    TK_MUL = '*', TK_DIV = '/', TK_MOD = '%',
+
+    // Terminals: Multi-character sequences
+    TK_MULTICHAR_START = CHAR_MAX + 1,
+
+#define X(kw) TK_##kw
+    KEYWORD_LIST(X),
+#undef X
+
+    TK_ELLIPSIS, TK_ARROW, TK_SCOPE, // "..." "->" "::"
+    TK_SHL, TK_SHR, // "<<" ">>"
+    TK_AND, TK_OR,  // "&&" "||"
+    TK_EQ,  TK_NEQ, // "==" "!="
+    TK_LEQ, TK_GEQ, // "<=" ">="
+
+    TK_INCR,        TK_DECR,                       // "++"  "--"
     TK_BAND_ASSIGN, TK_BOR_ASSIGN, TK_BXOR_ASSIGN, // "&="  "|=" "^="
     TK_SHL_ASSIGN,  TK_SHR_ASSIGN,                 // "<<=" ">>="
-
-    // Terminals: logical operators
-    TK_NOT,                     // '!'
-    TK_AND,         TK_OR,      // "&&" "||"
-
-    // Terminals: relational operators
-    TK_EQ,  TK_NEQ, // "==" "!="
-    TK_LT,  TK_LEQ, // '<' "<="
-    TK_GT,  TK_GEQ, // '>' ">="
-
-    // Terminals: arithmetic operators
-    TK_INCR,        TK_DECR,                       // "++"  "--"
-    TK_ADD,         TK_SUB,                        // '+'   '-'
-    TK_MUL,         TK_DIV,        TK_MOD,         // '*'   '/'  '%'
     TK_ADD_ASSIGN,  TK_SUB_ASSIGN,                 // "+="  "-="
     TK_MUL_ASSIGN,  TK_DIV_ASSIGN, TK_MOD_ASSIGN,  // "*="  "/=" "%="
 
-    // Terminals: misc. operators
-    TK_ASSIGN,               // '='
-    TK_PERIOD, TK_ELLIPSIS,  // '.' "..."
-    TK_ARROW,                // ->
-
-    // Terminals: misc. non-operators
-    TK_COMMA,        // ','
-    TK_SEMICOL,      // ';'
     TK_LITERAL_CHAR, // '\'' char '\''
-
-    // Nonterminals
-    TK_LITERAL_INT,
-    TK_LITERAL_FLOAT,
-    TK_LITERAL_STRING,  // '"' .* '"'
+    TK_LITERAL_INT, TK_LITERAL_FLOAT, TK_LITERAL_STRING,
     TK_IDENT, 
 
     // Misc.
     TK_EOF,
+
+    TK_MULTICHAR_COUNT = TK_EOF - TK_MULTICHAR_START,
 };
 
 struct Token {
@@ -160,26 +155,18 @@ private:
     Error
     set_token(Token *t, Token_Kind k) const;
 
-    // Tries to match a pair (k1 + c), otherwise falls back to
-    // the single charactert token (k1).
-    //
-    Error
-    set_token2(Token *t, char c, Token_Kind k1c, Token_Kind k1);
+    Token_Kind
+    select_pair(char single, Token_Kind pair);
 
-    // Tries to match a pair (k1 + c), then a compound operator (k1 + '=')
-    // in that order. Falls back to the single character token (k1).
-    //
-    Error
-    set_token3(Token *t, char c, Token_Kind k1c, Token_Kind k1eq,
-               Token_Kind k1);
+    Token_Kind
+    select_assign(char single, Token_Kind assign);
 
-    // Tries to match a compound assignment pair (k1 + c + '='),
-    // then a pair (k1 + c), then a relational operator (k1 + '='),
-    // in that order. Falls back to the single character token (k1).
-    //
-    Error
-    set_token4(Token *t, char c, Token_Kind k1ceq, Token_Kind k1c,
-               Token_Kind k1eq, Token_Kind k1);
+    Token_Kind
+    select_pair_assign(char single, Token_Kind pair, Token_Kind assign);
+
+    Token_Kind
+    select_compound(char single, Token_Kind pair, Token_Kind assign,
+                    Token_Kind pair_assign);
 
     Error
     try_keyword(Token *t);

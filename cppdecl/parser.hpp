@@ -9,10 +9,16 @@ enum Precedence : u8 {
     PREC_ASSIGN,    // = += -= *= /= %= <<= >>= &= ^= |=
     PREC_OR,        // ||
     PREC_AND,       // &&
+    PREC_BOR,       // |
+    PREC_BXOR,      // ^
+    PREC_BAND,      // &
+    PREC_EQ,        // == !=
+    PREC_REL,       // < <= >= >
     PREC_BSHIFT,    // << >>
     PREC_TERM,      // + -
     PREC_FACTOR,    // * / %
-    PREC_UNARY,     // - * & function calls
+    PREC_UNARY,     // +plus -neg *deref &addr ++incr --decr
+    PREC_CALL,      // call() index[] . -> postfix-- postfix--
 };
 
 struct Parser {
@@ -177,7 +183,7 @@ private:
         Ast_Infix_Kind kind;
     };
 
-    static Rule
-    get_rule(Token_Kind kind);
+    Rule
+    get_rule(Ast *left, Token_Kind kind);
 };
 

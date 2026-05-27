@@ -1,4 +1,5 @@
-#include <stdlib.h> // strtod
+#include <cstdlib> // strtod, strtoul
+
 #include "lexer.hpp"
 #include "slice.hpp"
 
@@ -59,76 +60,82 @@ Lexer::scan_token(Token *t)
         return try_number(t, is_frac);
     }
 
+    Token_Kind k = cast(Token_Kind)c;
     switch (c) {
-    case '(': return set_token(t, TK_LPAREN);
-    case ')': return set_token(t, TK_RPAREN);
-    case '[': return set_token(t, TK_LSQUARE);
-    case ']': return set_token(t, TK_RSQUARE);
-    case '{': return set_token(t, TK_LCURLY);
-    case '}': return set_token(t, TK_RCURLY);
-    case ':': return set_token2(t, c, TK_SCOPE, TK_COLON);
-    case '~': return set_token(t, TK_BNOT);
-    case '&': return set_token3(t, c, TK_AND, TK_BAND_ASSIGN,  TK_BAND);
-    case '|': return set_token3(t, c, TK_OR,  TK_BOR_ASSIGN,   TK_BOR);
-    case '<': return set_token4(t, c, TK_SHL_ASSIGN, TK_SHL, TK_LEQ, TK_LT);
-    case '>': return set_token4(t, c, TK_SHR_ASSIGN, TK_SHR, TK_GEQ, TK_GT);
-    case '!': return set_token2(t, '=', TK_NEQ, TK_NOT);
-    case '.': 
+    case TK_LPAREN: case TK_RPAREN: case TK_LSQUARE: case TK_RSQUARE:
+    case TK_LCURLY: case TK_RCURLY: case TK_COMMA:   case TK_SEMICOL:
+    case TK_BNOT:
+        break;
+    case TK_COLON: k = select_pair(c, TK_SCOPE); break;
+    case TK_BAND:  k = select_pair_assign(c, TK_AND, TK_BAND_ASSIGN); break;
+    case TK_BOR:   k = select_pair_assign(c, TK_OR,  TK_BOR_ASSIGN);  break;
+    case TK_BXOR:  k = select_assign(c, TK_BXOR_ASSIGN); break;
+    case TK_LT:    k = select_compound(c, TK_SHL, TK_LEQ, TK_SHL_ASSIGN); break;
+    case TK_GT:    k = select_compound(c, TK_SHR, TK_GEQ, TK_SHR_ASSIGN); break;
+    case TK_NOT:   k = select_assign(c, TK_NEQ); break;
+    case TK_PERIOD: 
         // Have a 2nd period?
         if (match(c)) {
             // Have a 3rd period?
-            if (match(c)) {
-                return set_token(t, TK_ELLIPSIS);
-            }
-            // Got a ".."
+            // Otherwise, got a ".."
+            k = match(c) ? TK_ELLIPSIS : TK_NONE;
             break;
         }
+
         // Possibly a fractional decimal literal,
         // e.g. .1234
-        else if (match_func(char_is_decimal) > 0){
-            return try_number(t, true);
+        if (match_func(char_is_decimal) > 0) {
+            return try_number(t, /*is_frac=*/true);
         }
-        return set_token(t, TK_PERIOD);
+        k = TK_NONE;
+        break;
 
-    case '+': return set_token3(t, c,   TK_INCR,       TK_ADD_ASSIGN, TK_ADD);
-    case '-': return set_token3(t, c,   TK_DECR,       TK_SUB_ASSIGN, TK_SUB);
-    case '=': return set_token2(t, c,   TK_EQ,         TK_ASSIGN);
-    case '*': return set_token2(t, '=', TK_MUL_ASSIGN, TK_MUL);
-    case '/': return set_token2(t, '=', TK_DIV_ASSIGN, TK_DIV);
-    case ',': return set_token(t, TK_COMMA);
-    case ';': return set_token(t, TK_SEMICOL);
-
+    case TK_ASSIGN: k = select_pair(c, TK_EQ); break;
+    case TK_ADD:    k = select_pair_assign(c, TK_INCR, TK_ADD_ASSIGN); break;
+    case TK_SUB:    k = select_pair_assign(c, TK_DECR, TK_SUB_ASSIGN); break;
+    case TK_MUL:    k = select_assign(c, TK_MUL_ASSIGN); break;
+    case TK_DIV:    k = select_assign(c, TK_DIV_ASSIGN); break;
     default:
+        k = TK_NONE;
         break;
     }
-    set_token(t, TK_NONE);
-    return ERR_UNEXPECTED_TOKEN;
-}
 
-Error
-Lexer::set_token2(Token *t, char c, Token_Kind k1c, Token_Kind k1)
-{
-    return set_token(t, match(c) ? k1c : k1);
-}
-
-Error
-Lexer::set_token3(Token *t, char c, Token_Kind k1c, Token_Kind k1eq,
-                  Token_Kind k1)
-{
-    if (match(c)) {
-        return set_token(t, k1c);
+    if (k == TK_NONE) {
+        set_token(t, k);
+        return ERR_UNEXPECTED_TOKEN;
     }
-    return set_token2(t, '=', k1eq, k1);
+    return set_token(t, k);
 }
 
-Error
-Lexer::set_token4(Token *t, char c, Token_Kind k1ceq, Token_Kind k1c,
-                  Token_Kind k1eq, Token_Kind k1)
+Token_Kind
+Lexer::select_pair(char single, Token_Kind pair)
 {
-    if (match(c)) {
-        return set_token2(t, '=', k1ceq, k1c);
+    return match(single) ? pair : cast(Token_Kind)single;
+}
+
+Token_Kind
+Lexer::select_assign(char single, Token_Kind assign)
+{
+    return match(TK_ASSIGN) ? assign : cast(Token_Kind)single;
+}
+
+Token_Kind
+Lexer::select_pair_assign(char single, Token_Kind pair, Token_Kind assign)
+{
+    if (match(single)) {
+        return pair;
     }
-    return set_token2(t, '=', k1eq, k1);
+    return select_assign(cast(Token_Kind)single, assign);
+}
+
+Token_Kind
+Lexer::select_compound(char single, Token_Kind pair, Token_Kind assign,
+                       Token_Kind pair_assign)
+{
+    if (match(single)) {
+        return select_assign(pair, pair_assign);
+    }
+    return select_assign(single, assign);
 }
 
 bool
@@ -237,6 +244,7 @@ Lexer::try_number(Token *t, bool is_frac)
 
     // Maybe a prefixed integer?
     if (len(s) > 2 && s[0] == '0') {
+        base = -1;
         switch (s[1]) {
         case 'b': case 'B': base = 2;  break;
         case 'd': case 'D': base = 10; break;
@@ -245,14 +253,19 @@ Lexer::try_number(Token *t, bool is_frac)
         default:
             break;
         }
+
+        // Definitely have a prefix, so we need to skip it?
+        if (base != -1) {
+            s = slice_from(s, 2);
+        }
     }
 
     if (is_frac) {
         t->kind = TK_LITERAL_FLOAT;
-        t->data = Ast_Literal(strtod(raw_data(s), &endp));
+        t->data = std::strtod(raw_data(s), &endp);
     } else {
         t->kind = TK_LITERAL_INT;
-        t->data = Ast_Literal(cast(u64)strtoul(raw_data(s), &endp, base));
+        t->data = cast(u64)std::strtoul(raw_data(s), &endp, base);
     }
     return (endp == s.end()) ? ERR_NONE : ERR_INVALID_NUMBER;
 }

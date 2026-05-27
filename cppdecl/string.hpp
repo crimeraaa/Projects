@@ -15,3 +15,5 @@ operator""_s(const char *data, size_t len)
 {
     return {data, len};
 }
+
+#define STRINGX(s)    cast(int)len(s), raw_data(s)
