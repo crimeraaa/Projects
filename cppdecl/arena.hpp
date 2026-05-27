@@ -3,15 +3,15 @@
 #include "slice.hpp"
 
 struct Arena {
-    using Buffer = Slice<char>;
+private:
+    Slice<char> m_buffer;
+    size_t m_curr_index, m_prev_index;
 
-    Buffer buffer;
-    size_t curr_index, prev_index;
-
-    Arena(Buffer buffer)
-        : buffer{buffer}
-        , curr_index{0}
-        , prev_index{0}
+public:
+    Arena(Slice<char> buffer)
+        : m_buffer{buffer}
+        , m_curr_index{0}
+        , m_prev_index{0}
     {}
 
     void
@@ -26,7 +26,7 @@ struct Arena {
     {
         size_t size  = (sizeof(T) * count) + extra;
         size_t align = alignof(T);
-        return cast(T *)this->alloc_raw(size, align);
+        return cast(T *)alloc_raw(size, align);
     }
 
 private:

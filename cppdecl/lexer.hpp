@@ -1,31 +1,8 @@
 #pragma once
 
-#include <cstdint>
-
+#include "types.hpp"
 #include "string.hpp"
-
-using  u8 = std::uint8_t;
-using u16 = std::uint16_t;
-using u32 = std::uint32_t;
-using u64 = std::uint64_t;
-using f64 = double;
-
-enum Error : u8 {
-    ERR_NONE,
-
-    // Not necessarily an error!
-    ERR_EOF,
-
-    // Lexing and parsing errors.
-    ERR_UNEXPECTED_TOKEN,
-    ERR_UNTERMINATED_COMMENT,
-    ERR_UNTERMINATED_STRING,
-    ERR_INVALID_NUMBER,
-
-    // Allocation errors.
-    ERR_OUT_OF_MEMORY,
-    ERR_INVALID_ALLOCATOR,
-};
+#include "ast.hpp"
 
 #define KEYWORD_LIST(x)                                                        \
     x(bool),      x(break),                                                    \
@@ -53,14 +30,14 @@ enum Token_Kind : u8 {
 #undef x
 
     // Terminals: single characters pairs
-    TK_PAREN_OPEN,  TK_PAREN_CLOSE,                 // '(' ')'
-    TK_SQUARE_OPEN, TK_SQUARE_CLOSE,                // '[' ']'
-    TK_CURLY_OPEN,  TK_CURLY_CLOSE,                 // '{' '}'
-    TK_COLON,       TK_SCOPE,        // ':' "::"
+    TK_LPAREN,      TK_RPAREN,   // '(' ')'
+    TK_LSQUARE,     TK_RSQUARE,  // '[' ']'
+    TK_LCURLY,      TK_RCURLY,   // '{' '}'
+    TK_COLON,       TK_SCOPE,    // ':' "::"
 
     // Terminals: bitwise operators
     TK_BNOT,                    // '~'
-    TK_AMPERSAND,   TK_PIPE,    // '&' '|'
+    TK_BAND,        TK_BOR,     // '&' '|'
     TK_SHL,         TK_SHR,     // "<<" ">>"
     TK_BAND_ASSIGN, TK_BOR_ASSIGN, TK_BXOR_ASSIGN, // "&="  "|=" "^="
     TK_SHL_ASSIGN,  TK_SHR_ASSIGN,                 // "<<=" ">>="
@@ -70,14 +47,14 @@ enum Token_Kind : u8 {
     TK_AND,         TK_OR,      // "&&" "||"
 
     // Terminals: relational operators
-    TK_EQ,          TK_NEQ,     // "==" "!="
-    TK_ANGLE_OPEN,  TK_LEQ,     // '<' "<="
-    TK_ANGLE_CLOSE, TK_GEQ,     // '>' ">="
+    TK_EQ,  TK_NEQ, // "==" "!="
+    TK_LT,  TK_LEQ, // '<' "<="
+    TK_GT,  TK_GEQ, // '>' ">="
 
     // Terminals: arithmetic operators
-    TK_PLUS,        TK_MINUS,                      // '+'  '-'
-    TK_ASTERISK,    TK_SLASH,      TK_PERCENT,     // '*'  '/'  '%'
-    TK_INCR,        TK_DECR,                       // "++" "--"
+    TK_INCR,        TK_DECR,                       // "++"  "--"
+    TK_ADD,         TK_SUB,                        // '+'   '-'
+    TK_MUL,         TK_DIV,        TK_MOD,         // '*'   '/'  '%'
     TK_ADD_ASSIGN,  TK_SUB_ASSIGN,                 // "+="  "-="
     TK_MUL_ASSIGN,  TK_DIV_ASSIGN, TK_MOD_ASSIGN,  // "*="  "/=" "%="
 
@@ -89,7 +66,7 @@ enum Token_Kind : u8 {
     // Terminals: misc. non-operators
     TK_COMMA,        // ','
     TK_SEMICOL,      // ';'
-    TK_CHAR_LITERAL, // '\'' char '\''
+    TK_LITERAL_CHAR, // '\'' char '\''
 
     // Nonterminals
     TK_LITERAL_INT,
@@ -101,73 +78,26 @@ enum Token_Kind : u8 {
     TK_EOF,
 };
 
-enum Untyped_Kind : u8 {
-    UNTYPED_NONE, UNTYPED_INT, UNTYPED_FLOAT,
-};
-
-struct Untyped {
-private:
-    Untyped_Kind m_kind;
-    union {
-        u64 m_int;
-        f64 m_float;
-    };
-
-public:
-    Untyped()
-        : m_kind{UNTYPED_NONE}
-        , m_int{0}
-    {}
-
-    Untyped(u64 i)
-        : m_kind{UNTYPED_INT}
-        , m_int{i}
-    {}
-
-    Untyped(f64 f)
-        : m_kind{UNTYPED_FLOAT}
-        , m_float{f}
-    {}
-
-    Untyped_Kind
-    kind() const
-    {
-        return this->m_kind;
-    }
-
-    u64
-    i() const
-    {
-        assert(this->m_kind == UNTYPED_INT);
-        return this->m_int;
-    }
-
-    f64
-    f() const
-    {
-        assert(this->m_kind == UNTYPED_FLOAT);
-        return this->m_float;
-    }
-};
-
 struct Token {
     Token_Kind kind;
-    String text;
+    String lexeme;
     int line, col;
-    Untyped data;
+    Ast_Literal data;
 };
 
 struct Lexer {
-    String input;
-    String::const_iterator start, current;
-    int line, col;
+private:
+    String m_input;
+    String::const_iterator m_start, m_current;
+    int m_line, m_col;
 
+public:
     Lexer(String input)
-        : input{input}
-        , start{input.begin()}
-        , current{input.begin()}
-        , line{1}
-        , col{1}
+        : m_input{input}
+        , m_start{input.begin()}
+        , m_current{input.begin()}
+        , m_line{1}
+        , m_col{1}
     {}
 
     Error
@@ -200,6 +130,10 @@ private:
     // Returns true if `c` was consumed else false.
     bool
     match(char c);
+
+    // Returns true if _either_ `c1` or `c2` was consumed, else false.
+    bool
+    match_either(char c1, char c2);
 
     // Returns the number of times we advanced based
     // on the predicate.
@@ -251,6 +185,6 @@ private:
     try_keyword(Token *t);
 
     Error
-    try_number(Token *t);
+    try_number(Token *t, bool is_frac);
 };
 

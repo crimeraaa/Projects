@@ -3,3 +3,6 @@
 *.obj
 *.pdb
 *.ilk
+
+# RadDebugger
+*.rdi

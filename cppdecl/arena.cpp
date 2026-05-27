@@ -1,10 +1,13 @@
+#include <cstdio>
+
 #include "arena.hpp"
 
 void
 Arena::free_all()
 {
-    this->curr_index = 0;
-    this->prev_index = 0;
+    printf("freeing %zu bytes -> 0 / %zu bytes used\n", m_curr_index, len(m_buffer));
+    m_curr_index = 0;
+    m_prev_index = 0;
 }
 
 size_t
@@ -13,9 +16,9 @@ Arena::align_forward(size_t align)
     uintptr_t base_addr, curr_addr, modulo;
     char *data;
 
-    data      = raw_data(this->buffer);
+    data      = raw_data(m_buffer);
     base_addr = cast(uintptr_t)data;
-    curr_addr = base_addr + cast(uintptr_t)this->curr_index;
+    curr_addr = base_addr + cast(uintptr_t)m_curr_index;
 
     // Fast modulo by power of 2.
     // Counts the number of padding bytes needed to align ourselves.
@@ -32,11 +35,13 @@ Arena::align_forward(size_t align)
 void *
 Arena::alloc_raw(size_t size, size_t align)
 {
-    size_t index = this->align_forward(align);
-    if (index + size < len(this->buffer)) {
-        void *ptr = &this->buffer[index];
-        this->prev_index = index;
-        this->curr_index = index + size;
+    size_t index = align_forward(align);
+    if (index + size < len(m_buffer)) {
+        void *ptr = &m_buffer[index];
+        m_prev_index = index;
+        m_curr_index = index + size;
+        printf("allocating %zu bytes -> %zu / %zu bytes used\n",
+               size, m_curr_index, len(m_buffer));
         memset(ptr, 0, size);
         return ptr;
     }

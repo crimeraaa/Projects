@@ -1,49 +1,85 @@
-// f iostream
-#include <cstdio>
+#include <cstdio>  // printf
+#include <cstring> // memcpy
 
 #include "parser.hpp"
 
-Error
+void
 Parser::advance()
 {
-    this->consumed = this->lookahead;
-    return this->lexer.scan_token(&this->lookahead);
+    Error err;
+
+    m_consumed = m_lookahead;
+    err = m_lexer.scan_token(&m_lookahead);
+    switch (err) {
+    case ERR_NONE:
+    case ERR_EOF:
+        break;
+    case ERR_UNEXPECTED_TOKEN:
+        error("Unexpected token"_s);
+        break;
+    case ERR_UNTERMINATED_COMMENT:
+        error("Unterminated multiline comment"_s);
+        break;
+    case ERR_UNTERMINATED_STRING:
+        error("Unterminated multiline string"_s);
+        break;
+    case ERR_INVALID_NUMBER:
+        error("Invalid number"_s);
+        break;
+    default:
+        break;
+    }
 }
 
-static void
-print_token(Token *t)
+bool
+Parser::check(Token_Kind kind) const
 {
-    std::fprintf(stdout, "%i:%i: \"%.*s\"\n",
-                 t->line, t->col, cast(int)len(t->text), raw_data(t->text));
+    return m_lookahead.kind == kind;
+}
+
+bool
+Parser::match(Token_Kind kind)
+{
+    bool found = check(kind);
+    if (found) {
+        advance();
+    }
+    return found;
+}
+
+void
+Parser::expect(Token_Kind kind)
+{
+    if (!match(kind)) {
+        // Making the token enum to string table is VERY annoying
+        char buf[32];
+        int n = snprintf(buf, sizeof(buf), "Expected Token_Kind(%i)", kind);
+        assert(n > 0);
+        error({buf, cast(size_t)n});
+    }
 }
 
 Ast *
-Parser::program()
+Parser::program(String *out)
 {
-    // for (;;) {
-    //    Error err = this->advance();
-    //    if (err) {
-    //         if (err == ERR_EOF) {
-    //             std::fputs("<eof>", stdout);
-    //        } else {
-    //            std::fprintf(stdout, "Error(%i) @ ", cast(int)err);
-    //            print_token(&this->lookahead);
-    //        }
-    //        std::fputc('\n', stdout);
-    //        break;
-    //     }
-    //     print_token(&this->lookahead);
-    // }
-
-    // Put the first token in the lookahead.
-    this->advance();
-    return this->expr();
+    String tmp{};
+    m_message = (out != nullptr) ? out : &tmp;
+    try {
+        // Put the first token in the lookahead.
+        advance();
+        return expr();
+    } catch (Error err) {
+        if (err == ERR_OUT_OF_MEMORY) {
+            *m_message = "Out of memory"_s;
+        }
+        return nullptr;
+    }
 }
 
 Ast *
 Parser::def()
 {
-    switch (this->lookahead.kind) {
+    switch (m_lookahead.kind) {
     case TK_struct:
     case TK_typedef:
     case TK_using:
@@ -58,7 +94,7 @@ Parser::def()
 Ast *
 Parser::type()
 {
-    switch (this->lookahead.kind) {
+    switch (m_lookahead.kind) {
     case TK_bool:
     case TK_double:
     case TK_int:
@@ -73,35 +109,46 @@ Ast *
 Parser::expr(Precedence prec)
 {
     Ast *node = nullptr;
-    Token t = this->lookahead;
+    Token t = m_lookahead;
 
     // Prefix
-    // Consume the prefix operator (e.g. unary operator or literal).
-    // This ensures the correct state for parsing nested expressions.
-    this->advance();
+    // Don't advance yet so we can better report errors.
     switch (t.kind) {
-    case TK_MINUS:     node = this->unary(AST_NEG);    break;
-    case TK_ASTERISK:  node = this->unary(AST_DEREF);  break;
-    case TK_AMPERSAND: node = this->unary(AST_ADDR);   break;
+    case TK_LPAREN:
+        // Consume the left parenthesis.
+        advance();
+        node = expr();
+        expect(TK_RPAREN);
+        break;
+    case TK_BAND: node = unary(AST_LEA);    break;
+    case TK_BNOT: node = unary(AST_BNOT);   break;
+    case TK_NOT:  node = unary(AST_NOT);    break;
+    case TK_SUB:  node = unary(AST_NEG);    break;
+    case TK_MUL:  node = unary(AST_DEREF);  break;
     case TK_LITERAL_FLOAT:
     case TK_LITERAL_INT:
-        node  = this->arena->alloc<Ast>();
-        *node = t.data;
+        // Consume the literal's token.
+        advance();
+
+        // New terminal
+        node = Ast::make<Ast_Literal>(m_arena, t.data);
         break;
     default:
-        // Expected an expression!
-        break;
+        error("Expected an expression"_s);
+        return nullptr;
     }
-    
 
     // Infix
     for (;;) {
-        const Rule r = this->get_rule(this->lookahead.kind);
-        // Parent caller is of a higher precedence OR nothing to do?
-        if (r.left < prec || r.infix == nullptr) {
+        const Rule r = get_rule(m_lookahead.kind);
+        // Parent caller is of a higher precedence?
+        if (r.left < prec) {
             break;
         }
-        node = (this->*r.infix)(node, r.kind, r.right);
+        // Consume the infix operator so that our lookahead is now the
+        // first token of the right hand side expression.
+        advance();
+        node = binary(node, r.kind, r.right);
     }
     return node;
 }
@@ -109,34 +156,31 @@ Parser::expr(Precedence prec)
 Ast *
 Parser::unary(Ast_Prefix_Kind kind)
 {
-    Ast *node, *arg;
-    node  = this->arena->alloc<Ast>();
-    arg   = this->expr(PREC_UNARY);
-    *node = Ast_Prefix{kind, arg};
-    return node;
+    // Consume the unary operator.
+    advance();
+    Ast *arg = expr(PREC_UNARY);
+    return Ast::make<Ast_Prefix>(m_arena, kind, arg);
 }
 
 Ast *
-Parser::arith(Ast *left, Ast_Infix_Kind kind, Precedence prec)
+Parser::binary(Ast *left, Ast_Infix_Kind kind, Precedence prec)
 {
-    Ast *right = this->expr(prec);
-    Ast *node  = this->arena->alloc<Ast>();
-    *node = Ast_Infix{kind, left, right};
-    printf("left=%p, right=%p\n", left, right);
-    return node;
+    Ast *right = expr(prec);
+    return Ast::make<Ast_Infix>(m_arena, kind, left, right);
 }
 
 Parser::Rule
 Parser::get_rule(Token_Kind kind)
 {
-    printf("Token_Kind(%i)\n", kind);
-#define LEFT(p, k, f)   {p, cast(Precedence)(cast(int)p + 1), k, f}
-#define RIGHT(p, k, f)  {p, p, k, f}
+#define LEFT(p, k)   {p, cast(Precedence)(cast(int)p + 1), k}
+#define RIGHT(p, k)  {p, p, k}
     switch (kind) {
-    case TK_PLUS:     return LEFT(PREC_TERM,   AST_ADD, &Parser::arith);
-    case TK_MINUS:    return LEFT(PREC_TERM,   AST_SUB, &Parser::arith);
-    case TK_ASTERISK: return LEFT(PREC_FACTOR, AST_MUL, &Parser::arith);
-    case TK_SLASH:    return LEFT(PREC_FACTOR, AST_DIV, &Parser::arith);
+    case TK_ASSIGN: return RIGHT(PREC_ASSIGN, AST_ASSIGN);
+    case TK_ADD:    return LEFT(PREC_TERM,    AST_ADD);
+    case TK_SUB:    return LEFT(PREC_TERM,    AST_SUB);
+    case TK_MUL:    return LEFT(PREC_FACTOR,  AST_MUL);
+    case TK_DIV:    return LEFT(PREC_FACTOR,  AST_DIV);
+    case TK_MOD:    return LEFT(PREC_FACTOR,  AST_MOD);
     default:
         break;
     }
@@ -145,60 +189,116 @@ Parser::get_rule(Token_Kind kind)
 #undef LEFT
 }
 
+static const char *
+ast_kind_name(Ast_Kind kind, u8 sub_kind)
+{
+    switch (kind) {
+    case AST_NONE:
+        break;
+    case AST_LITERAL:
+        switch (cast(Ast_Literal_Kind)sub_kind) {
+        case UNTYPED_NONE:  break;
+        case UNTYPED_INT:   return "Int";
+        case UNTYPED_FLOAT: return "Float";
+        }
+        break;
+    case AST_VARIABLE:
+        break;
+    case AST_PREFIX:
+        switch (cast(Ast_Prefix_Kind)sub_kind) {
+        case AST_DEREF:     return "deref";
+        case AST_NEG:       return "neg";
+        case AST_LEA:       return "lea";
+        case AST_NOT:       return "not";
+        case AST_BNOT:      return "bnot";
+        }
+    case AST_INFIX:
+        switch (cast(Ast_Infix_Kind)sub_kind) {
+        case AST_ASSIGN:    return "assign";
+        case AST_INDEX:     return "index";
+        case AST_ADD:       return "add";
+        case AST_SUB:       return "sub";
+        case AST_MUL:       return "mul";
+        case AST_DIV:       return "div";
+        case AST_MOD:       return "mod";
+        }
+    }
+    return nullptr;
+}
+
+void
+Parser::error(String msg)
+{
+#define X(s)    cast(int)len(s), raw_data(s)
+
+    String loc = m_lookahead.lexeme;
+    if (len(loc) == 0) {
+        loc = "<eof>"_s;
+    }
+
+    // We won't return the nodes anyway.
+    m_arena->free_all();
+
+    size_t cap = len(msg) + len(loc) + 16;
+    char  *s   = m_arena->alloc<char>(cap);
+    if (s == nullptr) {
+        throw ERR_OUT_OF_MEMORY;
+    }
+
+    int n = std::snprintf(s, cap, "%.*s at \"%.*s\"\n", X(msg), X(loc));
+    // Must be non-negative and non-zero (i.e. no errors occured).
+    assert(n > 0);
+    *m_message = {s, cast(size_t)n};
+
+    throw ERR_UNEXPECTED_TOKEN;
+
+#undef X
+}
+
 void
 Ast::dump(const int depth) const
 {
-    for (int i = 0; i < depth; i += 1) {
-        std::printf("\t");
+    using std::printf;
+    using std::fputs;
+    using std::fputc;
+
+    for (int i = 0; i < depth - 1; i += 1) {
+        fputs("|---", stdout);
     }
 
     if (depth > 0) {
-        printf("| ");
+        fputs("|-->", stdout);
     }
 
-    switch (this->kind()) {
+    switch (kind()) {
     case AST_NONE:
-    case AST_DECL:
         break;
     case AST_LITERAL:
     {
-        Untyped ut = this->literal();
-        switch (ut.kind()) {
+        Ast_Literal lit = literal();
+        switch (lit.kind()) {
         case UNTYPED_NONE:  break;
-        case UNTYPED_INT:   std::printf("Int(%llu)", ut.i());    break;
-        case UNTYPED_FLOAT: std::printf("Float(%.14g)", ut.f()); break;
+        case UNTYPED_INT:   printf("Int(%llu)", lit.i());    break;
+        case UNTYPED_FLOAT: printf("Float(%.14g)", lit.f()); break;
         }
         break;
     }
     case AST_VARIABLE:
         break;
     case AST_PREFIX:
-        switch (prefix()->kind) {
-        case AST_DEREF: std::printf("DEREF");     break;
-        case AST_NEG:   std::printf("NEGATE");    break;
-        case AST_ADDR:  std::printf("ADDRESSOF"); break;
-        }
-        std::printf("\n");
-        this->prefix()->arg->dump(depth + 1);
+        printf("%s\n", ast_kind_name(kind(), prefix()->kind));
+        prefix()->arg->dump(depth + 1);
         break;
     case AST_INFIX:
-        switch (this->infix()->kind) {
-        case AST_ASSIGN:  std::printf("ASSIGN"); break;
-        case AST_INDEX:   std::printf("INDEX");  break;
-        case AST_ADD:     std::printf("ADD");    break;
-        case AST_SUB:     std::printf("SUB");    break;
-        case AST_MUL:     std::printf("MUL");    break;
-        case AST_DIV:     std::printf("DIV");    break;
-        }
-        std::printf("\n");
-        this->infix()->left->dump(depth + 1);
+        printf("%s\n", ast_kind_name(kind(), infix()->kind));
+        infix()->left->dump(depth + 1);
         printf("\n");
-        this->infix()->right->dump(depth + 1);
+        infix()->right->dump(depth + 1);
         break;
     }
 
     if (depth == 0) {
-        std::printf("\n;");
+        printf("\n;");
     }
 }
 

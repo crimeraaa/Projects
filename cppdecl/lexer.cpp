@@ -23,118 +23,141 @@ char_is_ident(char c)
 Error
 Lexer::scan_token(Token *t)
 {
-    if (!this->skip_whitespace()) {
+    if (!skip_whitespace()) {
         return ERR_UNTERMINATED_COMMENT;
     }
 
-    this->start = this->current;
-    if (this->is_joever()) {
-        this->set_token(t, TK_EOF);
+    m_start = m_current;
+    if (is_joever()) {
+        set_token(t, TK_EOF);
         return ERR_EOF;
     }
 
-    char c = this->advance();
+    char c = advance();
     if (char_is_ident_start(c)) {
-        this->match_func(char_is_ident);
-        return this->try_keyword(t);
+        match_func(char_is_ident);
+        return try_keyword(t);
     } else if (char_is_decimal(c)) {
-        this->match_func(char_is_ident);
-        return this->try_number(t);
+        match_func(char_is_decimal);
+
+        // Only valid for fractional decimal values.
+        // Fractionals in other bases are unsupported.
+        bool is_frac = match('.');
+        if (is_frac) {
+            match_func(char_is_decimal);
+        }
+
+        // E.g. 1e9
+        if (match_either('e', 'E')) {
+            match_either('+', '-');
+            match_func(char_is_ident);
+            is_frac = true;
+        }
+
+        // Consume everything else just in case. Works for hex.
+        match_func(char_is_ident);
+        return try_number(t, is_frac);
     }
 
     switch (c) {
-    case '(': return this->set_token(t, TK_PAREN_OPEN);
-    case ')': return this->set_token(t, TK_PAREN_CLOSE);
-    case '[': return this->set_token(t, TK_SQUARE_OPEN);
-    case ']': return this->set_token(t, TK_SQUARE_CLOSE);
-    case '{': return this->set_token(t, TK_CURLY_OPEN);
-    case '}': return this->set_token(t, TK_CURLY_CLOSE);
-    case ':': return this->set_token2(t, c, TK_SCOPE, TK_COLON);
-    case '~': return this->set_token(t, TK_BNOT);
-    case '&': return this->set_token3(t, c, TK_AND, TK_BAND_ASSIGN,  TK_AMPERSAND);
-    case '|': return this->set_token3(t, c, TK_OR,  TK_BOR_ASSIGN,   TK_PIPE);
-    case '<': return this->set_token4(t, c, TK_SHL_ASSIGN, TK_SHL, TK_LEQ, TK_ANGLE_OPEN);
-    case '>': return this->set_token4(t, c, TK_SHR_ASSIGN, TK_SHR, TK_GEQ, TK_ANGLE_CLOSE);
-    case '!': return this->set_token2(t, '=', TK_NEQ, TK_NOT);
+    case '(': return set_token(t, TK_LPAREN);
+    case ')': return set_token(t, TK_RPAREN);
+    case '[': return set_token(t, TK_LSQUARE);
+    case ']': return set_token(t, TK_RSQUARE);
+    case '{': return set_token(t, TK_LCURLY);
+    case '}': return set_token(t, TK_RCURLY);
+    case ':': return set_token2(t, c, TK_SCOPE, TK_COLON);
+    case '~': return set_token(t, TK_BNOT);
+    case '&': return set_token3(t, c, TK_AND, TK_BAND_ASSIGN,  TK_BAND);
+    case '|': return set_token3(t, c, TK_OR,  TK_BOR_ASSIGN,   TK_BOR);
+    case '<': return set_token4(t, c, TK_SHL_ASSIGN, TK_SHL, TK_LEQ, TK_LT);
+    case '>': return set_token4(t, c, TK_SHR_ASSIGN, TK_SHR, TK_GEQ, TK_GT);
+    case '!': return set_token2(t, '=', TK_NEQ, TK_NOT);
     case '.': 
-        // No 2nd?
-        if (!this->match(c)) {
-            return this->set_token(t, TK_PERIOD);
+        // Have a 2nd period?
+        if (match(c)) {
+            // Have a 3rd period?
+            if (match(c)) {
+                return set_token(t, TK_ELLIPSIS);
+            }
+            // Got a ".."
+            break;
         }
-
-        // Had a 2nd, now have a 3rd?
-        if (this->match(c)) {
-            return this->set_token(t, TK_ELLIPSIS);
+        // Possibly a fractional decimal literal,
+        // e.g. .1234
+        else if (match_func(char_is_decimal) > 0){
+            return try_number(t, true);
         }
-        break;
+        return set_token(t, TK_PERIOD);
 
-    case '+': return this->set_token3(t, c, TK_INCR,  TK_ADD_ASSIGN,   TK_PLUS);
-    case '-': return this->set_token3(t, c, TK_DECR,  TK_SUB_ASSIGN,   TK_MINUS);
-    case '=': return this->set_token2(t, c, TK_EQ,    TK_ASSIGN);
-    case '*': return this->set_token2(t, '=', TK_MUL_ASSIGN, TK_ASTERISK);
-    case ',': return this->set_token(t, TK_COMMA);
-    case ';': return this->set_token(t, TK_SEMICOL);
+    case '+': return set_token3(t, c,   TK_INCR,       TK_ADD_ASSIGN, TK_ADD);
+    case '-': return set_token3(t, c,   TK_DECR,       TK_SUB_ASSIGN, TK_SUB);
+    case '=': return set_token2(t, c,   TK_EQ,         TK_ASSIGN);
+    case '*': return set_token2(t, '=', TK_MUL_ASSIGN, TK_MUL);
+    case '/': return set_token2(t, '=', TK_DIV_ASSIGN, TK_DIV);
+    case ',': return set_token(t, TK_COMMA);
+    case ';': return set_token(t, TK_SEMICOL);
 
     default:
         break;
     }
-    this->set_token(t, TK_NONE);
+    set_token(t, TK_NONE);
     return ERR_UNEXPECTED_TOKEN;
 }
 
 Error
 Lexer::set_token2(Token *t, char c, Token_Kind k1c, Token_Kind k1)
 {
-    return this->set_token(t, this->match(c) ? k1c : k1);
+    return set_token(t, match(c) ? k1c : k1);
 }
 
 Error
 Lexer::set_token3(Token *t, char c, Token_Kind k1c, Token_Kind k1eq,
                   Token_Kind k1)
 {
-    if (this->match(c)) {
-        return this->set_token(t, k1c);
+    if (match(c)) {
+        return set_token(t, k1c);
     }
-    return this->set_token2(t, '=', k1eq, k1);
+    return set_token2(t, '=', k1eq, k1);
 }
 
 Error
 Lexer::set_token4(Token *t, char c, Token_Kind k1ceq, Token_Kind k1c,
                   Token_Kind k1eq, Token_Kind k1)
 {
-    if (this->match(c)) {
-        return this->set_token2(t, '=', k1ceq, k1c);
+    if (match(c)) {
+        return set_token2(t, '=', k1ceq, k1c);
     }
-    return this->set_token2(t, '=', k1eq, k1);
+    return set_token2(t, '=', k1eq, k1);
 }
 
 bool
 Lexer::skip_whitespace()
 {
     for (;;) {
-        char c = this->peek();
+        char c = peek();
         switch (c) {
         case '\n':
-            this->line += 1;
-            this->col   = 0;
+            m_line += 1;
+            m_col   = 0;
             // fall through
         case '\r':
         case '\t':
         case ' ':
-            this->advance();
+            advance();
             break;
 
         case '/':
-            c = this->peek_next();
+            c = peek_next();
             switch (c) {
             case '/':
-                this->skip_line();
+                skip_line();
                 break;
             case '*':
-                this->advance();
-                this->advance();
+                advance();
+                advance();
                 // Otherwise, keep going.
-                if (!this->skip_multiline()) {
+                if (!skip_multiline()) {
                     return false;
                 }
                 break;
@@ -145,7 +168,7 @@ Lexer::skip_whitespace()
 
         case '#':
             // Skip preprocessing directives.
-            this->skip_line();
+            skip_line();
             break;
 
         default:
@@ -159,16 +182,16 @@ Lexer::skip_multiline()
 {
     // Not standard but I really don't care
     int nesting = 1;
-    while (!this->is_joever()) {
+    while (!is_joever()) {
         char curr, next;
 
-        curr = this->advance();
-        next = this->peek();
+        curr = advance();
+        next = peek();
         if (curr == '/' && next == '*') {
-            this->advance();
+            advance();
             nesting++;
         } else if (curr == '*' && next == '/') {
-            this->advance();
+            advance();
             if (--nesting == 0) {
                 return true;
             }
@@ -180,8 +203,8 @@ Lexer::skip_multiline()
 void
 Lexer::skip_line()
 {
-    while (!this->is_joever() && !this->match('\n')) {
-        this->advance();
+    while (!is_joever() && !match('\n')) {
+        advance();
     }
 }
 
@@ -189,7 +212,7 @@ static Error
 token_set_if(Token *t, Token_Kind kind, String keyword, size_t offset)
 {
     String s1 = slice_from(keyword, offset);
-    String s2 = slice_from(t->text, offset);
+    String s2 = slice_from(t->lexeme, offset);
 
     // If `len(s2)` overflows, nothing bad happens because `len(s1)` will
     // always be valid and both will compare unequal.
@@ -203,17 +226,17 @@ token_set_if(Token *t, Token_Kind kind, String keyword, size_t offset)
 #define X(kw, i) /*kind=*/TK_##kw, /*keyword=*/#kw##_s, /*offset=*/i
 
 Error
-Lexer::try_number(Token *t)
+Lexer::try_number(Token *t, bool is_frac)
 {
     char *endp;
     String s;
+    int base = 10;
 
-    this->set_token(t, TK_NONE);
-    s = t->text;
+    set_token(t, TK_NONE);
+    s = t->lexeme;
 
     // Maybe a prefixed integer?
-    if (len(s) >= 2 && s[0] == '0') {
-        int base = -1;
+    if (len(s) > 2 && s[0] == '0') {
         switch (s[1]) {
         case 'b': case 'B': base = 2;  break;
         case 'd': case 'D': base = 10; break;
@@ -222,26 +245,23 @@ Lexer::try_number(Token *t)
         default:
             break;
         }
-
-        if (base != -1) {
-            t->kind = TK_LITERAL_INT;
-            t->data = cast(u64)strtoul(&s[2], &endp, base);
-            return (endp == s.end()) ? ERR_NONE : ERR_INVALID_NUMBER;
-        }
     }
 
-    // TODO: Will likely fail for large unprefixed integers, e.g. UINT64_MAX
-    //       Maybe we should try parsing integers first?
-    t->kind = TK_LITERAL_FLOAT;
-    t->data = strtod(raw_data(s), &endp);
+    if (is_frac) {
+        t->kind = TK_LITERAL_FLOAT;
+        t->data = Ast_Literal(strtod(raw_data(s), &endp));
+    } else {
+        t->kind = TK_LITERAL_INT;
+        t->data = Ast_Literal(cast(u64)strtoul(raw_data(s), &endp, base));
+    }
     return (endp == s.end()) ? ERR_NONE : ERR_INVALID_NUMBER;
 }
 
 Error
 Lexer::try_keyword(Token *t)
 {
-    this->set_token(t, TK_IDENT);
-    String s = t->text;
+    set_token(t, TK_IDENT);
+    String s = t->lexeme;
     if (!(2 <= len(s) && len(s) <= 8)) {
         return ERR_NONE;
     }
@@ -353,58 +373,64 @@ Lexer::try_keyword(Token *t)
 char
 Lexer::peek() const
 {
-    return *this->current;
+    return *m_current;
 }
 
 char
 Lexer::peek_next() const
 {
-    if (this->is_joever()) {
+    if (is_joever()) {
         return 0;
     }
-    return *(this->current + 1);
+    return *(m_current + 1);
 }
 
 bool
 Lexer::is_joever() const
 {
-    return this->current >= this->input.end();
+    return m_current >= m_input.end();
 }
 
 
 bool
 Lexer::check(char c) const
 {
-    return this->peek() == c;
+    return peek() == c;
 }
 
 char
 Lexer::advance()
 {
-    this->col++;
-    return *this->current++;
+    m_col++;
+    return *m_current++;
 }
 
 bool
 Lexer::match(char c)
 {
-    bool found = this->check(c);
+    bool found = check(c);
     if (found) {
-        this->advance();
+        advance();
     }
     return found;
+}
+
+bool
+Lexer::match_either(char c1, char c2)
+{
+    return match(c1) || match(c2);
 }
 
 int
 Lexer::match_func(bool (*predicate)(char c))
 {
     int count = 0;
-    while (!this->is_joever()) {
-        char c = this->peek();
+    while (!is_joever()) {
+        char c = peek();
         if (!predicate(c)) {
             break;
         }
-        this->advance();
+        advance();
         count += 1;
     }
     return count;
@@ -413,22 +439,22 @@ Lexer::match_func(bool (*predicate)(char c))
 Error
 Lexer::expect(char c)
 {
-    return this->match(c) ? ERR_NONE : ERR_UNEXPECTED_TOKEN;
+    return match(c) ? ERR_NONE : ERR_UNEXPECTED_TOKEN;
 }
 
 String
 Lexer::get_text() const
 {
-    return {this->start, cast(size_t)(this->current - this->start)};
+    return {m_start, cast(size_t)(m_current - m_start)};
 }
 
 Error
 Lexer::set_token(Token *t, Token_Kind k) const
 {
-    t->kind = k;
-    t->text = this->get_text();
-    t->line = this->line;
-    t->col  = this->col - cast(int)len(t->text);
+    t->kind   = k;
+    t->lexeme = get_text();
+    t->line   = m_line;
+    t->col    = m_col - cast(int)len(t->lexeme);
     return ERR_NONE;
 }
 

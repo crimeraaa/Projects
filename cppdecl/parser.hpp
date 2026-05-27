@@ -3,58 +3,35 @@
 #include "lexer.hpp"
 #include "arena.hpp"
 
-struct Ast;
-
-enum Ast_Kind {
-    AST_NONE,
-    AST_DECL,
-
-    // Expressions: Terminals
-    AST_LITERAL,
-    AST_VARIABLE,
-
-    // Expressions: Non-terminals
-    AST_PREFIX,
-    AST_INFIX,
-};
-
-enum Ast_Prefix_Kind {
-    AST_DEREF,  // '*' expr
-    AST_NEG,    // '-' expr
-    AST_ADDR,   // '&' expr
-};
-
-enum Ast_Infix_Kind : u8 {
-    AST_ASSIGN, // expr '=' expr
-    AST_INDEX,  // expr '[' expr ']'
-    AST_ADD,    // expr '+' expr
-    AST_SUB,    // expr '-' expr
-    AST_MUL,    // expr '*' expr
-    AST_DIV,    // expr '/' expr
-};
-
+// @link https://en.cppreference.com/c/language/operator_precedence
 enum Precedence : u8 {
     PREC_NONE,
-    PREC_TERM,   // + -
-    PREC_FACTOR, // * / %
-    PREC_CALL,   // function calls
-    PREC_UNARY,  // - * &
+    PREC_ASSIGN,    // = += -= *= /= %= <<= >>= &= ^= |=
+    PREC_OR,        // ||
+    PREC_AND,       // &&
+    PREC_BSHIFT,    // << >>
+    PREC_TERM,      // + -
+    PREC_FACTOR,    // * / %
+    PREC_UNARY,     // - * & function calls
 };
 
 struct Parser {
-    Lexer lexer;
-    Token consumed, lookahead;
-    Ast *root;
-
+private:
+    Lexer m_lexer;
+    Token m_consumed, m_lookahead;
     // Used to allocate AST nodes.
-    Arena *arena;
+    Arena *m_arena;
 
+    // Used to indicate to the coller what error occured.
+    String *m_message;
+
+public:
     Parser(String input, Arena *arena)
-        : lexer{Lexer(input)}
-        , consumed{}
-        , lookahead{}
-        , root{nullptr}
-        , arena{arena}
+        : m_lexer{Lexer(input)}
+        , m_consumed{}
+        , m_lookahead{}
+        , m_arena{arena}
+        , m_message{nullptr}
     {}
 
     // program ::= defs ;
@@ -64,11 +41,23 @@ struct Parser {
     //  ;
     //
     Ast *
-    program();
+    program(String *out);
 
 private:
-    Error
+    void
     advance();
+
+    bool
+    check(Token_Kind kind) const;
+
+    bool
+    match(Token_Kind kind);
+
+    void
+    expect(Token_Kind kind);
+
+    void
+    error(String message);
 
     // def ::= func
     //  | top-level-stmt ';'
@@ -160,100 +149,35 @@ private:
     // one_nine ::= [1-9]
     // digit ::= [0-9]
     Ast *
-    expr(Precedence prec = PREC_NONE);
+    expr(Precedence prec = PREC_ASSIGN);
 
-    // unary ::= unary_op expr
+    // unary ::= UNOP expr
     //  ;
     //
-    // unary_op ::= '-'
+    // UNOP ::= '-'
     //  | '*'
     //  | '&'
     //  ;
     Ast *
     unary(Ast_Prefix_Kind kind);
 
+    // binary ::= expr BINOP expr
+    //  ;
+    //
+    // BINOP ::= '+'
+    //  | '-'
+    //  | '*'
+    //  | '/'
+    //  ;
     Ast *
-    arith(Ast *left, Ast_Infix_Kind kind, Precedence prec);
+    binary(Ast *left, Ast_Infix_Kind kind, Precedence prec);
 
     struct Rule {
         Precedence left, right;
         Ast_Infix_Kind kind;
-        Ast *(Parser::*infix)(Ast *left, Ast_Infix_Kind kind, Precedence prec);
     };
 
     static Rule
     get_rule(Token_Kind kind);
 };
 
-
-struct Ast_Prefix {
-    Ast_Prefix_Kind kind;
-    Ast *arg;
-};
-
-struct Ast_Infix {
-    Ast_Infix_Kind kind;
-    Ast *left;
-    Ast *right;
-};
-
-struct Ast {
-private:
-    Ast_Kind m_kind;
-    union {
-        Ast_Prefix  m_prefix;
-        Ast_Infix   m_infix;
-        Untyped     m_literal;
-    };
-
-public:
-    Ast()
-        : m_kind{AST_NONE}
-        , m_literal{}
-    {}
-
-    Ast(Untyped data)
-        : m_kind{AST_LITERAL}
-        , m_literal{data}
-    {}
-
-    Ast(Ast_Prefix prefix)
-        : m_kind{AST_PREFIX}
-        , m_prefix{prefix}
-    {}
-
-    Ast(Ast_Infix infix)
-        : m_kind{AST_INFIX}
-        , m_infix{infix}
-    {}
-
-    Ast_Kind
-    kind() const
-    {
-        return this->m_kind;
-    }
-
-    Untyped
-    literal() const
-    {
-        assert(this->m_kind == AST_LITERAL);
-        return this->m_literal;
-    }
-
-    const Ast_Prefix *
-    prefix() const
-    {
-        assert(this->m_kind == AST_PREFIX);
-        return &this->m_prefix;
-    }
-
-    const Ast_Infix *
-    infix() const
-    {
-        assert(this->m_kind == AST_INFIX);
-        return &this->m_infix;
-    }
-
-    void
-    dump(const int depth = 0) const;
-};

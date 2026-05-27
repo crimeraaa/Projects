@@ -17,11 +17,11 @@ read_line(Slice<char> buffer, std::FILE *stream)
 }
 
 static bool
-got_line(const char *prompt, Slice<char> buffer, String &line)
+got_line(const char *prompt, Slice<char> buffer, String *line)
 {
     std::fputs(prompt, stdout);
-    line = read_line(buffer, stdin);
-    if (line.data == nullptr) {
+    *line = read_line(buffer, stdin);
+    if (line->data == nullptr) {
         std::fputc('\n', stdout);
         return false;
     }
@@ -31,18 +31,24 @@ got_line(const char *prompt, Slice<char> buffer, String &line)
 int
 main()
 {
-    char arena_buf[256], input_buf[256];
+    static char arena_buf[4096];
     Arena arena({arena_buf, sizeof(arena_buf)});
 
     for (;;) {
         String line;
-        if (!got_line("cppdecl>", {input_buf, sizeof(input_buf)}, line)) {
+        static char input_buf[64];
+        if (!got_line("cppdecl>", {input_buf, sizeof(input_buf)}, &line)) {
             break;
         }
+        String err_msg;
         Parser parser(line, &arena);
-        Ast *program = parser.program();
-        program->dump();
-        printf("\n");
+        Ast *root = parser.program(&err_msg);
+        if (root == nullptr) {
+            printf("[ERROR] %s\n", raw_data(err_msg));
+        } else {
+            root->dump();
+            printf("\n");
+        }
         arena.free_all();
     }
     return 0;
