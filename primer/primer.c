@@ -1,110 +1,50 @@
-#include <assert.h> // assert
-#include <limits.h> // CHAR_BIT
-#include <stdbool.h> // bool
-#include <stdint.h> // u?int[\d]+_t
-#include <stdio.h>  // printf family
-#include <stdlib.h> // malloc, realloc, free
-#include <string.h> // strlen
+// standard
+#include <inttypes.h> // PRI* macros
 
-#define BIT_SIZE(T)     (sizeof(T) * CHAR_BIT)
-#define cast(T)         (T)
-#define unused(expr)    cast(void)(expr)
+// local
+#include "primer.h"
+#include "list.h"
 
-typedef uint8_t  u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
+// Modulo where `y`, the divisor, is a power of 2.
+#define mod2(x, y)  ((x) & ((y) - 1))
 
-// Ordered in such a way that getting the complements is as easy
-// as doing a bitwise XOR on all limbs.
-enum Base {
-    BASE_A, // 0b00
-    BASE_G, // 0b01
-    BASE_C, // 0b10
-    BASE_T, // 0b11
-};
+static void
+string_list_reserve(String_List *list, size_t new_cap)
+{
+    list_reserve(String, list, new_cap);
+}
 
-typedef struct String String;
-struct String {
-    const char *data;
-    size_t len;
-};
+static void
+strand_list_reserve(Strand_List *list, size_t new_cap)
+{
+    list_reserve(Strand, list, new_cap);
+}
 
-// A 1D array of bases. It is actually a bit array, so the bases are
-// very tightly packed.
-typedef struct Strand Strand;
-struct Strand {
-    // Each limb can fit (`bit_size / 2`) bases.
-    // I.e. a 32-bit int can fit 16 bases.
-    //
-    // A DNA sequence, with length in range [[1,32]], uses 1 limb.
-    // A DNA sequence, with length in range [[33,64]], uses 2 limbs.
-    u32 *limbs;
+// Debug only
+static const char *
+bin(u32 value)
+{
+    static char buf[BIT_SIZE(value) + 1];
+    u32 i, n, bit, start, stop;
 
-    // The number of limbs we allocated for `limbs`.
-    u64 limb_count;
-
-    // The longest genome known as of 2026 is a fern, Tmesipteris oblanceolate.
-    // It has 160 billion base pairs so this must be of a suitably-sized type.
-    //
-    // @link https://www.science.org/content/article/unassuming-fern-has-largest-known-genome-and-no-one-knows-why
-    u64 base_count;
-};
-
-#define LIST_FIELDS(T)                                                         \
-    T *data;                                                                   \
-    size_t len, cap                                                            \
-
-typedef struct Strand_List Strand_List;
-struct String_List {
-    LIST_FIELDS(String);
-};
-
-typedef struct Strand_List Strand_List;
-struct Strand_List {
-    LIST_FIELDS(Strand);
-};
-
-// Pseudo-methods
-#define list_init(list)                                                        \
-do {                                                                           \
-    (list)->data = NULL;                                                       \
-    (list)->len  = 0;                                                          \
-    (list)->cap  = 0;                                                          \
-} while (0)
-
-// Reserve `new_cap` number of elements.
-// `list->cap` is set but not `list->len`.
-#define list_reserve(T, list, new_cap)                                         \
-do {                                                                           \
-    size_t _new_cap = (new_cap);                                               \
-    T *_new_data = realloc((list)->data, _new_cap);                            \
-    if (_new_data == NULL) {                                                   \
-        assert(false && "Buy more RAM lol");                                   \
-    }                                                                          \
-    (list)->data = _new_data;                                                  \
-    (list)->cap  = _new_cap;                                                   \
-} while (0)
-
-// Write `item` to the first free slot in the list, resizing it if needed.
-#define list_append(T, list, item)                                             \
-do {                                                                           \
-    size_t _cap = (list)->cap;                                                 \
-    if ((list)->len + 1 > _cap) {                                              \
-        list_reserve(T, list, (_cap > 8) ? _cap * 2 : 8);                      \
-    }                                                                          \
-    (list)->data[(list)->len++] = item;                                        \
-} while (0)
-
-#define list_delete(list)                                                      \
-do {                                                                           \
-    free((list)->data);                                                        \
-} while (0)
+    // Print MSB to LSB.
+    start = 0;
+    stop  = sizeof(buf) - 1;
+    for (n = start; n < stop; n += 1) {
+        // We want to put LSB at the last non-nul index.
+        // As we iterate, we effectively go backwards.
+        i   = stop - 1 - n;
+        bit = value >> n;
+        buf[i] = (bit & 1) ? '1' : '0';
+    }
+    return buf;
+}
 
 static void
 strand_set(Strand *s, u64 index, enum Base base)
 {
-    const u64 bits = BIT_SIZE(s->limbs[0]);
+    LIMB_TYPE *limb_ptr, bit_index, mask;
+    u64 limb_index;
 
     // Get 0-based index of the limb which contains `index`.
     // Note that unsigned integer division always returns the floor.
@@ -112,7 +52,7 @@ strand_set(Strand *s, u64 index, enum Base base)
     // I.e.  indexes in the range [0,32)  give us limb index 0,
     // while indexes in the range [32,64) give us limb index 1,
     // and   indexes in the range [64,96) give us limb index 2.
-    u64 limb_index = index / bits;
+    limb_index = index / LIMB_TYPE_BITS;
 
     // Get the index of the bit within the limb we want to manipulate.
     // Note that since bases are 2-bits, our bit indexes are likewise
@@ -121,11 +61,16 @@ strand_set(Strand *s, u64 index, enum Base base)
     // I.e. index == 0 should give us 0,
     // but  index == 1 should give us 2 since the 0th base occupies [0, 1].
     // and  index == 3 should give us 4 since indexes [0, 3] are used.
-    u32 bit_index = cast(u32)((index % bits) + (index % 2));
-    u32 *limb = &s->limbs[limb_index];
-    unused(base);
-    unused(bit_index);
-    unused(limb);
+    bit_index  = cast(u32)(mod2(index, LIMB_TYPE_BITS) + mod2(index, BASE_BITS));
+    limb_ptr   = &s->limbs[limb_index];
+
+    // We'll need to clear out 2-bit value at this bit index before
+    // setting in the new value given by `base`.
+    mask      = ~(BASE_MAX << bit_index);
+    *limb_ptr = (*limb_ptr & mask) | (cast(LIMB_TYPE)base << bit_index);
+
+    printf("[%u, %u] = %u // 0b%s\n",
+           bit_index, bit_index + 1, *limb_ptr, bin(*limb_ptr));
 }
 
 // Ignore all non-base characters.
@@ -163,11 +108,10 @@ strand_make(String dna)
     //  `q = 1 + ((x - 1) / y)`
     u64 q, x, y;
     x = s.base_count;
-    y = BIT_SIZE(s.limbs[0]);
+    y = LIMB_TYPE_BITS;
     q = (x + y - 1) / y;
     s.limb_count = q;
-
-    s.limbs = cast(u32 *)calloc(s.limb_count, sizeof(s.limbs[0]));
+    s.limbs      = cast(LIMB_TYPE *)calloc(s.limb_count, sizeof(s.limbs[0]));
     if (s.limbs == NULL) {
         assert(false && "Buy more RAM lol");
     }
@@ -183,6 +127,45 @@ strand_make(String dna)
     }
     return s;
 }
+
+static void
+limb_print(LIMB_TYPE limb, LIMB_TYPE bit_count)
+{
+    printf("\t\t%" PRIu32 ", // 0b%s, \"", limb, bin(limb));
+    for (LIMB_TYPE bit = 0; bit < bit_count; bit += BASE_BITS) {
+        enum Base base = cast(enum Base)((limb >> bit) & BASE_MAX);
+        putchar(BASE_CHARS[base]);
+    }
+    printf("\"\n");
+}
+
+static void
+strand_print(const Strand *s)
+{
+    LIMB_TYPE limb, count;
+
+    // Avoid infinite loops from overflow in subtraction.
+    // We should never have strands with limb counts of 0 anyway.
+    assert(s->limb_count > 0);
+    printf("Strand{\n"
+           "\tlimbs={\n");
+    for (size_t i = 0, n = s->limb_count - 1; i < n; i += 1) {
+        limb = s->limbs[i];
+        limb_print(limb, LIMB_TYPE_BITS);
+    }
+
+    // Last limb is a special case as not all its bits may be used.
+    // Modulo returns the number of bits used for the last limb.
+    limb  = s->limbs[s->limb_count - 1];
+    count = cast(LIMB_TYPE)mod2(s->base_count, LIMB_TYPE_BITS);
+    limb_print(limb, count * BASE_BITS);
+    printf("\t},\n"
+           "\tlimb_count=%" PRIu64 ",\n"
+           "\tbase_count=%" PRIu64 ",\n"
+           "}\n",
+           s->limb_count, s->base_count);
+}
+
 
 static void
 strand_destroy(Strand *s)
@@ -211,6 +194,7 @@ main(int argc, char *argv[])
         return 1;
     }
     Strand s = strand_make(dna);
+    strand_print(&s);
     strand_destroy(&s);
     return 0;
 }
