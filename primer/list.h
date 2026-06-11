@@ -1,32 +1,32 @@
 #ifndef PRIMER_LIST_H
 #define PRIMER_LIST_H
 
-#include "primer.h"
-
 #define LIST_FIELDS(T)                                                         \
     T *data;                                                                   \
     size_t len, cap                                                            \
 
-typedef struct String_List String_List;
-struct String_List {
-    LIST_FIELDS(String);
-};
-
-typedef struct Strand_List Strand_List;
-struct Strand_List {
-    LIST_FIELDS(Strand);
-};
-
 // Pseudo-methods
 
-// Reserve `new_cap` number of elements.
-// `list->cap` is set but not `list->len`.
+#define list_resize(T, list, new_len)                                          \
+do {                                                                           \
+    size_t _new_len = (new_len);                                               \
+    if (_new_len > (list)->cap) {                                              \
+        list_reserve(T, list, (_new_len > 8) ? _new_len * 2 : 8);              \
+    }                                                                          \
+    (list)->len = _new_len;                                                    \
+} while (0)
+
+// Reserve `new_cap` number of elements, potentially setting the cap.
 #define list_reserve(T, list, new_cap)                                         \
 do {                                                                           \
+    size_t _old_cap = (list)->cap;                                             \
     size_t _new_cap = (new_cap);                                               \
-    T *_new_data = realloc((list)->data, _new_cap);                            \
+    T *_new_data = cast(T *)realloc((list)->data, sizeof(T) * _new_cap);       \
     if (_new_data == NULL) {                                                   \
         assert(false && "Buy more RAM lol");                                   \
+    }                                                                          \
+    if (_new_cap > _old_cap) {                                                 \
+        memset(&_new_data[_old_cap], 0, sizeof(T) * (_new_cap - _old_cap));    \
     }                                                                          \
     (list)->data = _new_data;                                                  \
     (list)->cap  = _new_cap;                                                   \
