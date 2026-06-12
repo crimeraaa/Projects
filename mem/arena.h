@@ -24,7 +24,8 @@ mem_arena_alloc_bytes_align(mem_Arena *a, size_t size, size_t align);
     arena_alloc_bytes_align(a, size, MEM_DEFAULT_ALIGN)
 
 void *
-mem_arena_resize_bytes_align(mem_Arena *a, void *memory, size_t old_size, size_t new_size, size_t align);
+mem_arena_resize_bytes_align(mem_Arena *a, void *memory, size_t old_size,
+                             size_t new_size, size_t align);
 
 #define arena_resize_bytes(a, memory, old_size, new_size) \
     arena_resize_bytes_align(a, memory, old_size, new_size, MEM_DEFAULT_ALIGN)
@@ -38,14 +39,9 @@ mem_arena_free_all(mem_Arena *a);
 #include <string.h> // memset
 
 static void *
-mem_arena_allocator_fn(
-    mem_Allocator_Error *err,
-    mem_Allocator_Mode mode,
-    void *memory,
-    size_t old_size,
-    size_t new_size,
-    size_t align,
-    void *user_data)
+mem_arena_allocator_fn(void *user_data, mem_Allocator_Mode mode,
+                       void *memory, size_t old_size, size_t new_size,
+                       size_t align, mem_Allocator_Error *err)
 {
     mem_Arena *a = cast(mem_Arena *)user_data;
     void *new_memory = NULL;
@@ -133,23 +129,15 @@ mem_arena_alloc_bytes_align(mem_Arena *a, size_t size, size_t align)
 
     // Get the would-be relative index of the allocation in the buffer.
     offset = cast(size_t)(address - cast(uintptr_t)a->buffer);
-
-    // We can fit the (now-aligned) allocation?
     next_offset = offset + size;
-    if (next_offset > a->cap) {
-        void *pointer = &a->buffer[offset];
-        return pointer;
-    }
-
-    // Otherwise, no more backing memory remaining.
-    return NULL;
+    return (next_offset < a->cap) ? &a->buffer[offset] : NULL;
 }
 
 void *
-mem_arena_resize_bytes_align(mem_Arena *a, void *memory, size_t old_size, size_t new_size, size_t align)
+mem_arena_resize_bytes_align(mem_Arena *a, void *memory, size_t old_size,
+                             size_t new_size, size_t align)
 {
-    unsigned char *old_memory;
-    old_memory = cast(unsigned char *)memory;
+    unsigned char *old_memory = cast(unsigned char *)memory;
 
     // Requesting for a new block of memory?
     if (old_memory == NULL && old_size == 0) {

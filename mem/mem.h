@@ -3,7 +3,9 @@
 
 #include "../common.h"
 
+#ifndef MEM_DEFAULT_ALIGN
 #define MEM_DEFAULT_ALIGN   sizeof(void *)
+#endif // !MEM_DEFAULT_ALIGN
 
 enum mem_Allocator_Mode {
     MEM_ALLOC,
@@ -23,17 +25,11 @@ enum mem_Allocator_Error {
 
 typedef enum mem_Allocator_Mode  mem_Allocator_Mode;
 typedef enum mem_Allocator_Error mem_Allocator_Error;
+typedef void *(*mem_Allocator_Fn)(void *user_data, mem_Allocator_Mode mode,
+                                  void *memory, size_t old_size, size_t new_size,
+                                  size_t align, mem_Allocator_Error *err);
 
-typedef void *(*mem_Allocator_Fn)(
-    void *user_data,
-    mem_Allocator_Mode mode,
-    void *memory,
-    size_t old_size,
-    size_t new_size,
-    size_t align,
-    mem_Allocator_Error *err
-);
-
+// C-style callback structure with context.
 typedef struct mem_Allocator mem_Allocator;
 struct mem_Allocator {
     mem_Allocator_Fn fn;

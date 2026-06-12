@@ -4,7 +4,6 @@
 // standard
 #include <assert.h> // assert
 #include <limits.h> // CHAR_BIT
-#include <stdbool.h> // bool
 #include <stdint.h> // u?int[\d]+_t
 #include <stdio.h>  // printf family
 #include <stdlib.h> // malloc, realloc, free
@@ -14,14 +13,11 @@
 #include "list.h"
 
 #define BIT_SIZE(T)     (sizeof(T) * CHAR_BIT)
-#define cast(T)         (T)
-#define unused(expr)    cast(void)(expr)
 
 typedef uint8_t  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
-
 
 // Ordered in such a way that getting the complements is as easy
 // as doing a bitwise XOR on all limbs.
@@ -42,22 +38,26 @@ struct String {
     size_t len;
 };
 
-#define LIMB_TYPE       u32
-#define LIMB_TYPE_SIZE  sizeof(LIMB_TYPE)
-#define LIMB_TYPE_BITS  BIT_SIZE(LIMB_TYPE)
-#define LIMB_TYPE_BASES (LIMB_TYPE_BITS / BASE_BITS)
+#define LIMB_TYPE   u32
+#define LIMB_SIZE   sizeof(LIMB_TYPE)
+#define LIMB_BITS   BIT_SIZE(LIMB_TYPE)
+#define LIMB_BASES  (LIMB_BITS / BASE_BITS)
 
 // A 1D array of bases. It is actually a bit array, so the bases are
 // very tightly packed.
 typedef struct Strand Strand;
 struct Strand {
-    // Each limb can fit (`bit_size / 2`) bases.
+    // Each limb can fit (`bit_size / BASE_BITS`) bases.
     // I.e. a 32-bit int can fit 16 bases.
     //
     // A DNA sequence, with length in range [[1,32]], uses 1 limb.
     // A DNA sequence, with length in range [[33,64]], uses 2 limbs.
-    struct {LIST_FIELDS(LIMB_TYPE);} limbs;
+    LIST_FIELDS(LIMB_TYPE);
 
+    // Since each limb can fit multiple bases, the actual base count must
+    // be tracked separately. This is necessary especially in the case of
+    // the last limb which may not use all its bits.
+    //
     // The longest genome known as of 2026 is a fern, Tmesipteris oblanceolate.
     // It has 160 billion base pairs so this must be of a suitably-sized type.
     //
@@ -65,14 +65,5 @@ struct Strand {
     u64 base_count;
 };
 
-typedef struct String_List String_List;
-struct String_List {
-    LIST_FIELDS(String);
-};
-
-typedef struct Strand_List Strand_List;
-struct Strand_List {
-    LIST_FIELDS(Strand);
-};
 
 #endif // !PRIMER_H

@@ -325,196 +325,196 @@ static u8
 BEQ(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 BIT(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 BMI(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 BNE(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 BPL(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 BRK(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 BVC(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 BVS(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 CLC(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 CLD(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 CLI(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 CLV(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 CMP(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 CPX(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 CPY(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 DEC(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 DEX(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 DEY(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 EOR(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 INC(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 INX(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 INY(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 JMP(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 JSR(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 LDA(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 LDX(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 LDY(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 LSR(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
@@ -528,154 +528,154 @@ static u8
 ORA(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 PHA(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 PHP(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 PLA(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 PLP(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 ROL(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 ROR(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 RTI(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 RTS(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 SBC(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 SEC(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 SED(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 SEI(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 STA(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 STX(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 STY(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 TAX(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 TAY(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 TSX(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 TXA(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 TXS(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 static u8
 TYA(Cpu *cpu)
 {
     unused(cpu);
-	return 0;
+    return 0;
 }
 
 // Invalid opcode!
