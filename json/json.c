@@ -198,9 +198,12 @@ json_mem_error(mem_Allocator_Error err)
 }
 
 extern json_Error
-json_string_new(size_t write_len, const char *text, size_t text_len,
-                mem_Allocator alloc, json_String **ps)
-{
+json_string_new(
+    size_t write_len,
+    const char *text, size_t text_len,
+    mem_Allocator alloc,
+    json_String **ps
+) {
     json_String *s;
     size_t size;
     char *data, *writer;
@@ -216,8 +219,11 @@ json_string_new(size_t write_len, const char *text, size_t text_len,
         return json_mem_error(err);
     }
 
-    JSON_LOGFLN("NEW  ", "(json_String *)%p | len=%zu, size=%zu",
-                cast(void *)s, write_len, size);
+    JSON_LOGFLN(
+        "NEW  ",
+        "(json_String *)%p | len=%zu, size=%zu",
+        cast(void *)s, write_len, size
+    );
 
     s->len = write_len;
     data   = json_string_data(s, NULL);
@@ -288,9 +294,11 @@ json_string_data(json_String *s, size_t *n)
 }
 
 static bool
-json_string_equals_lstring(json_String *a, const char *s, size_t n,
-                           uint32_t hash)
-{
+json_string_equals_lstring(
+    json_String *a,
+    const char *s, size_t n,
+    uint32_t hash
+) {
     // Quick comparison could be equal?
     size_t a_len;
     const char *a_data = json_string_data(a, &a_len);
@@ -322,8 +330,14 @@ json_array_append(json_Array *a, json_Value v, mem_Allocator alloc)
             new_cap = 8;
         }
 
-        new_data = mem_resize_array(json_Value, alloc, a->data, old_cap,
-                                    new_cap, &err);
+        new_data = mem_resize_array(
+            json_Value,
+            alloc,
+            a->data,
+            old_cap, new_cap,
+            &err
+        );
+
         if (new_data == NULL) {
             return json_mem_error(err);
         }
@@ -336,9 +350,10 @@ json_array_append(json_Array *a, json_Value v, mem_Allocator alloc)
 }
 
 static json_Member *
-json_members_get_ptr(json_Member *data, size_t cap, const char *k, size_t n,
-                     uint32_t hash)
-{
+json_members_get_ptr(
+    json_Member *data, size_t cap,
+    const char *k, size_t n, uint32_t hash
+) {
     json_Member *prev;
     size_t wrap;
 
@@ -419,16 +434,23 @@ json_object_resize(json_Object *o, size_t new_cap, mem_Allocator alloc)
 
 
 extern json_Error
-json_object_insert(json_Object *o, const char *k, json_Value v, mem_Allocator alloc)
-{
+json_object_insert(
+    json_Object *o,
+    const char *k,
+    json_Value v,
+    mem_Allocator alloc
+) {
     size_t n = strlen(k);
     return json_object_insert_lstring(o, k, n, v, alloc);
 }
 
 extern json_Error
-json_object_insert_lstring(json_Object *o, const char *k, size_t n,
-                           json_Value v, mem_Allocator alloc)
-{
+json_object_insert_lstring(
+    json_Object *o,
+    const char *k, size_t n,
+    json_Value v,
+    mem_Allocator alloc
+) {
     json_String *s;
     json_Error err;
 
@@ -445,9 +467,12 @@ json_object_insert_lstring(json_Object *o, const char *k, size_t n,
 }
 
 extern json_Error
-json_object_insert_jstring(json_Object *o, json_String *k, json_Value v,
-                           mem_Allocator alloc)
-{
+json_object_insert_jstring(
+    json_Object *o,
+    json_String *k,
+    json_Value v,
+    mem_Allocator alloc
+) {
     json_Member *memb;
     const char *s;
     size_t n;

@@ -193,8 +193,12 @@ extern void
 json_destroy_value(json_Value value, mem_Allocator alloc);
 
 extern json_Error
-json_string_new(size_t write_len, const char *text, size_t text_len,
-                mem_Allocator alloc, json_String **ps);
+json_string_new(
+    size_t write_len,
+    const char *text, size_t text_len,
+    mem_Allocator alloc,
+    json_String **ps
+);
 
 extern char *
 json_string_data(json_String *s, size_t *n);
@@ -209,16 +213,28 @@ extern json_Value
 json_object_get_lstring(json_Object *o, const char *k, size_t n);
 
 extern json_Error
-json_object_insert(json_Object *o, const char *k, json_Value v,
-                   mem_Allocator alloc);
+json_object_insert(
+    json_Object *o,
+    const char *k,
+    json_Value v,
+    mem_Allocator alloc
+);
 
 extern json_Error
-json_object_insert_lstring(json_Object *o, const char *k, size_t n,
-                           json_Value v, mem_Allocator alloc);
+json_object_insert_lstring(
+    json_Object *o,
+    const char *k, size_t n,
+    json_Value v,
+    mem_Allocator alloc
+);
 
 extern json_Error
-json_object_insert_jstring(json_Object *o, json_String *k, json_Value v,
-                           mem_Allocator alloc);
+json_object_insert_jstring(
+    json_Object *o,
+    json_String *k,
+    json_Value v,
+    mem_Allocator alloc
+);
 
 extern void
 json_print_value(json_Value v);

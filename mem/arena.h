@@ -20,51 +20,64 @@ mem_arena_init(mem_Arena *a, void *buffer, size_t cap);
 void *
 mem_arena_alloc_bytes_align(mem_Arena *a, size_t size, size_t align);
 
-#define arena_alloc_bytes(a, size) \
-    arena_alloc_bytes_align(a, size, MEM_DEFAULT_ALIGN)
-
 void *
-mem_arena_resize_bytes_align(mem_Arena *a, void *memory, size_t old_size,
-                             size_t new_size, size_t align);
-
-#define arena_resize_bytes(a, memory, old_size, new_size) \
-    arena_resize_bytes_align(a, memory, old_size, new_size, MEM_DEFAULT_ALIGN)
+mem_arena_resize_bytes_align(
+    mem_Arena *a,
+    void *memory, size_t old_size,
+    size_t new_size,
+    size_t align
+);
 
 void
 mem_arena_free_all(mem_Arena *a);
 
+// #define MEM_ARENA_IMPLEMENTATION
 #ifdef MEM_ARENA_IMPLEMENTATION
 
 #include <stdint.h> // uintptr_t
 #include <string.h> // memset
 
 static void *
-mem_arena_allocator_fn(void *user_data, mem_Allocator_Mode mode,
-                       void *memory, size_t old_size, size_t new_size,
-                       size_t align, mem_Allocator_Error *err)
-{
+mem_arena_allocator_fn(
+    void *user_data,
+    mem_Allocator_Mode mode,
+    void *memory, size_t old_size,
+    size_t new_size,
+    size_t align,
+    mem_Allocator_Error *err
+) {
     mem_Arena *a = cast(mem_Arena *)user_data;
     void *new_memory = NULL;
     switch (mode) {
     case MEM_ALLOC:
     case MEM_RESIZE:
-        new_memory = mem_arena_resize_bytes_align(a, memory, old_size, new_size, align);
+        new_memory = mem_arena_resize_bytes_align(
+            a,
+            memory, old_size,
+            new_size,
+            align
+        );
         if (new_memory == NULL) {
             if (err != NULL) {
                 *err = MEM_OUT_OF_MEMORY;
             }
         } else if (new_size > old_size) {
-            unsigned char *growth_begin;
-            size_t growth_size;
+            unsigned char *grow_begin;
+            size_t grow_size;
 
-            growth_begin = cast(unsigned char *)new_memory + old_size;
-            growth_size  = new_size - old_size;
-            memset(growth_begin, 0, growth_size);
+            grow_begin = cast(unsigned char *)new_memory + old_size;
+            grow_size  = new_size - old_size;
+            memset(grow_begin, 0, grow_size);
         }
         break;
     case MEM_ALLOC_NON_ZEROED:
     case MEM_RESIZE_NON_ZEROED:
-        new_memory = mem_arena_resize_bytes_align(a, memory, old_size, new_size, align);
+        new_memory = mem_arena_resize_bytes_align(
+            a,
+            memory, old_size,
+            new_size,
+            align
+        );
         if (new_memory == NULL && err != NULL) {
             *err = MEM_OUT_OF_MEMORY;
         }
@@ -134,9 +147,12 @@ mem_arena_alloc_bytes_align(mem_Arena *a, size_t size, size_t align)
 }
 
 void *
-mem_arena_resize_bytes_align(mem_Arena *a, void *memory, size_t old_size,
-                             size_t new_size, size_t align)
-{
+mem_arena_resize_bytes_align(
+    mem_Arena *a,
+    void *memory, size_t old_size,
+    size_t new_size,
+    size_t align
+) {
     unsigned char *old_memory = cast(unsigned char *)memory;
 
     // Requesting for a new block of memory?
@@ -154,8 +170,7 @@ mem_arena_resize_bytes_align(mem_Arena *a, void *memory, size_t old_size,
         else {
             void *new_memory = mem_arena_alloc_bytes_align(a, new_size, align);
             size_t copy_size = (old_size < new_size) ? old_size : new_size;
-            memmove(new_memory, old_memory, copy_size);
-            return new_memory;
+            return memmove(new_memory, old_memory, copy_size);
         }
     }
     // Given pointer is out of bounds!
@@ -164,6 +179,5 @@ mem_arena_resize_bytes_align(mem_Arena *a, void *memory, size_t old_size,
 
 
 #endif // MEM_ARENA_IMPLEMENTATION
-
 
 #endif // MEM_ARENA_H

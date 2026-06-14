@@ -12,8 +12,6 @@
 // local
 #include "list.h"
 
-#define BIT_SIZE(T)     (sizeof(T) * CHAR_BIT)
-
 typedef uint8_t  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -40,7 +38,7 @@ struct String {
 
 #define LIMB_TYPE   u32
 #define LIMB_SIZE   sizeof(LIMB_TYPE)
-#define LIMB_BITS   BIT_SIZE(LIMB_TYPE)
+#define LIMB_BITS   bit_size(LIMB_TYPE)
 #define LIMB_BASES  (LIMB_BITS / BASE_BITS)
 
 // A 1D array of bases. It is actually a bit array, so the bases are

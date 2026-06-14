@@ -10,7 +10,7 @@ struct String {
     size_t len;
 };
 
-static String
+static inline String
 string_make(const char *s, size_t n)
 {
     String s2 = {s, n};

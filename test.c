@@ -11,9 +11,9 @@
 // #define MEM_IMPLEMENTATION
 #define MEM_ARENA_IMPLEMENTATION
 #define STRINGS_BUILDER_IMPLEMENTATION
-#include "mem.h"
-#include "arena.h"
-#include "../strings/builder.h"
+#include "mem/mem.h"
+#include "mem/arena.h"
+#include "strings/builder.h"
 
 static void
 check(const char *file, int line, mem_Allocator_Error err)
@@ -43,7 +43,6 @@ static void
 read_string(String_Builder *b, const char *prompt)
 {
     char buf[BUFSIZ];
-
     if (prompt != NULL) {
         printf("%s", prompt);
     }
@@ -69,14 +68,44 @@ read_string(String_Builder *b, const char *prompt)
     }
 }
 
+// TODO: Breaks for negatives, e.g. -0xff.
+static int
+parse_int(const char *s, size_t n)
+{
+    char *end;
+    int i = 0, base = 10;
+    if (n > 2 && s[0] == '0') {
+        // Sentinel value. There is no such thing as a base-0 number.
+        base = 0;
+        switch (s[1]) {
+        case 'b': case 'B': base = 2;  break;
+        case 'o': case 'O': base = 8;  break;
+        case 'd': case 'D': base = 10; break;
+        case 'z': case 'Z': base = 12; break;
+        case 'x': case 'X': base = 16; break;
+        }
+
+        if (base != 0) {
+            // Skip the prefix because `strtol` can't handle most of them.
+            s += 2;
+            n -= 2;
+        } else {
+            base = 10;
+        }
+    }
+
+    i = cast(int)strtol(s, &end, base);
+    if (end != s + n) {
+        i = INT_MIN;
+    }
+    return i;
+}
+
 static void
 read_int(String_Builder *b, const char *prompt)
 {
-    char *end;
-    size_t n;
     int i;
     char buf[BUFSIZ];
-
     if (prompt != NULL) {
         printf("%s", prompt);
     }
@@ -85,10 +114,12 @@ read_int(String_Builder *b, const char *prompt)
         // Useful to test our int writing implementation.
         i = INT_MIN;
     } else {
-        n      = strcspn(buf, "\r\n");
-        buf[n] = 0;
-        i      = cast(int)strtol(buf, &end, /*radix=*/10);
+        size_t n = strcspn(buf, "\r\n");
+        buf[n]   = 0;
+        i = parse_int(buf, n);
     }
+
+    // Always write the decimal representation for simplicity.
     check(sb_write_int(b, i, /*base=*/10));
 }
 

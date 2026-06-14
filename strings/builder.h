@@ -31,10 +31,11 @@ sb_write_string(String_Builder *b, String s);
 extern mem_Allocator_Error
 sb_write_cstring(String_Builder *b, const char *s);
 
-#define sb_write_literal(b, s)  sb_write_string(b, string_make(s, sizeof(s) - 1))
+#define sb_write_literal(b, s) \
+    sb_write_string(b, string_make(s, sizeof(s) - 1))
 
 extern mem_Allocator_Error
-sb_write_uint(String_Builder *b, unsigned int u, int base);
+sb_write_uint(String_Builder *b, uint u, int base);
 
 extern mem_Allocator_Error
 sb_write_int(String_Builder *b, int i, int base);
@@ -52,6 +53,10 @@ sb_destroy(String_Builder *b);
 
 #include <limits.h>
 #include <string.h>
+
+#ifdef _MSC_VER
+#include <intrin.h> // _BitScanReverse
+#endif
 
 extern void
 sb_init_none(String_Builder *b, mem_Allocator allocator)
@@ -146,27 +151,58 @@ sb_write_cstring(String_Builder *b, const char *s)
 }
 
 extern mem_Allocator_Error
-sb_write_uint(String_Builder *b, unsigned int u, int base)
+sb_write_uint(String_Builder *b, uint u, int base)
 {
+    static const char DIGIT_CHARS[] = "01234567890ABDEFGHIJKLMNOPQRSTUVWXYZ";
+
     // Reasonable to assume that maximum binary length more than sufficient
     // for all other base representations.
-    char buf[sizeof(u) * CHAR_BIT + 1];
+    char buf[bit_size(u) + 2];
     char *end, *p;
 
-    // Points to 1 past the last valid location.
-    end = buf + sizeof(buf);
-    p   = end - 1;
+    // We don't nul-terminate the buffer since we track the length anyyay.
+    end  = buf + sizeof(buf);
+    p    = end - 1;
     if (u == 0) {
         // `p` now points to 1 before the LSD.
         *p-- = '0';
-    } else {
-        // Write LSD to MSD but in reverse so we get the
-        // correct order of digits.
-        while (u > 0) {
-            *p-- = (u % cast(unsigned int)base) + '0';
-            u /= cast(unsigned int)base;
+    }
+    // Write LSD to MSD but in reverse of the buffer so we get the correct
+    // order of digits.
+    else {
+        uint ubase = cast(uint)base;
+        //
+        // Base is a power of 2?
+        if ((ubase & (ubase - 1)) == 0) {
+            uint rshift = 0;
+
+#ifdef __GNUC__
+            bits = __builtin_ctz(u);
+#elif defined(_MSC_VER)
+            ulong tmp;
+            _BitScanReverse(&tmp, ubase);
+            rshift = cast(uint)tmp;
+#else
+            for (uint tmp = u; (tmp & 1) == 0; tmp >>= 1) {
+                bits++;
+            }
+#endif
+            // Power of 2 arithmetic is faster than division/modulo.
+            while (u > 0) {
+                *p-- = DIGIT_CHARS[u & (ubase - 1)];
+                u   >>= rshift;
+            }
+        }
+        // Base isn't a power of 2, use division/modulo. This always
+        // works but may be a lot slower.
+        else {
+            while (u > 0) {
+                *p-- = DIGIT_CHARS[u % ubase];
+                u   /= ubase;
+            }
         }
     }
+
     // Correct `p` so that we point to the MSD, not 1 before it.
     p++;
     return sb_write_string(b, string_make(p, cast(size_t)(end - p)));
@@ -176,8 +212,8 @@ extern mem_Allocator_Error
 sb_write_int(String_Builder *b, int i, int base)
 {
     // Get the absolute value of `i`. Use unsigned so we can represent
-    // the absolute value of `INT_MIN`.
-    unsigned int u = cast(unsigned int)i;
+    // the absolute value of `INT_MIN` with a bit of work.
+    uint u = cast(uint)i;
     if (i < 0) {
         mem_Allocator_Error err = sb_write_char(b, '-');
         if (err) {
@@ -206,7 +242,7 @@ sb_pop_char(String_Builder *b)
 
     // Update, ensuring nul-termiantion.
     b->data[i] = '\0';
-    b->len      = i;
+    b->len     = i;
     return c;
 }
 

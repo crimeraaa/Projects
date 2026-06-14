@@ -28,8 +28,7 @@ typedef enum mem_Allocator_Error mem_Allocator_Error;
 typedef void *(*mem_Allocator_Fn)(
     void *user_data,
     mem_Allocator_Mode mode,
-    void *memory,
-    size_t old_size,
+    void *memory, size_t old_size,
     size_t new_size,
     size_t align,
     mem_Allocator_Error *err
@@ -182,8 +181,7 @@ static void *
 mem_global_heap_allocator_fn(
     void *user_data,
     mem_Allocator_Mode mode,
-    void *memory,
-    size_t old_size,
+    void *memory, size_t old_size,
     size_t new_size,
     size_t alignment,
     mem_Allocator_Error *err)

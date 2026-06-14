@@ -16,7 +16,7 @@
 static const char *
 binle(LIMB_TYPE value)
 {
-    static char buf[BIT_SIZE(value) + 1];
+    static char buf[bit_size(value) + 1];
     // Print LSB to MSB.
     LIMB_TYPE i, bit;
     for (i = 0; i < sizeof(buf) - 1; i += 1) {
