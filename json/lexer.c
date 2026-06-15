@@ -4,7 +4,7 @@
 // local
 #define ASCII_SET_DISABLED
 #define ASCII_IMPLEMENTATION
-#include "../strings/ascii.h"
+#include "../ascii/ascii.h"
 #include "lexer.h"
 #include "json.h"
 

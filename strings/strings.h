@@ -46,11 +46,15 @@ string_eq(String a, String b)
 internal inline String
 string_slice(String s, size_t start, size_t stop)
 {
-    // If we use signed sizes, we'll also need to check against 0.
-    assert(start < s.len);
-    // Start must be <= stop in order for subtraction to be valid.
+    // If we use signed sizes, we'll also need to check against 0. We are
+    // allowed to point to 1 past the last character, we just can't dereference
+    // it. This is useful to slice a string into the empty string (e.g.
+    // eliminating '-' from number strings).
+    assert(start <= s.len);
+
+    // Ensure subtraction results in valid values.
     assert(start <= stop && stop <= s.len);
-    return string_make(&s.data[start], stop - start);
+    return string_make(s.data + start, stop - start);
 }
 
 // Equivalent to `s[start:]` in langauges like Python and Odin.

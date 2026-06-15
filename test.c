@@ -63,21 +63,33 @@ read_string(String_Builder *b, const char *prompt)
         // Newlines indicate the input is now complete.
         // Otherwise, we need to keep going until we find them.
         if (buf[n] == '\r' || buf[n] == '\n') {
-            break;
+            return;
         }
     }
+    printf("[ERROR] No input received. Default: empty string.\n");
 }
 
-// TODO: Breaks for negatives, e.g. -0xff.
 internal int
-parse_int(const char *s, size_t n)
+parse_int(String s, bool *ok)
 {
     char *end;
-    int i = 0, base = 10;
-    if (n > 2 && s[0] == '0') {
+    ullong u;
+    llong sign = 1;
+    int base = 10;
+
+    // `strto*()` can't handle negative prefixed integers, e.g. `-0xff`.
+    for (; s.len > 0; s = string_slice_from(s, 1)) {
+        switch (s.data[0]) {
+        case '-': sign *= -1;
+        case '+': continue;
+        }
+        break;
+    }
+
+    if (s.len > 2 && s.data[0] == '0') {
         // Sentinel value. There is no such thing as a base-0 number.
         base = 0;
-        switch (s[1]) {
+        switch (s.data[1]) {
         case 'b': case 'B': base = 2;  break;
         case 'o': case 'O': base = 8;  break;
         case 'd': case 'D': base = 10; break;
@@ -86,19 +98,15 @@ parse_int(const char *s, size_t n)
         }
 
         if (base != 0) {
-            // Skip the prefix because `strtol` can't handle most of them.
-            s += 2;
-            n -= 2;
+            // Skip the prefix because `strto*()` can't handle most of them.
+            s = string_slice_from(s, 2);
         } else {
             base = 10;
         }
     }
-
-    i = cast(int)strtol(s, &end, base);
-    if (end != s + n) {
-        i = INT_MIN;
-    }
-    return i;
+    u   = strtoull(s.data, &end, base);
+    *ok = (end == s.data + s.len) && (u <= cast(ullong)INT_MAX + 1);
+    return (*ok) ? cast(int)(cast(llong)u * sign) : INT_MIN;
 }
 
 internal void
@@ -113,10 +121,20 @@ read_int(String_Builder *b, const char *prompt)
     if (fgets(buf, sizeof(buf), stdin) == NULL) {
         // Useful to test our int writing implementation.
         i = INT_MIN;
+        printf("[ERROR] No input received. Default: INT_MIN.\n");
     } else {
-        size_t n = strcspn(buf, "\r\n");
-        buf[n]   = 0;
-        i = parse_int(buf, n);
+        size_t n;
+        bool ok;
+
+        // Needed for `strtoul()` to work.
+        n = strcspn(buf, "\r\n");
+        buf[n] = 0;
+
+        i = parse_int(string_make(buf, n), &ok);
+        if (!ok) {
+            printf("[ERROR] Failed to parse integer '%s' Default: INT_MIN.\n",
+                buf);
+        }
     }
 
     // Always write the decimal representation for simplicity.

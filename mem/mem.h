@@ -31,8 +31,7 @@ typedef void *(*mem_Allocator_Fn)(
     void *memory, size_t old_size,
     size_t new_size,
     size_t align,
-    mem_Allocator_Error *err
-);
+    mem_Allocator_Error *err);
 
 // C-style callback structure with context.
 typedef struct mem_Allocator mem_Allocator;
@@ -229,7 +228,10 @@ mem_global_heap_allocator_fn(
 global mem_Allocator
 mem_global_heap_allocator(void)
 {
-    local_persist const mem_Allocator gpa = {mem_global_heap_allocator_fn, NULL};
+    local_persist const mem_Allocator gpa = {
+        mem_global_heap_allocator_fn,
+        NULL
+    };
     return gpa;
 }
 

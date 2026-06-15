@@ -5,7 +5,9 @@
 void
 Arena::free_all()
 {
-    printf("freeing %zu bytes -> 0 / %zu bytes used\n", m_curr_index, len(m_buffer));
+    printf("freeing %zu bytes -> 0 / %zu bytes used\n",
+        m_curr_index,
+        len(m_buffer));
     m_curr_index = 0;
     m_prev_index = 0;
 }
@@ -41,9 +43,10 @@ Arena::alloc_raw(size_t size, size_t align)
         m_prev_index = index;
         m_curr_index = index + size;
         printf("allocating %zu bytes -> %zu / %zu bytes used\n",
-               size, m_curr_index, len(m_buffer));
-        memset(ptr, 0, size);
-        return ptr;
+            size,
+            m_curr_index,
+            len(m_buffer));
+        return memset(ptr, 0, size);
     }
     return nullptr;
 }

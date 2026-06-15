@@ -40,7 +40,7 @@ Parser::match(Token_Kind kind)
 #define X(KW) #KW
 
 // ORDER: Sync with `enum Token_Kind`!
-static const char *
+internal const char *
 TOKEN_STRINGS[TK_MULTICHAR_COUNT] = {
     KEYWORD_LIST(X),
     "...", "->", "::",
@@ -164,7 +164,6 @@ Parser::expr(Precedence prec)
         break;
     default:
         error("Expected an expression"_s);
-        return nullptr;
     }
 
     // Infix
@@ -195,9 +194,6 @@ Parser::binary(Ast *left, Ast_Infix_Kind kind, Precedence prec)
     // first token of the right hand side expression.
     advance();
     Ast *right = expr(prec);
-
-    // TODO: Why does this fail? `array[index + 1]`
-    // but not `array[index]` and not `array[(index + 1)]`
     if (kind == AST_INDEX) {
         expect(TK_RSQUARE);
     }
@@ -214,7 +210,7 @@ Parser::get_rule(Ast *left, Token_Kind kind)
 #define RIGHT(p, k)  {p, p, k}
     switch (kind) {
     case TK_ASSIGN:  return RIGHT(PREC_ASSIGN, AST_ASSIGN);
-    case TK_LSQUARE: return LEFT(PREC_CALL,    AST_INDEX);
+    case TK_LSQUARE: return LEFT(PREC_ASSIGN,  AST_INDEX);
 
     // Bitwise
     case TK_BAND: return LEFT(PREC_BAND,   AST_BAND);
@@ -251,7 +247,7 @@ Parser::get_rule(Ast *left, Token_Kind kind)
 #undef LEFT
 }
 
-static const char *
+internal const char *
 ast_kind_name(Ast_Kind kind, u8 sub_kind)
 {
     switch (kind) {
@@ -259,9 +255,9 @@ ast_kind_name(Ast_Kind kind, u8 sub_kind)
         break;
     case AST_LITERAL:
         switch (cast(Ast_Literal_Kind)sub_kind) {
-        case UNTYPED_NONE:  break;
-        case UNTYPED_INT:   return "Int";
-        case UNTYPED_FLOAT: return "Float";
+        case UNTYPED_NONE:   break;
+        case UNTYPED_INT:    return "Int";
+        case UNTYPED_FLOAT:  return "Float";
         case UNTYPED_STRING: return "String";
         }
         break;
@@ -362,9 +358,9 @@ Ast::dump(const int depth) const
     {
         Ast_Literal lit = literal();
         switch (lit.kind()) {
-        case UNTYPED_NONE:  break;
-        case UNTYPED_INT:   printf("Int(%llu)", lit.i());    break;
-        case UNTYPED_FLOAT: printf("Float(%.14g)", lit.f()); break;
+        case UNTYPED_NONE:   break;
+        case UNTYPED_INT:    printf("Int(%llu)", lit.i());    break;
+        case UNTYPED_FLOAT:  printf("Float(%.14g)", lit.f()); break;
         case UNTYPED_STRING: printf("String('%.*s')", STRINGX(lit.s())); break;
         }
         break;

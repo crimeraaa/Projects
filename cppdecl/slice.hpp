@@ -1,13 +1,8 @@
 #pragma once
 
-#include <cassert>
-#include <cstddef>
 #include <type_traits>
 
-// I hate both C-style and C++-style casts!
-#define cast(T) (T)
-
-using std::size_t;
+#include "../common.h"
 
 template<class T>
 struct Slice {
@@ -69,21 +64,21 @@ struct Slice {
 };
 
 template<class T>
-extern inline size_t
+global inline size_t
 len(Slice<T> s)
 {
     return s.len;
 }
 
 template<class T>
-extern inline T *
+global inline T *
 raw_data(Slice<T> s)
 {
     return s.data;
 }
 
 template<class T>
-extern inline bool
+global inline bool
 slice_eq(Slice<T> a, Slice<T> b)
 {
     if (len(a) != len(b)) {
@@ -99,7 +94,7 @@ slice_eq(Slice<T> a, Slice<T> b)
 }
 
 template<class T, class Index>
-extern inline Slice<T>
+global inline Slice<T>
 slice_from(Slice<T> src, Index start)
 {
     // `operator[]` will do the index validation for us.

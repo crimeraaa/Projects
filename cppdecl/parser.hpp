@@ -62,7 +62,7 @@ private:
     void
     expect(Token_Kind kind);
 
-    void
+    [[noreturn]] void
     error(String message);
 
     // def ::= func

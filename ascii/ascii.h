@@ -17,25 +17,25 @@
 #define ASCII_SET_LIMB_COUNT (ASCII_SET_BITS / ASCII_SET_LIMB_BITS)
 
 // 128-bit bitset
-typedef struct Ascii_Set Ascii_Set;
-struct Ascii_Set {
+typedef struct ascii_Set ascii_Set;
+struct ascii_Set {
     ASCII_SET_LIMB_TYPE limbs[ASCII_SET_LIMB_COUNT];
 };
 
-global Ascii_Set
+global ascii_Set
 ascii_set_make(const char *s);
 
-global Ascii_Set
+global ascii_Set
 ascii_set_make_lstring(const char *s, size_t n);
 
-global Ascii_Set
-ascii_set_union(Ascii_Set a, Ascii_Set b);
+global ascii_Set
+ascii_set_union(ascii_Set a, ascii_Set b);
 
-global Ascii_Set
-ascii_set_intersection(Ascii_Set a, Ascii_Set b);
+global ascii_Set
+ascii_set_intersection(ascii_Set a, ascii_Set b);
 
 global bool
-ascii_set_contains(Ascii_Set set, char c);
+ascii_set_contains(ascii_Set set, char c);
 
 #endif // !ASCII_SET_DISABLED
 
@@ -254,7 +254,7 @@ ASCII_TRAITS[] = {
 #ifndef ASCII_SET_DISABLED
 
 internal ASCII_SET_LIMB_TYPE *
-ascii_set_get_limb_ptr(Ascii_Set *set, char c, ASCII_SET_LIMB_TYPE *mask)
+ascii_set_get_limb_ptr(ascii_Set *set, char c, ASCII_SET_LIMB_TYPE *mask)
 {
     ASCII_SET_LIMB_TYPE curr, limb, finger;
 
@@ -264,17 +264,17 @@ ascii_set_get_limb_ptr(Ascii_Set *set, char c, ASCII_SET_LIMB_TYPE *mask)
     *mask  = (1 << finger);
     return &set->limbs[limb];
 }
-global Ascii_Set
+global ascii_Set
 ascii_set_make(const char *s)
 {
     size_t n = strlen(s);
     return ascii_set_make_lstring(s, n);
 }
 
-global Ascii_Set
+global ascii_Set
 ascii_set_make_lstring(const char *s, size_t n)
 {
-    Ascii_Set set;
+    ascii_Set set;
     memset(&set, 0, sizeof(set));
 
     // Bit packing shenanigans because C doesn't have native bitsets
@@ -293,20 +293,20 @@ ascii_set_make_lstring(const char *s, size_t n)
     return set;
 }
 
-global Ascii_Set
-ascii_set_union(Ascii_Set a, Ascii_Set b)
+global ascii_Set
+ascii_set_union(ascii_Set a, ascii_Set b)
 {
-    Ascii_Set u;
+    ascii_Set u;
     for (size_t i = 0; i < ASCII_SET_LIMB_COUNT; i += 1) {
         u.limbs[i] = a.limbs[i] | b.limbs[i];
     }
     return u;
 }
 
-global Ascii_Set
-ascii_set_intersection(Ascii_Set a, Ascii_Set b)
+global ascii_Set
+ascii_set_intersection(ascii_Set a, ascii_Set b)
 {
-    Ascii_Set n;
+    ascii_Set n;
     for (size_t i = 0; i < ASCII_SET_LIMB_COUNT; i += 1) {
         n.limbs[i] = a.limbs[i] & b.limbs[i];
     }
@@ -314,7 +314,7 @@ ascii_set_intersection(Ascii_Set a, Ascii_Set b)
 }
 
 global bool
-ascii_set_contains(Ascii_Set set, char c)
+ascii_set_contains(ascii_Set set, char c)
 {
     ASCII_SET_LIMB_TYPE limb, mask;
     limb = *ascii_set_get_limb_ptr(&set, c, &mask);
@@ -462,7 +462,7 @@ quote_char(char c, char *buf)
 
 int main(void)
 {
-    Ascii_Set space = ascii_set_make("\t\n\v\f\r ");
+    ascii_Set space = ascii_set_make("\t\n\v\f\r ");
     // Char itself can't represent 128 and thus can't compare against it.
     for (size_t i = 0; i < sizeof(ASCII_TRAITS); i += 1) {
         char buf[8];

@@ -3,19 +3,19 @@
 #include "lexer.hpp"
 #include "slice.hpp"
 
-static bool
+internal bool
 char_is_ident_start(char c)
 {
     return c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z');
 }
 
-static bool
+internal bool
 char_is_decimal(char c)
 {
     return '0' <= c && c <= '9';
 }
 
-static bool
+internal bool
 char_is_ident(char c)
 {
     return char_is_decimal(c) || char_is_ident_start(c);
@@ -129,8 +129,11 @@ Lexer::select_pair_assign(char single, Token_Kind pair, Token_Kind assign)
 }
 
 Token_Kind
-Lexer::select_compound(char single, Token_Kind pair, Token_Kind assign,
-                       Token_Kind pair_assign)
+Lexer::select_compound(
+    char single,
+    Token_Kind pair,
+    Token_Kind assign,
+    Token_Kind pair_assign)
 {
     if (match(single)) {
         return select_assign(pair, pair_assign);
@@ -215,7 +218,7 @@ Lexer::skip_line()
     }
 }
 
-static Error
+internal Error
 token_set_if(Token *t, Token_Kind kind, String keyword, size_t offset)
 {
     String s1 = slice_from(keyword, offset);

@@ -11,32 +11,32 @@ struct mem_Arena {
     size_t cap;
 };
 
-mem_Allocator
+global mem_Allocator
 mem_arena_allocator(mem_Arena *a);
 
-void
+global void
 mem_arena_init(mem_Arena *a, void *buffer, size_t cap);
 
-void *
+global void *
 mem_arena_alloc_bytes_align(mem_Arena *a, size_t size, size_t align);
 
-void *
+global void *
 mem_arena_resize_bytes_align(
     mem_Arena *a,
     void *memory, size_t old_size,
     size_t new_size,
-    size_t align
-);
+    size_t align);
 
-void
+global void
 mem_arena_free_all(mem_Arena *a);
 
+// #define MEM_ARENA_IMPLEMENTATION
 #ifdef MEM_ARENA_IMPLEMENTATION
 
 #include <stdint.h> // uintptr_t
 #include <string.h> // memset
 
-static void *
+internal void *
 mem_arena_allocator_fn(
     void *user_data,
     mem_Allocator_Mode mode,
@@ -93,7 +93,7 @@ mem_arena_allocator_fn(
     return new_memory;
 }
 
-mem_Allocator
+global mem_Allocator
 mem_arena_allocator(mem_Arena *a)
 {
     mem_Allocator allocator = {mem_arena_allocator_fn, a};
@@ -101,7 +101,7 @@ mem_arena_allocator(mem_Arena *a)
 }
 
 
-void
+global void
 mem_arena_init(mem_Arena *a, void *buffer, size_t cap)
 {
     a->buffer      = cast(unsigned char *)buffer;
@@ -110,14 +110,14 @@ mem_arena_init(mem_Arena *a, void *buffer, size_t cap)
     a->cap         = cap;
 }
 
-void
+global void
 mem_arena_free_all(mem_Arena *a)
 {
     a->curr_offset = 0;
     a->prev_offset = 0;
 }
 
-static uintptr_t
+internal uintptr_t
 mem_arena_align_forward(uintptr_t address, size_t align)
 {
     uintptr_t modulo = address & cast(uintptr_t)align;
@@ -129,7 +129,7 @@ mem_arena_align_forward(uintptr_t address, size_t align)
     return address;
 }
 
-void *
+global void *
 mem_arena_alloc_bytes_align(mem_Arena *a, size_t size, size_t align)
 {
     uintptr_t address;
@@ -145,13 +145,13 @@ mem_arena_alloc_bytes_align(mem_Arena *a, size_t size, size_t align)
     return (next_offset < a->cap) ? &a->buffer[offset] : NULL;
 }
 
-void *
+global void *
 mem_arena_resize_bytes_align(
     mem_Arena *a,
     void *memory, size_t old_size,
     size_t new_size,
-    size_t align
-) {
+    size_t align)
+{
     unsigned char *old_memory = cast(unsigned char *)memory;
 
     // Requesting for a new block of memory?

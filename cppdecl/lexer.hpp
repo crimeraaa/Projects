@@ -165,8 +165,11 @@ private:
     select_pair_assign(char single, Token_Kind pair, Token_Kind assign);
 
     Token_Kind
-    select_compound(char single, Token_Kind pair, Token_Kind assign,
-                    Token_Kind pair_assign);
+    select_compound(
+        char single,
+        Token_Kind pair,
+        Token_Kind assign,
+        Token_Kind pair_assign);
 
     Error
     try_keyword(Token *t);

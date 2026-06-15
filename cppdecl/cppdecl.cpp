@@ -4,7 +4,7 @@
 #include "lexer.cpp"
 #include "parser.cpp"
 
-static String
+internal String
 read_line(Slice<char> buffer, std::FILE *stream)
 {
     Slice<char> line;
@@ -13,10 +13,10 @@ read_line(Slice<char> buffer, std::FILE *stream)
         line.len  = strcspn(line.data, "\r\n");
         line.data[line.len] = 0;
     }
-    return String{raw_data(line), len(line)};
+    return {raw_data(line), len(line)};
 }
 
-static bool
+internal bool
 got_line(const char *prompt, Slice<char> buffer, String *line)
 {
     std::fputs(prompt, stdout);
