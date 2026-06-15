@@ -59,7 +59,7 @@ read_string(String_Builder *b, const char *prompt)
         }
         printf("}\n");
 #endif
-        check(sb_write_string(b, string_make(buf, n)));
+        check(string_write_string(b, string_make(buf, n)));
         // Newlines indicate the input is now complete.
         // Otherwise, we need to keep going until we find them.
         if (buf[n] == '\r' || buf[n] == '\n') {
@@ -120,7 +120,7 @@ read_int(String_Builder *b, const char *prompt)
     }
 
     // Always write the decimal representation for simplicity.
-    check(sb_write_int(b, i, /*base=*/10));
+    check(string_write_int(b, i, /*base=*/10));
 }
 
 int
@@ -133,23 +133,23 @@ main(void)
     mem_Arena a;
     char buf[BUFSIZ];
     mem_arena_init(&a, buf, sizeof(buf));
-    sb_init_none(&b, mem_arena_allocator(&a));
-    check(sb_write_char(&b, 'H'));
-    check(sb_write_char(&b, 'i'));
-    check(sb_write_char(&b, ' '));
-    check(sb_write_literal(&b, "mom!"));
-    check(sb_write_literal(&b, " My name is "));
+    string_builder_init_none(&b, mem_arena_allocator(&a));
+    check(string_write_char(&b, 'H'));
+    check(string_write_char(&b, 'i'));
+    check(string_write_char(&b, ' '));
+    check(string_write_literal(&b, "mom!"));
+    check(string_write_literal(&b, " My name is "));
 
     read_string(&b, "Enter your name: ");
-    check(sb_write_literal(&b, " and I'm "));
+    check(string_write_literal(&b, " and I'm "));
 
     read_int(&b, "Enter your age: ");
-    check(sb_write_literal(&b, " years old"));
-    check(sb_write_char(&b, '!'));
+    check(string_write_literal(&b, " years old"));
+    check(string_write_char(&b, '!'));
 
     // Underlying data is guaranteed to be nul-terminated.
-    s = sb_to_string(&b);
+    s = string_to_string(&b);
     printf("'%s' (%zu bytes)\n", s.data, s.len);
-    sb_destroy(&b);
+    string_builder_destroy(&b);
     return 0;
 }

@@ -17,37 +17,37 @@ struct String_Builder {
 };
 
 extern void
-sb_init_none(String_Builder *b, mem_Allocator allocator);
+string_builder_init_none(String_Builder *b, mem_Allocator allocator);
 
 extern mem_Allocator_Error
-sb_init_cap(String_Builder *b, size_t n, mem_Allocator allocator);
+string_builder_init_cap(String_Builder *b, size_t n, mem_Allocator allocator);
 
 extern mem_Allocator_Error
-sb_write_char(String_Builder *b, char c);
+string_write_char(String_Builder *b, char c);
 
 extern mem_Allocator_Error
-sb_write_string(String_Builder *b, String s);
+string_write_string(String_Builder *b, String s);
 
 extern mem_Allocator_Error
-sb_write_cstring(String_Builder *b, const char *s);
+string_write_cstring(String_Builder *b, const char *s);
 
-#define sb_write_literal(b, s) \
-    sb_write_string(b, string_make(s, sizeof(s) - 1))
-
-extern mem_Allocator_Error
-sb_write_uint(String_Builder *b, uint u, int base);
+#define string_write_literal(b, s) \
+    string_write_string(b, string_make(s, sizeof(s) - 1))
 
 extern mem_Allocator_Error
-sb_write_int(String_Builder *b, int i, int base);
+string_write_uint(String_Builder *b, uint u, int base);
+
+extern mem_Allocator_Error
+string_write_int(String_Builder *b, int i, int base);
 
 extern char
-sb_pop_char(String_Builder *b);
+string_pop_char(String_Builder *b);
 
 extern String
-sb_to_string(const String_Builder *b);
+string_to_string(const String_Builder *b);
 
 extern void
-sb_destroy(String_Builder *b);
+string_builder_destroy(String_Builder *b);
 
 #ifdef STRINGS_BUILDER_IMPLEMENTATION
 
@@ -59,7 +59,7 @@ sb_destroy(String_Builder *b);
 #endif
 
 extern void
-sb_init_none(String_Builder *b, mem_Allocator allocator)
+string_builder_init_none(String_Builder *b, mem_Allocator allocator)
 {
     b->data      = NULL;
     b->len       = 0;
@@ -68,7 +68,7 @@ sb_init_none(String_Builder *b, mem_Allocator allocator)
 }
 
 extern mem_Allocator_Error
-sb_init_cap(String_Builder *b, size_t n, mem_Allocator allocator)
+string_builder_init_cap(String_Builder *b, size_t n, mem_Allocator allocator)
 {
     mem_Allocator_Error err = MEM_OK;
     b->data = mem_alloc_array(char, allocator, n, &err);
@@ -78,7 +78,7 @@ sb_init_cap(String_Builder *b, size_t n, mem_Allocator allocator)
 }
 
 extern mem_Allocator_Error
-sb_write_char(String_Builder *b, char c)
+string_write_char(String_Builder *b, char c)
 {
     mem_Allocator_Error err = MEM_OK;
     size_t cap = b->cap;
@@ -101,7 +101,7 @@ sb_write_char(String_Builder *b, char c)
 }
 
 extern mem_Allocator_Error
-sb_write_string(String_Builder *b, String s)
+string_write_string(String_Builder *b, String s)
 {
     mem_Allocator_Error err = MEM_OK;
     size_t new_len;
@@ -144,14 +144,14 @@ sb_write_string(String_Builder *b, String s)
 }
 
 extern mem_Allocator_Error
-sb_write_cstring(String_Builder *b, const char *s)
+string_write_cstring(String_Builder *b, const char *s)
 {
     String s2 = {s, strlen(s)};
-    return sb_write_string(b, s2);
+    return string_write_string(b, s2);
 }
 
 extern mem_Allocator_Error
-sb_write_uint(String_Builder *b, uint u, int base)
+string_write_uint(String_Builder *b, uint u, int base)
 {
     static const char DIGIT_CHARS[] = "01234567890ABDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -177,16 +177,19 @@ sb_write_uint(String_Builder *b, uint u, int base)
             uint rshift = 0;
 
 #ifdef __GNUC__
-            bits = __builtin_ctz(u);
+            rshift = __builtin_ctz(u);
 #elif defined(_MSC_VER)
-            ulong tmp;
-            _BitScanReverse(&tmp, ubase);
-            rshift = cast(uint)tmp;
-#else
+            // Windows guarantees that `int` and `long` are the same size
+            // for historical reasons. So this is safe although UB.
+            //
+            // NOTE: Recheck this if ever MS changes their architecture!
+            _BitScanReverse(cast(ulong *)&rshift, ubase);
+#else // !__GNUC__ && !_MSC_VER
+            // This works but we'd much prefer a builtin/intrinsic.
             for (uint tmp = u; (tmp & 1) == 0; tmp >>= 1) {
-                bits++;
+                rshift++;
             }
-#endif
+#endif // __GNUC__, _MSC_VER
             // Power of 2 arithmetic is faster than division/modulo.
             while (u > 0) {
                 *p-- = DIGIT_CHARS[u & (ubase - 1)];
@@ -205,27 +208,27 @@ sb_write_uint(String_Builder *b, uint u, int base)
 
     // Correct `p` so that we point to the MSD, not 1 before it.
     p++;
-    return sb_write_string(b, string_make(p, cast(size_t)(end - p)));
+    return string_write_string(b, string_make(p, cast(size_t)(end - p)));
 }
 
 extern mem_Allocator_Error
-sb_write_int(String_Builder *b, int i, int base)
+string_write_int(String_Builder *b, int i, int base)
 {
     // Get the absolute value of `i`. Use unsigned so we can represent
     // the absolute value of `INT_MIN` with a bit of work.
     uint u = cast(uint)i;
     if (i < 0) {
-        mem_Allocator_Error err = sb_write_char(b, '-');
+        mem_Allocator_Error err = string_write_char(b, '-');
         if (err) {
             return err;
         }
         u = 0 - u;
     }
-    return sb_write_uint(b, u, base);
+    return string_write_uint(b, u, base);
 }
 
 extern char
-sb_pop_char(String_Builder *b)
+string_pop_char(String_Builder *b)
 {
     size_t n, i;
     char c;
@@ -247,14 +250,14 @@ sb_pop_char(String_Builder *b)
 }
 
 extern String
-sb_to_string(const String_Builder *b)
+string_to_string(const String_Builder *b)
 {
     String s = {b->data, b->len};
     return s;
 }
 
 extern void
-sb_destroy(String_Builder *b)
+string_builder_destroy(String_Builder *b)
 {
     mem_free_array(b->allocator, b->data, b->cap, NULL);
     b->data = NULL;

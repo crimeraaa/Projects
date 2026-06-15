@@ -1,6 +1,13 @@
 #ifndef PROJECTS_COMMON_H
 #define PROJECTS_COMMON_H
 
+#define _DEBUG
+#if defined(_DEBUG) && !defined(NDEBUG)
+#include <assert.h>
+#else
+#define assert(expr)
+#endif // _DEBUG && !NDEBUG
+
 #include <limits.h>     // CHAR_BIT
 #include <stddef.h>     // size_t
 
