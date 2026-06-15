@@ -31,7 +31,6 @@ mem_arena_resize_bytes_align(
 void
 mem_arena_free_all(mem_Arena *a);
 
-// #define MEM_ARENA_IMPLEMENTATION
 #ifdef MEM_ARENA_IMPLEMENTATION
 
 #include <stdint.h> // uintptr_t

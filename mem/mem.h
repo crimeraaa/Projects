@@ -169,7 +169,7 @@ struct mem_Allocator {
 
 #ifndef MEM_NO_GLOBAL_HEAP_ALLOCATOR
 
-extern mem_Allocator
+global mem_Allocator
 mem_global_heap_allocator(void);
 
 #ifdef MEM_IMPLEMENTATION
@@ -177,7 +177,7 @@ mem_global_heap_allocator(void);
 #include <stdlib.h> // realloc, free
 #include <string.h> // memset
 
-static void *
+internal void *
 mem_global_heap_allocator_fn(
     void *user_data,
     mem_Allocator_Mode mode,
@@ -226,10 +226,10 @@ mem_global_heap_allocator_fn(
     return new_memory;
 }
 
-extern mem_Allocator
+global mem_Allocator
 mem_global_heap_allocator(void)
 {
-    static const mem_Allocator gpa = {mem_global_heap_allocator_fn, NULL};
+    local_persist const mem_Allocator gpa = {mem_global_heap_allocator_fn, NULL};
     return gpa;
 }
 

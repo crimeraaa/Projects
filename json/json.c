@@ -12,12 +12,10 @@
 #include <string.h> // memcmp
 
 // local
-#define ASCII_SET_DISABLED
-#include "../strings/ascii.c"
 #include "lexer.c"
 #include "parser.c"
 
-extern json_Value
+global json_Value
 json_make_null(void)
 {
     json_Value v;
@@ -25,7 +23,7 @@ json_make_null(void)
     return v;
 }
 
-extern json_Value
+global json_Value
 json_make_boolean(bool b)
 {
     json_Value v;
@@ -34,7 +32,7 @@ json_make_boolean(bool b)
     return v;
 }
 
-extern json_Value
+global json_Value
 json_make_number(double n)
 {
     json_Value v;
@@ -43,7 +41,7 @@ json_make_number(double n)
     return v;
 }
 
-extern json_Value
+global json_Value
 json_make_string(json_String *s)
 {
     json_Value v;
@@ -52,7 +50,7 @@ json_make_string(json_String *s)
     return v;
 }
 
-extern json_Value
+global json_Value
 json_make_array(json_Array a)
 {
     json_Value v;
@@ -61,7 +59,7 @@ json_make_array(json_Array a)
     return v;
 }
 
-extern json_Value
+global json_Value
 json_make_object(json_Object o)
 {
     json_Value v;
@@ -71,7 +69,7 @@ json_make_object(json_Object o)
 }
 
 
-extern json_Error
+global json_Error
 json_parse_lstring(const char *s, size_t n, mem_Allocator alloc, json_Value *v)
 {
     json_Parser p;
@@ -85,7 +83,7 @@ json_parse_lstring(const char *s, size_t n, mem_Allocator alloc, json_Value *v)
     return json_parse(&p, v);
 }
 
-extern const char *
+global const char *
 json_type_name(json_Type t)
 {
     switch (t) {
@@ -99,7 +97,7 @@ json_type_name(json_Type t)
     return NULL;
 }
 
-extern const char *
+global const char *
 json_error_string(json_Error e)
 {
     switch (e) {
@@ -123,7 +121,7 @@ json_error_string(json_Error e)
     return NULL;
 }
 
-static void
+internal void
 json_destroy_string(json_String *string, mem_Allocator alloc)
 {
     size_t size = sizeof(*string) + string->len + 1;
@@ -131,7 +129,7 @@ json_destroy_string(json_String *string, mem_Allocator alloc)
     mem_free_bytes(alloc, string, size, NULL);
 }
 
-static void
+internal void
 json_destroy_array(json_Array a, mem_Allocator alloc)
 {
     for (size_t i = 0; i < a.len; i += 1) {
@@ -142,7 +140,7 @@ json_destroy_array(json_Array a, mem_Allocator alloc)
     mem_free_array(alloc, a.data, a.cap, NULL);
 }
 
-static void
+internal void
 json_destroy_object(json_Object o, mem_Allocator alloc)
 {
     // Assumes that we own all of our strings
@@ -160,7 +158,7 @@ json_destroy_object(json_Object o, mem_Allocator alloc)
     mem_free_array(alloc, o.data, o.cap, NULL);
 }
 
-extern void
+global void
 json_destroy_value(json_Value v, mem_Allocator alloc)
 {
     switch (v.type) {
@@ -173,10 +171,10 @@ json_destroy_value(json_Value v, mem_Allocator alloc)
     }
 }
 
-static uint32_t
+internal uint32_t
 json_string_hash(const char *data, size_t len)
 {
-    static const uint32_t
+    local_persist const uint32_t
     PRIME  = 0x01000193,
     OFFSET = 0x811c9dc5;
 
@@ -188,7 +186,7 @@ json_string_hash(const char *data, size_t len)
     return hash;
 }
 
-static json_Error
+internal json_Error
 json_mem_error(mem_Allocator_Error err)
 {
     if (err == MEM_OUT_OF_MEMORY) {
@@ -197,7 +195,7 @@ json_mem_error(mem_Allocator_Error err)
     return JSON_INVALID_ALLOCATOR;
 }
 
-extern json_Error
+global json_Error
 json_string_new(
     size_t write_len,
     const char *text, size_t text_len,
@@ -284,7 +282,7 @@ json_string_new(
     return JSON_OK;
 }
 
-extern char *
+global char *
 json_string_data(json_String *s, size_t *n)
 {
     if (n != NULL) {
@@ -293,7 +291,7 @@ json_string_data(json_String *s, size_t *n)
     return cast(char *)(s + 1);
 }
 
-static bool
+internal bool
 json_string_equals_lstring(
     json_String *a,
     const char *s, size_t n,
@@ -308,7 +306,7 @@ json_string_equals_lstring(
     return false;
 }
 
-static bool
+internal bool
 json_string_equals(json_String *a, json_String *b)
 {
     size_t n;
@@ -316,7 +314,7 @@ json_string_equals(json_String *a, json_String *b)
     return json_string_equals_lstring(a, s, n, b->hash);
 }
 
-extern json_Error
+global json_Error
 json_array_append(json_Array *a, json_Value v, mem_Allocator alloc)
 {
     if (a->len + 1 > a->cap) {
@@ -349,7 +347,7 @@ json_array_append(json_Array *a, json_Value v, mem_Allocator alloc)
     return JSON_OK;
 }
 
-static json_Member *
+internal json_Member *
 json_members_get_ptr(
     json_Member *data, size_t cap,
     const char *k, size_t n, uint32_t hash
@@ -375,14 +373,14 @@ json_members_get_ptr(
     return NULL;
 }
 
-extern json_Value
+global json_Value
 json_object_get(json_Object *o, const char *k)
 {
     size_t n = strlen(k);
     return json_object_get_lstring(o, k, n);
 }
 
-extern json_Value
+global json_Value
 json_object_get_lstring(json_Object *o, const char *k, size_t n)
 {
     json_Member *memb;
@@ -396,7 +394,7 @@ json_object_get_lstring(json_Object *o, const char *k, size_t n)
     return memb->value;
 }
 
-static json_Error
+internal json_Error
 json_object_resize(json_Object *o, size_t new_cap, mem_Allocator alloc)
 {
     json_Member *old_data, *new_data;
@@ -433,7 +431,7 @@ json_object_resize(json_Object *o, size_t new_cap, mem_Allocator alloc)
 }
 
 
-extern json_Error
+global json_Error
 json_object_insert(
     json_Object *o,
     const char *k,
@@ -444,7 +442,7 @@ json_object_insert(
     return json_object_insert_lstring(o, k, n, v, alloc);
 }
 
-extern json_Error
+global json_Error
 json_object_insert_lstring(
     json_Object *o,
     const char *k, size_t n,
@@ -466,7 +464,7 @@ json_object_insert_lstring(
     return err;
 }
 
-extern json_Error
+global json_Error
 json_object_insert_jstring(
     json_Object *o,
     json_String *k,
@@ -506,10 +504,10 @@ json_object_insert_jstring(
     return JSON_OK;
 }
 
-static void
+internal void
 print_helper(json_Value v, int depth);
 
-static void
+internal void
 print_indent(int count)
 {
     for (int i = 0; i < count; i += 1) {
@@ -517,7 +515,7 @@ print_indent(int count)
     }
 }
 
-static void
+internal void
 print_string(json_String *s)
 {
     const char *data;
@@ -546,7 +544,7 @@ print_string(json_String *s)
     printf("%.*s\"", cast(int)(stop - start), &data[start]);
 }
 
-static void
+internal void
 print_array(json_Array a, int depth)
 {
     printf("[");
@@ -565,7 +563,7 @@ print_array(json_Array a, int depth)
     printf("]");
 }
 
-static void
+internal void
 print_object(json_Object o, int depth)
 {
     printf("{");
@@ -592,7 +590,7 @@ print_object(json_Object o, int depth)
     printf("}");
 }
 
-static void
+internal void
 print_helper(json_Value v, int depth)
 {
     switch (v.type) {
@@ -605,7 +603,7 @@ print_helper(json_Value v, int depth)
     }
 }
 
-extern void
+global void
 json_print_value(json_Value v)
 {
     print_helper(v, /*depth=*/0);
@@ -614,7 +612,7 @@ json_print_value(json_Value v)
 #if 1
 
 // horrible
-static int
+internal int
 read_file(const char *name, mem_Allocator alloc, char **p, size_t *n)
 {
     FILE *fp;
@@ -626,9 +624,8 @@ read_file(const char *name, mem_Allocator alloc, char **p, size_t *n)
     // Error handling in C is quite atrocious
     fp = fopen(name, "rb");
     if (fp == NULL) {
-        err = 1;
         JSON_LOGFLN("ERROR", "Failed to open file '%s'.", name);
-        goto cleanup_file;
+        return 1;
     }
 
     if (fseek(fp, 0, SEEK_END) != 0) {
@@ -671,7 +668,7 @@ cleanup_file:
     return err;
 }
 
-static void
+internal void
 run(const char *input, size_t input_len, mem_Allocator alloc)
 {
     json_Value v;
@@ -693,7 +690,7 @@ run(const char *input, size_t input_len, mem_Allocator alloc)
 #define HELP_MESSAGE   "<Ctrl-D>"
 #endif
 
-static void
+internal void
 repl(mem_Allocator alloc)
 {
     char *s;
@@ -736,7 +733,7 @@ int main(int argc, char *argv[])
         return f_err;
     }
 
-    static const char test[] = "{\n"
+    local_persist const char test[] = "{\n"
 "   \"\\u0068\\u0069\":        \"\\u006d\\u006f\\u006d\",\n" // "hi": "mom"
 "   \"\\u006d\\u006f\\u006d\": \"\\u0068\\u0069\"\n"        // "mom": "hi"
 "}\n";

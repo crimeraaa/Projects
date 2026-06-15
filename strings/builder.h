@@ -16,37 +16,37 @@ struct String_Builder {
     mem_Allocator allocator;
 };
 
-extern void
+global void
 string_builder_init_none(String_Builder *b, mem_Allocator allocator);
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_builder_init_cap(String_Builder *b, size_t n, mem_Allocator allocator);
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_write_char(String_Builder *b, char c);
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_write_string(String_Builder *b, String s);
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_write_cstring(String_Builder *b, const char *s);
 
 #define string_write_literal(b, s) \
     string_write_string(b, string_make(s, sizeof(s) - 1))
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_write_uint(String_Builder *b, uint u, int base);
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_write_int(String_Builder *b, int i, int base);
 
-extern char
+global char
 string_pop_char(String_Builder *b);
 
-extern String
+global String
 string_to_string(const String_Builder *b);
 
-extern void
+global void
 string_builder_destroy(String_Builder *b);
 
 #ifdef STRINGS_BUILDER_IMPLEMENTATION
@@ -58,7 +58,7 @@ string_builder_destroy(String_Builder *b);
 #include <intrin.h> // _BitScanReverse
 #endif
 
-extern void
+global void
 string_builder_init_none(String_Builder *b, mem_Allocator allocator)
 {
     b->data      = NULL;
@@ -67,7 +67,7 @@ string_builder_init_none(String_Builder *b, mem_Allocator allocator)
     b->allocator = allocator;
 }
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_builder_init_cap(String_Builder *b, size_t n, mem_Allocator allocator)
 {
     mem_Allocator_Error err = MEM_OK;
@@ -77,7 +77,7 @@ string_builder_init_cap(String_Builder *b, size_t n, mem_Allocator allocator)
     return err;
 }
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_write_char(String_Builder *b, char c)
 {
     mem_Allocator_Error err = MEM_OK;
@@ -100,7 +100,7 @@ string_write_char(String_Builder *b, char c)
     return err;
 }
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_write_string(String_Builder *b, String s)
 {
     mem_Allocator_Error err = MEM_OK;
@@ -143,17 +143,17 @@ string_write_string(String_Builder *b, String s)
     return err;
 }
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_write_cstring(String_Builder *b, const char *s)
 {
     String s2 = {s, strlen(s)};
     return string_write_string(b, s2);
 }
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_write_uint(String_Builder *b, uint u, int base)
 {
-    static const char DIGIT_CHARS[] = "01234567890ABDEFGHIJKLMNOPQRSTUVWXYZ";
+    local_persist const char DIGIT_CHARS[] = "01234567890ABDEFGHIJKLMNOPQRSTUVWXYZ";
 
     // Reasonable to assume that maximum binary length more than sufficient
     // for all other base representations.
@@ -211,7 +211,7 @@ string_write_uint(String_Builder *b, uint u, int base)
     return string_write_string(b, string_make(p, cast(size_t)(end - p)));
 }
 
-extern mem_Allocator_Error
+global mem_Allocator_Error
 string_write_int(String_Builder *b, int i, int base)
 {
     // Get the absolute value of `i`. Use unsigned so we can represent
@@ -227,7 +227,7 @@ string_write_int(String_Builder *b, int i, int base)
     return string_write_uint(b, u, base);
 }
 
-extern char
+global char
 string_pop_char(String_Builder *b)
 {
     size_t n, i;
@@ -249,14 +249,14 @@ string_pop_char(String_Builder *b)
     return c;
 }
 
-extern String
+global String
 string_to_string(const String_Builder *b)
 {
     String s = {b->data, b->len};
     return s;
 }
 
-extern void
+global void
 string_builder_destroy(String_Builder *b)
 {
     mem_free_array(b->allocator, b->data, b->cap, NULL);

@@ -12,18 +12,20 @@ struct mem_Stack {
     size_t cap;
 };
 
-typedef struct mem_Stack_Allocation_Header Stack_Header;
-struct mem_Stack_Allocation_Header {
+typedef struct mem_Stack_Header mem_Stack_Header;
+struct mem_Stack_Header {
     uint8_t padding;
 };
 
-void
+global void
 mem_stack_init(mem_Stack *s, void *buffer, size_t cap);
 
-#define MEM_STACK_IMPLEMENTATION
+global void *
+mem_stack_alloc_bytes_align(mem_Stack *s, size_t size, size_t align);
+
 #ifdef MEM_STACK_IMPLEMENTATION
 
-void
+global void
 mem_stack_init(mem_Stack *s, void *buffer, size_t cap)
 {
     s->buffer = cast(unsigned char *)buffer;
@@ -31,9 +33,12 @@ mem_stack_init(mem_Stack *s, void *buffer, size_t cap)
     s->cap    = cap;
 }
 
-static size_t
-mem_stack_calc_padding_with_header(uintptr_t address, uintptr_t align, size_t header_size)
-{
+internal size_t
+mem_stack_calc_padding_with_header(
+    uintptr_t address,
+    uintptr_t align,
+    size_t header_size
+) {
     uintptr_t modulo, padding, needed_space;
 
     modulo       = address & (align - 1);
@@ -59,19 +64,23 @@ mem_stack_calc_padding_with_header(uintptr_t address, uintptr_t align, size_t he
 
 }
 
-void *
+global void *
 mem_stack_alloc_bytes_align(mem_Stack *s, size_t size, size_t align)
 {
     uintptr_t curr_addr, next_addr;
     size_t padding;
-    mem_Stack_Allocation_Header *header;
+    mem_Stack_Header *header;
 
     if (align > 128) {
         align = 128;
     }
 
     curr_addr = cast(uintptr_t)s->buffer + cast(uintptr_t)s->offset;
-    padding   = mem_stack_calc_padding_with_header(curr_addr, align, sizeof(*header));
+    padding   = mem_stack_calc_padding_with_header(
+        curr_addr,
+        align,
+        sizeof(*header)
+    );
 
     // Stack allocator couldn't fit the aligned allocation?
     if (s->offset + padding + size > s->cap) {
@@ -80,13 +89,12 @@ mem_stack_alloc_bytes_align(mem_Stack *s, size_t size, size_t align)
     s->offset += padding;
 
     next_addr = curr_addr + cast(uintptr_t)padding;
-    header    = cast(mem_Stack_Allocation_Header *)(next_addr - sizeof(*header));
+    header    = cast(mem_Stack_Header *)(next_addr - sizeof(*header));
     header->padding = cast(uint8_t)padding;
     
     s->offset += size;
     return cast(void *)next_addr;
 }
-
 
 #endif // !MEM_STACK_IMPLEMENTATION
 

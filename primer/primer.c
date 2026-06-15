@@ -13,10 +13,10 @@
 #if 0
 #define dprintf(...)    printf(__VA_ARGS__)
 
-static const char *
+internal const char *
 binle(LIMB_TYPE value)
 {
-    static char buf[bit_size(value) + 1];
+    local_persist char buf[bit_size(value) + 1];
     // Print LSB to MSB.
     LIMB_TYPE i, bit;
     for (i = 0; i < sizeof(buf) - 1; i += 1) {
@@ -36,7 +36,7 @@ struct Strand_Index {
     u64 limb, bit;
 };
 
-static Strand_Index
+internal Strand_Index
 strand_index_make(u64 base_index)
 {
     Strand_Index i = {0, 0};
@@ -60,7 +60,7 @@ strand_index_make(u64 base_index)
     return i;
 }
 
-static void
+internal void
 strand_set(Strand *s, Strand_Index index, enum Base base)
 {
     LIMB_TYPE *limb_ptr, mask;
@@ -75,7 +75,7 @@ strand_set(Strand *s, Strand_Index index, enum Base base)
             index.limb, index.bit, index.bit + 2, *limb_ptr, binle(*limb_ptr));
 }
 
-static Strand
+internal Strand
 strand_make(String dna, mem_Allocator allocator)
 {
     Strand s = {NULL, 0, 0};
@@ -100,7 +100,7 @@ strand_make(String dna, mem_Allocator allocator)
     return s;
 }
 
-static void
+internal void
 strand_limb_print(LIMB_TYPE limb, LIMB_TYPE bit_count)
 {
     dprintf("\t\t%" PRIu32 ", // %s, \"", limb, binle(limb));
@@ -115,7 +115,7 @@ strand_limb_print(LIMB_TYPE limb, LIMB_TYPE bit_count)
     dprintf("\"\n");
 }
 
-static void
+internal void
 strand_print(const Strand *s)
 {
     LIMB_TYPE limb, count;
@@ -147,14 +147,14 @@ strand_print(const Strand *s)
            s->len, s->cap, s->base_count);
 }
 
-static void
+internal void
 strand_destroy(Strand *s, mem_Allocator allocator)
 {
     list_delete(s, allocator);
     s->base_count = 0;
 }
 
-static String
+internal String
 string_make_cstring(const char *cstring)
 {
     String s = {cstring, strlen(cstring)};

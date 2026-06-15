@@ -1,13 +1,16 @@
-#define WIN32_LEAN_AND_MEAN
+// stfu microslop
 #define _CRT_SECURE_NO_WARNINGS
+#define WIN32_LEAN_AND_MEAN
+
+// standard
 #include <windows.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
-#define cast(T) (T)
+// local
+#include "../common.h"
 
-static bool
+internal bool
 error(const char *name)
 {
     DWORD id = GetLastError();
@@ -25,7 +28,7 @@ error(const char *name)
     return false;
 }
 
-static bool
+internal bool
 wildcard_appended(char *buf, size_t buf_len, const char *arg)
 {
     size_t arg_len = strlen(arg);
@@ -54,7 +57,7 @@ enum Unit {
     UNIT_COUNT,
 };
 
-static const char
+internal const char
 UNIT_SUFFIXES[UNIT_COUNT] = {'B', 'K', 'M', 'G'};
 
 enum Factor {
@@ -67,7 +70,7 @@ struct Size {
     int data[UNIT_COUNT];
 };
 
-static size_t
+internal size_t
 size_set(struct Size *sz, enum Unit unit, size_t count, size_t factor)
 {
     size_t rest  = count / factor;
@@ -76,7 +79,7 @@ size_set(struct Size *sz, enum Unit unit, size_t count, size_t factor)
     return rest;
 }
 
-static enum Unit
+internal enum Unit
 size_init_metric(struct Size *sz, size_t byte_count)
 {
     enum Unit unit = UNIT_BYTE;
@@ -93,7 +96,7 @@ size_init_metric(struct Size *sz, size_t byte_count)
     return unit;
 }
 
-static const char *
+internal const char *
 unit_string(char *buf, size_t buf_len, size_t byte_count)
 {
     struct Size sz;
@@ -108,7 +111,7 @@ unit_string(char *buf, size_t buf_len, size_t byte_count)
     return buf;
 }
 
-static bool
+internal bool
 files_listed(const char *arg)
 {
     char path[MAX_PATH];
@@ -151,7 +154,6 @@ files_listed(const char *arg)
 int
 main(int argc, char *argv[])
 {
-
     // Add the wildcard to ensure FindFirstFile() will expand the directory.
     if (argc == 1) {
         files_listed(".");

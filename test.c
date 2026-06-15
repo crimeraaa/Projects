@@ -15,7 +15,7 @@
 #include "mem/arena.h"
 #include "strings/builder.h"
 
-static void
+internal void
 check(const char *file, int line, mem_Allocator_Error err)
 {
     const char *info = NULL;
@@ -39,7 +39,7 @@ check(const char *file, int line, mem_Allocator_Error err)
 
 #define check(err)  (check)(__FILE__, __LINE__, err)
 
-static void
+internal void
 read_string(String_Builder *b, const char *prompt)
 {
     char buf[BUFSIZ];
@@ -69,7 +69,7 @@ read_string(String_Builder *b, const char *prompt)
 }
 
 // TODO: Breaks for negatives, e.g. -0xff.
-static int
+internal int
 parse_int(const char *s, size_t n)
 {
     char *end;
@@ -101,7 +101,7 @@ parse_int(const char *s, size_t n)
     return i;
 }
 
-static void
+internal void
 read_int(String_Builder *b, const char *prompt)
 {
     int i;

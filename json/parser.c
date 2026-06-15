@@ -8,10 +8,10 @@
 
 // Parses the value represented by the input of `p`'s lexer and stores
 // it in `*v`.
-static json_Error
+internal json_Error
 json_parse_value(json_Parser *p, json_Value *v);
 
-static json_Token
+internal json_Token
 token_none(void)
 {
     json_Token t;
@@ -19,7 +19,7 @@ token_none(void)
     return t;
 }
 
-static json_Error
+internal json_Error
 json_advance_token(json_Parser *p)
 {
     p->consumed = p->lookahead;
@@ -39,7 +39,7 @@ json_init_parser(
     return json_advance_token(p);
 }
 
-static bool
+internal bool
 json_allow_token(json_Parser *p, json_Token_Type type)
 {
     if (p->lookahead.type == type) {
@@ -49,7 +49,7 @@ json_allow_token(json_Parser *p, json_Token_Type type)
     return false;
 }
 
-static json_Error
+internal json_Error
 json_expect_token(json_Parser *p, json_Token_Type type)
 {
     json_Token t = p->lookahead;
@@ -67,7 +67,7 @@ json_parse(json_Parser *p, json_Value *v)
     return err;
 }
 
-static json_Error
+internal json_Error
 json_parse_number(json_Parser *p, json_Value *v)
 {
     json_Error err = json_advance_token(p);
@@ -88,7 +88,7 @@ json_parse_number(json_Parser *p, json_Value *v)
     return err;
 }
 
-extern uint16_t
+global uint16_t
 json_decode_hex4(const char *s, size_t n, size_t *byte_count)
 {
     size_t hex_count = 0;
@@ -122,7 +122,7 @@ json_decode_hex4(const char *s, size_t n, size_t *byte_count)
     return byte2;
 }
 
-extern uint16_t
+global uint16_t
 json_char_to_hex(char c)
 {
     if ('0' <= c && c <= '9') {
@@ -136,7 +136,7 @@ json_char_to_hex(char c)
 }
 
 // Count actual number of bytes needed- i.e. with escaped sequences
-static size_t
+internal size_t
 json_escape_lstring_len(const char *text, size_t text_len)
 {
     size_t write_len = 0;
@@ -184,7 +184,7 @@ json_escape_lstring_len(const char *text, size_t text_len)
     return write_len;
 }
 
-static json_Error
+internal json_Error
 json_parse_string_literal(json_Parser *p, json_Value *v)
 {
     json_Token t;
@@ -210,10 +210,10 @@ json_parse_string_literal(json_Parser *p, json_Value *v)
     return err;
 }
 
-static json_Error
+internal json_Error
 json_parse_array(json_Parser *p, json_Value *v)
 {
-    static const json_Array EMPTY_ARRAY = {NULL, 0, 0};
+    local_persist const json_Array EMPTY_ARRAY = {NULL, 0, 0};
     mem_Allocator alloc;
     json_Error err;
     json_Array *a;
@@ -250,10 +250,10 @@ cleanup:
     return err;
 }
 
-static json_Error
+internal json_Error
 json_parse_object(json_Parser *p, json_Value *v)
 {
-    static const json_Object EMPTY_OBJECT = {NULL, 0, 0};
+    local_persist const json_Object EMPTY_OBJECT = {NULL, 0, 0};
     mem_Allocator alloc;
     json_Error err;
     json_Object *o;
@@ -304,7 +304,7 @@ cleanup_object:
     return err;
 }
 
-static json_Error
+internal json_Error
 json_parse_value(json_Parser *p, json_Value *v)
 {
     switch (p->lookahead.type) {

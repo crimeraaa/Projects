@@ -3,11 +3,12 @@
 
 // local
 #define ASCII_SET_DISABLED
+#define ASCII_IMPLEMENTATION
 #include "../strings/ascii.h"
 #include "lexer.h"
 #include "json.h"
 
-void
+global void
 json_init_lexer(json_Lexer *x, const char *input, size_t len)
 {
     x->start   = input;
@@ -18,25 +19,25 @@ json_init_lexer(json_Lexer *x, const char *input, size_t len)
     x->col     = 1;
 }
 
-static bool
+internal bool
 json_is_at_end(const json_Lexer *x)
 {
     return x->current >= x->input + x->len;
 }
 
-static char
+internal char
 json_peek_char(const json_Lexer *x)
 {
     return x->current[0];
 }
 
-// static char
+// internal char
 // json_peek_next_char(const Lexer *x)
 // {
 //     return json_is_at_end(x) ? '\0' : x->current[1];
 // }
 
-static char
+internal char
 json_advance_char(json_Lexer *x)
 {
     char c = json_peek_char(x);
@@ -46,14 +47,14 @@ json_advance_char(json_Lexer *x)
     return c;
 }
 
-static bool
+internal bool
 json_check_char(const json_Lexer *x, char wanted)
 {
     char c = json_peek_char(x);
     return c == wanted;
 }
 
-static bool
+internal bool
 json_match_char(json_Lexer *x, char wanted)
 {
     bool ok = json_check_char(x, wanted);
@@ -63,13 +64,13 @@ json_match_char(json_Lexer *x, char wanted)
     return ok;
 }
 
-static bool
+internal bool
 json_match_either_char(json_Lexer *x, char a, char b)
 {
     return json_match_char(x, a) || json_match_char(x, b);
 }
 
-static void
+internal void
 skip_whitespace(json_Lexer *x)
 {
     for (;;) {
@@ -97,7 +98,7 @@ json_get_lexeme(const json_Lexer *x, size_t *len)
     return x->start;
 }
 
-static json_Error
+internal json_Error
 json_init_token(const json_Lexer *x, json_Token *t, json_Token_Type type)
 {
     t->type = type;
@@ -109,7 +110,7 @@ json_init_token(const json_Lexer *x, json_Token *t, json_Token_Type type)
     return JSON_OK;
 }
 
-static int
+internal int
 json_consume_sequence(json_Lexer *x, bool (*predicate)(char c))
 {
     int n = 0;
@@ -124,7 +125,7 @@ json_consume_sequence(json_Lexer *x, bool (*predicate)(char c))
     return n;
 }
 
-static json_Error
+internal json_Error
 json_try_keyword(json_Lexer *x, json_Token *t)
 {
     size_t len;
@@ -154,7 +155,7 @@ json_try_keyword(json_Lexer *x, json_Token *t)
     return JSON_UNEXPECTED_TOKEN;
 }
 
-static json_Error
+internal json_Error
 json_consume_digits(json_Lexer *x)
 {
     bool leading_zero;
@@ -171,7 +172,7 @@ json_consume_digits(json_Lexer *x)
     return JSON_OK;
 }
 
-static json_Error
+internal json_Error
 json_try_number(json_Lexer *x, json_Token *t)
 {
     json_Error err;
@@ -210,7 +211,7 @@ json_try_number(json_Lexer *x, json_Token *t)
     return json_init_token(x, t, TOKEN_NUMBER);
 }
 
-static json_Error
+internal json_Error
 json_validate_string(json_Lexer *x)
 {
     // JSON_LOGLN("INFO ", "Trying a string...");
@@ -251,7 +252,7 @@ json_validate_string(json_Lexer *x)
     return JSON_OK;
 }
 
-static json_Error
+internal json_Error
 json_try_string(json_Lexer *x, json_Token *t)
 {
     json_Error err = json_validate_string(x);
@@ -261,7 +262,7 @@ json_try_string(json_Lexer *x, json_Token *t)
     return err;
 }
 
-json_Error
+global json_Error
 json_scan_token(json_Lexer *x, json_Token *t)
 {
     char curr;

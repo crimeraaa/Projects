@@ -28,4 +28,16 @@
 typedef unsigned int  uint;
 typedef unsigned long ulong;
 
+// Globally visible function and variable declarations.
+// That is, they can be referenced across translation units.
+#define global          extern
+
+// Functions and global variables visible only to the current translation unit.
+// That is, they CANNOT be referenced across translation units.
+#define internal        static
+
+// Function-local variables that persist across calls.
+// May not be thread-safe.
+#define local_persist   static
+
 #endif // !PROJECTS_COMMON_H

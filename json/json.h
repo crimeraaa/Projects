@@ -158,41 +158,41 @@ struct JSON_PACKED json_String {
 #pragma pack(pop)
 #endif
 
-extern json_Value
+global json_Value
 json_make_null(void);
 
-extern json_Value
+global json_Value
 json_make_boolean(bool b);
 
-extern json_Value
+global json_Value
 json_make_number(double n);
 
-extern json_Value
+global json_Value
 json_make_string(json_String *s);
 
-extern json_Value
+global json_Value
 json_make_array(json_Array a);
 
-extern json_Value
+global json_Value
 json_make_object(json_Object o);
 
-extern json_Error
+global json_Error
 json_parse_lstring(const char *s, size_t n, mem_Allocator alloc,
                    json_Value *v);
 
-extern const char *
+global const char *
 json_error_string(json_Error e);
 
-extern const char *
+global const char *
 json_type_name(json_Type t);
 
 #define json_value_type(v)      ((v).type)
 #define json_value_type_name(v) json_type_name(json_value_type(v))
 
-extern void
+global void
 json_destroy_value(json_Value value, mem_Allocator alloc);
 
-extern json_Error
+global json_Error
 json_string_new(
     size_t write_len,
     const char *text, size_t text_len,
@@ -200,19 +200,19 @@ json_string_new(
     json_String **ps
 );
 
-extern char *
+global char *
 json_string_data(json_String *s, size_t *n);
 
-extern json_Error
+global json_Error
 json_array_append(json_Array *a, json_Value v, mem_Allocator alloc);
 
-extern json_Value
+global json_Value
 json_object_get(json_Object *o, const char *k);
 
-extern json_Value
+global json_Value
 json_object_get_lstring(json_Object *o, const char *k, size_t n);
 
-extern json_Error
+global json_Error
 json_object_insert(
     json_Object *o,
     const char *k,
@@ -220,7 +220,7 @@ json_object_insert(
     mem_Allocator alloc
 );
 
-extern json_Error
+global json_Error
 json_object_insert_lstring(
     json_Object *o,
     const char *k, size_t n,
@@ -228,7 +228,7 @@ json_object_insert_lstring(
     mem_Allocator alloc
 );
 
-extern json_Error
+global json_Error
 json_object_insert_jstring(
     json_Object *o,
     json_String *k,
@@ -236,7 +236,7 @@ json_object_insert_jstring(
     mem_Allocator alloc
 );
 
-extern void
+global void
 json_print_value(json_Value v);
 
 #endif // !JSON_H

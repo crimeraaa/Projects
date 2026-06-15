@@ -17,65 +17,65 @@
 #define ASCII_SET_LIMB_COUNT (ASCII_SET_BITS / ASCII_SET_LIMB_BITS)
 
 // 128-bit bitset
-typedef struct ascii_Set ascii_Set;
-struct ascii_Set {
+typedef struct Ascii_Set Ascii_Set;
+struct Ascii_Set {
     ASCII_SET_LIMB_TYPE limbs[ASCII_SET_LIMB_COUNT];
 };
 
-extern ascii_Set
+global Ascii_Set
 ascii_set_make(const char *s);
 
-extern ascii_Set
+global Ascii_Set
 ascii_set_make_lstring(const char *s, size_t n);
 
-extern ascii_Set
-ascii_set_union(ascii_Set a, ascii_Set b);
+global Ascii_Set
+ascii_set_union(Ascii_Set a, Ascii_Set b);
 
-extern ascii_Set
-ascii_set_intersection(ascii_Set a, ascii_Set b);
+global Ascii_Set
+ascii_set_intersection(Ascii_Set a, Ascii_Set b);
 
-extern bool
-ascii_set_contains(ascii_Set set, char c);
+global bool
+ascii_set_contains(Ascii_Set set, char c);
 
 #endif // !ASCII_SET_DISABLED
 
-extern bool
+global bool
 ascii_is_control(char c);
 
-extern bool
+global bool
 ascii_is_print(char c);
 
-extern bool
+global bool
 ascii_is_space(char c);
 
-extern bool
+global bool
 ascii_is_blank(char c);
 
-extern bool
+global bool
 ascii_is_punct(char c);
 
-extern bool
+global bool
 ascii_is_lower(char c);
 
-extern bool
+global bool
 ascii_is_upper(char c);
 
-extern bool
+global bool
 ascii_is_decimal(char c);
 
-extern bool
+global bool
 ascii_is_hexadecimal(char c);
 
-extern bool
+global bool
 ascii_is_letter(char c);
 
-extern bool
+global bool
 ascii_is_alnum(char c);
 
-extern bool
+global bool
 ascii_is_graph(char c);
 
-#ifdef STRINGS_ASCII_IMPLEMENTATION
+#ifdef ASCII_IMPLEMENTATION
 
 enum ascii_Trait {
     // Primary traits
@@ -94,7 +94,7 @@ enum ascii_Trait {
     ASCII_GRAPH   = ASCII_PUNCT  | ASCII_ALNUM,
 };
 
-// static const char *
+// internal const char *
 // ascii_trait_string(enum ascii_Trait t)
 // {
 //     switch (t) {
@@ -116,7 +116,7 @@ enum ascii_Trait {
 //     return NULL;
 // }
 
-static const uint8_t
+internal const uint8_t
 ASCII_TRAITS[] = {
     // Control characters: [0,31)
     /* NUL: \0  */   ASCII_CONTROL,
@@ -253,8 +253,8 @@ ASCII_TRAITS[] = {
 
 #ifndef ASCII_SET_DISABLED
 
-static ASCII_SET_LIMB_TYPE *
-ascii_set_get_limb_ptr(ascii_Set *set, char c, ASCII_SET_LIMB_TYPE *mask)
+internal ASCII_SET_LIMB_TYPE *
+ascii_set_get_limb_ptr(Ascii_Set *set, char c, ASCII_SET_LIMB_TYPE *mask)
 {
     ASCII_SET_LIMB_TYPE curr, limb, finger;
 
@@ -264,17 +264,17 @@ ascii_set_get_limb_ptr(ascii_Set *set, char c, ASCII_SET_LIMB_TYPE *mask)
     *mask  = (1 << finger);
     return &set->limbs[limb];
 }
-extern ascii_Set
+global Ascii_Set
 ascii_set_make(const char *s)
 {
     size_t n = strlen(s);
     return ascii_set_make_lstring(s, n);
 }
 
-extern ascii_Set
+global Ascii_Set
 ascii_set_make_lstring(const char *s, size_t n)
 {
-    ascii_Set set;
+    Ascii_Set set;
     memset(&set, 0, sizeof(set));
 
     // Bit packing shenanigans because C doesn't have native bitsets
@@ -293,28 +293,28 @@ ascii_set_make_lstring(const char *s, size_t n)
     return set;
 }
 
-extern ascii_Set
-ascii_set_union(ascii_Set a, ascii_Set b)
+global Ascii_Set
+ascii_set_union(Ascii_Set a, Ascii_Set b)
 {
-    ascii_Set u;
+    Ascii_Set u;
     for (size_t i = 0; i < ASCII_SET_LIMB_COUNT; i += 1) {
         u.limbs[i] = a.limbs[i] | b.limbs[i];
     }
     return u;
 }
 
-extern ascii_Set
-ascii_set_intersection(ascii_Set a, ascii_Set b)
+global Ascii_Set
+ascii_set_intersection(Ascii_Set a, Ascii_Set b)
 {
-    ascii_Set n;
+    Ascii_Set n;
     for (size_t i = 0; i < ASCII_SET_LIMB_COUNT; i += 1) {
         n.limbs[i] = a.limbs[i] & b.limbs[i];
     }
     return n;
 }
 
-extern bool
-ascii_set_contains(ascii_Set set, char c)
+global bool
+ascii_set_contains(Ascii_Set set, char c)
 {
     ASCII_SET_LIMB_TYPE limb, mask;
     limb = *ascii_set_get_limb_ptr(&set, c, &mask);
@@ -323,79 +323,79 @@ ascii_set_contains(ascii_Set set, char c)
 
 #endif // !ASCII_SET_DISABLED
 
-static bool
+internal bool
 ascii_has_traits(char c, uint8_t t)
 {
     return (ASCII_TRAITS[c] & t) != 0;
 }
 
-extern bool
+global bool
 ascii_is_control(char c)
 {
     return ascii_has_traits(c, ASCII_CONTROL);
 }
 
-extern bool
+global bool
 ascii_is_print(char c)
 {
     return !ascii_is_control(c);
 }
 
-extern bool
+global bool
 ascii_is_space(char c)
 {
     return ascii_has_traits(c, ASCII_SPACE);
 }
 
-extern bool
+global bool
 ascii_is_blank(char c)
 {
     return ascii_has_traits(c, ASCII_BLANK);
 }
 
-extern bool
+global bool
 ascii_is_punct(char c)
 {
     return ascii_has_traits(c, ASCII_PUNCT);
 }
 
-extern bool
+global bool
 ascii_is_lower(char c)
 {
     return ascii_has_traits(c, ASCII_LOWER);
 }
 
-extern bool
+global bool
 ascii_is_upper(char c)
 {
     return ascii_has_traits(c, ASCII_UPPER);
 }
 
-extern bool
+global bool
 ascii_is_decimal(char c)
 {
     return ascii_has_traits(c, ASCII_DECIMAL);
 }
 
-extern bool
+global bool
 ascii_is_hexadecimal(char c)
 {
     return ascii_has_traits(c, ASCII_HEXADECIMAL);
 }
 
-extern bool
+global bool
 ascii_is_alnum(char c)
 {
     return ascii_has_traits(c, ASCII_ALNUM);
 }
 
-extern bool
+global bool
 ascii_is_letter(char c)
 {
     return ascii_has_traits(c, ASCII_LETTER);
 }
 
-extern bool
+global bool
 ascii_is_graph(char c)
 {
     return ascii_has_traits(c, ASCII_GRAPH);
@@ -406,7 +406,7 @@ ascii_is_graph(char c)
 #include <stdio.h>
 
 // Assumes `buf` is more than enough even in the worst case!
-static int
+internal int
 convert_base(uint n, uint base, char *buf)
 {
     char *it;
@@ -430,7 +430,7 @@ convert_base(uint n, uint base, char *buf)
 }
 
 // Assumes `buf` is more than enough even in the worst case!
-static void
+internal void
 quote_char(char c, char *buf)
 {
     char *it;
@@ -462,7 +462,7 @@ quote_char(char c, char *buf)
 
 int main(void)
 {
-    ascii_Set space = ascii_set_make("\t\n\v\f\r ");
+    Ascii_Set space = ascii_set_make("\t\n\v\f\r ");
     // Char itself can't represent 128 and thus can't compare against it.
     for (size_t i = 0; i < sizeof(ASCII_TRAITS); i += 1) {
         char buf[8];
@@ -485,6 +485,6 @@ int main(void)
 
 #endif // 0
 
-#endif // STRINGS_ASCII_IMPLEMENTATION
+#endif // ASCII_IMPLEMENTATION
 
 #endif // !STRINGS_ASCII_H

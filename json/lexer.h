@@ -53,10 +53,10 @@ struct json_Lexer {
     int line, col;
 };
 
-extern void
+global void
 json_init_lexer(json_Lexer *x, const char *input, size_t len);
 
-extern json_Error
+global json_Error
 json_scan_token(json_Lexer *x, json_Token *t);
 
 #endif // !JSON_LEXER_H
