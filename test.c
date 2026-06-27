@@ -1,10 +1,9 @@
 // stfu microslop
 #ifdef _WIN32
 #define _CRT_SECURE_NO_WARNINGS
+#define WIN32_LEAN_AND_MEAN
 #endif
 
-#include <string.h> // memcpy, strlen
-#include <stdlib.h> // strtol
 #include <stdio.h>  // printf
 
 // Only needed for the default global heap allocator (malloc-based).
@@ -32,6 +31,7 @@ check(const char *file, int line, mem_Allocator_Error err)
         info = "Allocator received an invalid argument";
         break;
     }
+
     if (info != NULL) {
         printf("%s:%i: %s\n", file, line, info);
     }
@@ -39,8 +39,66 @@ check(const char *file, int line, mem_Allocator_Error err)
 
 #define check(err)  (check)(__FILE__, __LINE__, err)
 
+typedef struct {
+    // 1D array of non-owning views into some giant string.
+    string_View *data;
+    size_t len;
+} File_Contents;
+
+internal mem_Allocator_Error
+read_file_by_lines(const char *name, mem_Allocator allocator)
+{
+    FILE *f;
+    char *contents = NULL;
+    size_t n = 0;
+    mem_Allocator_Error err = MEM_OK;
+
+    f = fopen(name, "r");
+    if (!f) {
+        fprintf(stderr, "Failed to open file '%s'.\n", name);
+        return MEM_INVALID_ARGUMENT;
+    }
+
+    for (;;) {
+        char buf[BUFSIZ];
+        string_View line;
+        line.data = fgets(buf, sizeof(buf), f);
+        if (!line.data) {
+            break;
+        }
+        line = string_make_cstring(line.data);
+        // This line is complete?
+        if (string_index_char(line, '\n')) {
+            // ...
+        }
+        // Otherwise, the line is not yet complete.
+        else {
+
+        }
+    }
+
+    fclose(f);
+    return err;
+}
+
+global int
+main(int argc, char *argv[])
+{
+    string_Builder b;
+    mem_Allocator allocator;
+    mem_Arena arena;
+    char buf[4096];
+
+    mem_arena_init(&arena, buf, sizeof(buf));
+    allocator = mem_arena_allocator(&arena);
+    string_builder_init_none(&b, allocator);
+    return 0;
+}
+
+#if 0
+
 internal void
-read_string(String_Builder *b, const char *prompt)
+read_string(string_Builder *b, const char *prompt)
 {
     char buf[BUFSIZ];
     if (prompt != NULL) {
@@ -70,7 +128,7 @@ read_string(String_Builder *b, const char *prompt)
 }
 
 internal int
-parse_int(String s, bool *ok)
+parse_int(string s, bool *ok)
 {
     char *end;
     ullong u;
@@ -110,7 +168,7 @@ parse_int(String s, bool *ok)
 }
 
 internal void
-read_int(String_Builder *b, const char *prompt)
+read_int(string_Builder *b, const char *prompt)
 {
     int i;
     char buf[BUFSIZ];
@@ -144,8 +202,8 @@ read_int(String_Builder *b, const char *prompt)
 int
 main(void)
 {
-    String_Builder b;
-    String s;
+    string_Builder b;
+    string_View s;
 
     // memory
     mem_Arena a;
@@ -171,3 +229,5 @@ main(void)
     string_builder_destroy(&b);
     return 0;
 }
+
+#endif

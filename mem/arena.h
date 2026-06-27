@@ -3,6 +3,11 @@
 
 #include "mem.h"
 
+// TODO: Is this desired behavior?
+#ifndef MEM_ARENA_DEF
+#define MEM_ARENA_DEF MEM_DEF
+#endif // MEM_ARENA_DEF
+
 typedef struct mem_Arena mem_Arena;
 struct mem_Arena {
     unsigned char *buffer;
@@ -11,23 +16,22 @@ struct mem_Arena {
     size_t cap;
 };
 
-global mem_Allocator
+MEM_ARENA_DEF mem_Allocator
 mem_arena_allocator(mem_Arena *a);
 
-global void
+MEM_ARENA_DEF void
 mem_arena_init(mem_Arena *a, void *buffer, size_t cap);
 
-global void *
+MEM_ARENA_DEF void *
 mem_arena_alloc_bytes_align(mem_Arena *a, size_t size, size_t align);
 
-global void *
-mem_arena_resize_bytes_align(
-    mem_Arena *a,
+MEM_ARENA_DEF void *
+mem_arena_resize_bytes_align(mem_Arena *a,
     void *memory, size_t old_size,
     size_t new_size,
     size_t align);
 
-global void
+MEM_ARENA_DEF void
 mem_arena_free_all(mem_Arena *a);
 
 // #define MEM_ARENA_IMPLEMENTATION
@@ -37,25 +41,22 @@ mem_arena_free_all(mem_Arena *a);
 #include <string.h> // memset
 
 internal void *
-mem_arena_allocator_fn(
-    void *user_data,
+mem_arena_allocator_fn(void *user_data,
     mem_Allocator_Mode mode,
     void *memory, size_t old_size,
     size_t new_size,
     size_t align,
-    mem_Allocator_Error *err
-) {
+    mem_Allocator_Error *err)
+{
     mem_Arena *a = cast(mem_Arena *)user_data;
     void *new_memory = NULL;
     switch (mode) {
     case MEM_ALLOC:
     case MEM_RESIZE:
-        new_memory = mem_arena_resize_bytes_align(
-            a,
+        new_memory = mem_arena_resize_bytes_align(a,
             memory, old_size,
             new_size,
-            align
-        );
+            align);
         if (new_memory == NULL) {
             if (err != NULL) {
                 *err = MEM_OUT_OF_MEMORY;
@@ -71,12 +72,10 @@ mem_arena_allocator_fn(
         break;
     case MEM_ALLOC_NON_ZEROED:
     case MEM_RESIZE_NON_ZEROED:
-        new_memory = mem_arena_resize_bytes_align(
-            a,
+        new_memory = mem_arena_resize_bytes_align(a,
             memory, old_size,
             new_size,
-            align
-        );
+            align);
         if (new_memory == NULL && err != NULL) {
             *err = MEM_OUT_OF_MEMORY;
         }
@@ -93,7 +92,7 @@ mem_arena_allocator_fn(
     return new_memory;
 }
 
-global mem_Allocator
+MEM_ARENA_DEF mem_Allocator
 mem_arena_allocator(mem_Arena *a)
 {
     mem_Allocator allocator = {mem_arena_allocator_fn, a};
@@ -101,7 +100,7 @@ mem_arena_allocator(mem_Arena *a)
 }
 
 
-global void
+MEM_ARENA_DEF void
 mem_arena_init(mem_Arena *a, void *buffer, size_t cap)
 {
     a->buffer      = cast(unsigned char *)buffer;
@@ -110,7 +109,7 @@ mem_arena_init(mem_Arena *a, void *buffer, size_t cap)
     a->cap         = cap;
 }
 
-global void
+MEM_ARENA_DEF void
 mem_arena_free_all(mem_Arena *a)
 {
     a->curr_offset = 0;
@@ -129,7 +128,7 @@ mem_arena_align_forward(uintptr_t address, size_t align)
     return address;
 }
 
-global void *
+MEM_ARENA_DEF void *
 mem_arena_alloc_bytes_align(mem_Arena *a, size_t size, size_t align)
 {
     uintptr_t address;
@@ -145,9 +144,8 @@ mem_arena_alloc_bytes_align(mem_Arena *a, size_t size, size_t align)
     return (next_offset < a->cap) ? &a->buffer[offset] : NULL;
 }
 
-global void *
-mem_arena_resize_bytes_align(
-    mem_Arena *a,
+MEM_ARENA_DEF void *
+mem_arena_resize_bytes_align(mem_Arena *a,
     void *memory, size_t old_size,
     size_t new_size,
     size_t align)

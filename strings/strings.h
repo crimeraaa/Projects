@@ -1,8 +1,9 @@
 #ifndef STRINGS_H
 #define STRINGS_H
 
-// standard
-#include <string.h>     // memcmp, strlen
+#ifndef STRINGS_DEF
+#define STRINGS_DEF
+#endif
 
 // local
 #include "../common.h"
@@ -11,40 +12,57 @@
 // For a 64-bit system, an 18-quintillion byte string should be impossible.
 #define STRING_NOT_FOUND    SIZE_MAX
 
-// Strings are read-only views into character arrays.
-typedef struct String String;
-struct String {
+// Read-only views into character arrays.
+typedef struct string_View string_View;
+struct string_View {
     const char *data;
     size_t len;
 };
 
-internal inline String
+STRINGS_DEF inline string_View
 string_make(const char *s, size_t n)
 {
-    String s2 = {s, n};
-    return s2;
+    string_View sv = {s, n};
+    return sv;
 }
 
-internal inline String
+STRINGS_DEF inline string_View
 string_make_cstring(const char *s)
 {
-    String s2 = {s, strlen(s)};
-    return s2;
+    size_t n = 0;
+    // Manual strlen.
+    while (s[n] != 0) {
+        n++;
+    }
+    return string_make(s, n);
 }
 
-internal inline bool
-string_eq(String a, String b)
+STRINGS_DEF inline bool
+string_eq(string_View a, string_View b)
 {
-    if (a.len == b.len) {
-        return memcmp(a.data, b.data, b.len) == 0;
+    if (a.len != b.len) {
+        return false;
     }
-    return false;
+
+    // Same length and same pointer?
+    if (a.data == b.data) {
+        return true;
+    }
+
+    // Manual `memcmp`. Could possibly be vectorized for larger strings.
+    for (size_t i = 0; i < a.len; i++) {
+        // Unlike `memcmp()`, we don't care about the ordering.
+        if (a.data[i] != b.data[i]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 
 // Equivalent to `s[start:stop]` in languages like Python and Odin.
-internal inline String
-string_slice(String s, size_t start, size_t stop)
+STRINGS_DEF inline string_View
+string_slice(string_View s, size_t start, size_t stop)
 {
     // If we use signed sizes, we'll also need to check against 0. We are
     // allowed to point to 1 past the last character, we just can't dereference
@@ -58,41 +76,49 @@ string_slice(String s, size_t start, size_t stop)
 }
 
 // Equivalent to `s[start:]` in langauges like Python and Odin.
-internal inline String
-string_slice_from(String s, size_t start)
+STRINGS_DEF inline string_View
+string_slice_from(string_View s, size_t start)
 {
     return string_slice(s, start, s.len);
 }
 
 // Equivalent to `s[:stop]` in languages like Python and Odin.
-internal inline String
-string_slice_until(String s, size_t stop)
+STRINGS_DEF inline string_View
+string_slice_until(string_View s, size_t stop)
 {
     return string_slice(s, 0, stop);
 }
 
 // Returns the first index of `c` in `s`, or `STRING_NOT_FOUND`.
-global size_t
-string_index_char(String s, char c);
+STRINGS_DEF size_t
+string_index_char(string_View s, char c);
 
 // Returns the last index of `c` in `s`, or `STRING_NOT_FOUND`.
-global size_t
-string_last_index_char(String s, char c);
+STRINGS_DEF size_t
+string_last_index_char(string_View s, char c);
 
-// Returns the first index of the needle `p` in the haystack `s`.
+// Returns the first index of the needle `p` (a substring) in the haystack `s`.
 // Returns `STRING_NOT_FOUND` otherwise.
-global size_t
-string_index(String s, String p);
+STRINGS_DEF size_t
+string_index(string_View s, string_View p);
 
-// Returns the last index of the needle `p` in the haystack `s`.
+// Returns the last index of the needle `p` (a substring) in the haystack `s`.
 // Returns `STRING_NOT_FOUND` ohterwise.
-global size_t
-string_last_index(String s, String p);
+STRINGS_DEF size_t
+string_last_index(string_View s, string_View p);
 
+STRINGS_DEF string_View
+string_trim(string_View s);
+
+// The string creation and slicing functions are simple enough to inline.
+// The find functions, however, are not.
+// #define STRINGS_IMPLEMENTATION
 #ifdef STRINGS_IMPLEMENTATION
 
-global size_t
-string_index_char(String s, char c)
+#include "../ascii/ascii.h"
+
+STRINGS_DEF size_t
+string_index_char(string_View s, char c)
 {
     for (size_t i = 0; i < s.len; i += 1) {
         if (s.data[i] == c) {
@@ -102,8 +128,8 @@ string_index_char(String s, char c)
     return STRING_NOT_FOUND;
 }
 
-global size_t
-string_last_index_char(String s, char c)
+STRINGS_DEF size_t
+string_last_index_char(string_View s, char c)
 {
     // Reverse iteration with unsigned types sucks
     for (size_t i = s.len; i-- > 0;) {
@@ -114,8 +140,8 @@ string_last_index_char(String s, char c)
     return STRING_NOT_FOUND;
 }
 
-global size_t
-string_index(String s, String p)
+STRINGS_DEF size_t
+string_index(string_View s, string_View p)
 {
     switch (p.len) {
     // The empty string is always present at the start.
@@ -137,7 +163,7 @@ string_index(String s, String p)
             break;
         }
 
-        String sub = string_slice(s, start, stop);
+        string_View sub = string_slice(s, start, stop);
         if (string_eq(sub, p)) {
             return start;
         }
@@ -145,8 +171,8 @@ string_index(String s, String p)
     return STRING_NOT_FOUND;
 }
 
-global size_t
-string_last_index(String s, String p)
+STRINGS_DEF size_t
+string_last_index(string_View s, string_View p)
 {
     switch (p.len) {
     // The empty string is always present at the start.
@@ -163,7 +189,7 @@ string_last_index(String s, String p)
     // Reverse iteration with unsigned types sucks
     // Also this O(mn) algorithm is atrocious...
     for (size_t start = s.len - p.len; start-- > 0;) {
-        String sub = string_slice(s, start, start + p.len);
+        string_View sub = string_slice(s, start, start + p.len);
         if (string_eq(sub, p)) {
             return start;
         }
@@ -171,6 +197,25 @@ string_last_index(String s, String p)
     return STRING_NOT_FOUND;
 }
 
-#endif // STRINGS_IMPLEMENTATION
+STRINGS_DEF string_View
+string_trim(string_View s)
+{
+    size_t start, stop;
+    // Trim left
+    for (start = 0; start < s.len; start++) {
+        if (!ascii_is_space(s.data[start])) {
+            break;
+        }
+    }
 
+    // Trim right
+    for (stop = s.len; stop > 0; stop--) {
+        if (!ascii_is_space(s.data[stop - 1])) {
+            break;
+        }
+    }
+    return string_slice(s, start, stop);
+}
+
+#endif // STRINGS_IMPLEMENTATION
 #endif // !STRINGS_H

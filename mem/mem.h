@@ -7,6 +7,10 @@
 #define MEM_DEFAULT_ALIGN   sizeof(void *)
 #endif // !MEM_DEFAULT_ALIGN
 
+#ifndef MEM_DEF
+#define MEM_DEF
+#endif // !MEM_DEF
+
 enum mem_Allocator_Mode {
     MEM_ALLOC,
     MEM_RESIZE,
@@ -25,8 +29,7 @@ enum mem_Allocator_Error {
 
 typedef enum mem_Allocator_Mode  mem_Allocator_Mode;
 typedef enum mem_Allocator_Error mem_Allocator_Error;
-typedef void *(*mem_Allocator_Fn)(
-    void *user_data,
+typedef void *(*mem_Allocator_Fn)(void *user_data,
     mem_Allocator_Mode mode,
     void *memory, size_t old_size,
     size_t new_size,
@@ -49,10 +52,8 @@ struct mem_Allocator {
  *         pointee (`*err`) will contain the appropriate non-zero error code.
  */
 #define mem_alloc_bytes_align(a, size, align, err)                             \
-    ((a).fn((a).user_data,                                                     \
-        MEM_ALLOC,                                                             \
-        /*memory=*/NULL,                                                       \
-        /*old_size=*/0,                                                        \
+    ((a).fn((a).user_data, MEM_ALLOC,                                          \
+        /*memory=*/NULL, /*old_size=*/0,                                       \
         size,                                                                  \
         align,                                                                 \
         err))
@@ -66,10 +67,8 @@ struct mem_Allocator {
 
 
 #define mem_alloc_bytes_non_zeroed_align(a, size, align, err)                  \
-    ((a).fn((a).user_data,                                                     \
-        MEM_ALLOC_NON_ZEROED,                                                  \
-        /*memory=*/NULL,                                                       \
-        /*old_size=*/0,                                                        \
+    ((a).fn((a).user_data, MEM_ALLOC_NON_ZEROED,                               \
+        /*memory=*/NULL, /*old_size=*/0,                                       \
         size,                                                                  \
         align,                                                                 \
         err))
@@ -90,29 +89,23 @@ struct mem_Allocator {
  *         pointee (`*err`) will contain the appropriate non-zero err code.
  */
 #define mem_resize_bytes_align(a, memory, old_size, new_size, align, err)      \
-    ((a).fn((a).user_data,                                                     \
-        MEM_RESIZE,                                                            \
-        memory,                                                                \
-        old_size,                                                              \
+    ((a).fn((a).user_data, MEM_RESIZE,                                         \
+        memory, old_size,                                                      \
         new_size,                                                              \
         align,                                                                 \
         err))
 
 
 #define mem_resize_bytes(a, memory, old_size, new_size, err)                   \
-    mem_resize_bytes_align(a,                                                  \
-        memory,                                                                \
-        old_size,                                                              \
+    mem_resize_bytes_align(a, memory, old_size,                                \
         new_size,                                                              \
         MEM_DEFAULT_ALIGN,                                                     \
         err)
 
 
 #define mem_resize_bytes_non_zeroed_align(a, memory, old_size, new_size, align, err) \
-    ((a).fn((a).user_data,                                                     \
-        MEM_RESIZE_NON_ZEROED,                                                 \
-        memory,                                                                \
-        old_size,                                                              \
+    ((a).fn((a).user_data, MEM_RESIZE_NON_ZEROED,                              \
+        memory, old_size,                                                      \
         new_size,                                                              \
         align,                                                                 \
         err))
@@ -120,8 +113,7 @@ struct mem_Allocator {
 
 #define mem_resize_bytes_non_zeroed(a, memory, old_size, new_size, err)        \
     mem_resize_bytes_non_zeroed_align(a,                                       \
-        memory,                                                                \
-        old_size,                                                              \
+        memory, old_size,                                                      \
         new_size,                                                              \
         MEM_DEFAULT_ALIGN,                                                     \
         err)
@@ -134,10 +126,8 @@ struct mem_Allocator {
  *         contain the appropriate non-zero err code.
  */
 #define mem_free_bytes(a, memory, size, err)                                   \
-    ((a).fn((a).user_data,                                                     \
-        MEM_FREE,                                                              \
-        memory,                                                                \
-        size,                                                                  \
+    ((a).fn((a).user_data, MEM_FREE,                                           \
+        memory, size,                                                          \
         /*new_size=*/ 0,                                                       \
         /*alignment=*/0,                                                       \
         err))
@@ -152,8 +142,7 @@ struct mem_Allocator {
 
 #define mem_resize_array(T, a, memory, old_count, new_count, err)              \
     cast(T *)(mem_resize_bytes_align(a,                                        \
-        memory,                                                                \
-        sizeof(T) * (old_count),                                               \
+        memory, sizeof(T) * (old_count),                                       \
         sizeof(T) * (new_count),                                               \
         alignof(T),                                                            \
         err))
@@ -161,14 +150,13 @@ struct mem_Allocator {
 
 #define mem_free_array(a, memory, count, err)                                  \
     mem_free_bytes(a,                                                          \
-        memory,                                                                \
-        sizeof(*(memory)) * (count),                                           \
+        memory, sizeof(*(memory)) * (count),                                   \
         err)
 
 
 #ifndef MEM_NO_GLOBAL_HEAP_ALLOCATOR
 
-global mem_Allocator
+MEM_DEF mem_Allocator
 mem_global_heap_allocator(void);
 
 #ifdef MEM_IMPLEMENTATION
@@ -177,8 +165,7 @@ mem_global_heap_allocator(void);
 #include <string.h> // memset
 
 internal void *
-mem_global_heap_allocator_fn(
-    void *user_data,
+mem_global_heap_allocator_fn(void *user_data,
     mem_Allocator_Mode mode,
     void *memory, size_t old_size,
     size_t new_size,
@@ -198,12 +185,12 @@ mem_global_heap_allocator_fn(
                 *err = MEM_OUT_OF_MEMORY;
             }
         } else if (new_size > old_size) {
-            unsigned char *growth_begin;
-            size_t growth_size;
+            unsigned char *grow_begin;
+            size_t grow_size;
 
-            growth_begin = cast(unsigned char *)new_memory + old_size;
-            growth_size  = new_size - old_size;
-            memset(growth_begin, 0, growth_size);
+            grow_begin = cast(unsigned char *)new_memory + old_size;
+            grow_size  = new_size - old_size;
+            memset(grow_begin, 0, grow_size);
         }
         break;
     case MEM_ALLOC_NON_ZEROED:
@@ -225,7 +212,7 @@ mem_global_heap_allocator_fn(
     return new_memory;
 }
 
-global mem_Allocator
+MEM_DEF mem_Allocator
 mem_global_heap_allocator(void)
 {
     local_persist const mem_Allocator gpa = {

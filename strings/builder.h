@@ -4,8 +4,13 @@
 #include "../mem/mem.h"
 #include "../strings/strings.h"
 
-typedef struct String_Builder String_Builder;
-struct String_Builder {
+#ifndef STRINGS_BUILDER_DEF
+#define STRINGS_BUILDER_DEF
+#endif // !STRINGS_BUILDER_DEF
+
+typedef struct string_Builder string_Builder;
+struct string_Builder {
+    // A 1-dimensonal array allocated by `allocator`.
     char *data;
 
     // The number of actively used characters in `data`.
@@ -13,53 +18,60 @@ struct String_Builder {
 
     // The number of allocated characters for `data`.
     size_t cap;
+
+    // We track our allocator for convenience.
     mem_Allocator allocator;
 };
 
-global void
-string_builder_init_none(String_Builder *b, mem_Allocator allocator);
+STRINGS_BUILDER_DEF void
+string_builder_init_none(string_Builder *b, mem_Allocator allocator);
 
-global mem_Allocator_Error
-string_builder_init_cap(String_Builder *b, size_t n, mem_Allocator allocator);
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_builder_init_cap(string_Builder *b, size_t n, mem_Allocator allocator);
 
-global mem_Allocator_Error
-string_write_char(String_Builder *b, char c);
+STRINGS_BUILDER_DEF void
+string_builder_reset(string_Builder *b);
 
-global mem_Allocator_Error
-string_write_string(String_Builder *b, String s);
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_write_char(string_Builder *b, char c);
 
-global mem_Allocator_Error
-string_write_cstring(String_Builder *b, const char *s);
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_write_string(string_Builder *b, string_View s);
+
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_write_cstring(string_Builder *b, const char *s);
 
 #define string_write_literal(b, s) \
     string_write_string(b, string_make(s, sizeof(s) - 1))
 
-global mem_Allocator_Error
-string_write_uint(String_Builder *b, uint u, int base);
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_write_uint(string_Builder *b, uint u, int base);
 
-global mem_Allocator_Error
-string_write_int(String_Builder *b, int i, int base);
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_write_int(string_Builder *b, int i, int base);
 
-global char
-string_pop_char(String_Builder *b);
+STRINGS_BUILDER_DEF char
+string_pop_char(string_Builder *b);
 
-global String
-string_to_string(const String_Builder *b);
+STRINGS_BUILDER_DEF string_View
+string_to_string(const string_Builder *b);
 
-global void
-string_builder_destroy(String_Builder *b);
+STRINGS_BUILDER_DEF const char *
+string_to_cstring(const string_Builder *b);
+
+STRINGS_BUILDER_DEF void
+string_builder_destroy(string_Builder *b);
 
 #ifdef STRINGS_BUILDER_IMPLEMENTATION
 
 #include <limits.h>
-#include <string.h>
 
 #ifdef _MSC_VER
 #include <intrin.h> // _BitScanReverse
 #endif
 
-global void
-string_builder_init_none(String_Builder *b, mem_Allocator allocator)
+STRINGS_BUILDER_DEF void
+string_builder_init_none(string_Builder *b, mem_Allocator allocator)
 {
     b->data      = NULL;
     b->len       = 0;
@@ -67,8 +79,8 @@ string_builder_init_none(String_Builder *b, mem_Allocator allocator)
     b->allocator = allocator;
 }
 
-global mem_Allocator_Error
-string_builder_init_cap(String_Builder *b, size_t n, mem_Allocator allocator)
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_builder_init_cap(string_Builder *b, size_t n, mem_Allocator allocator)
 {
     mem_Allocator_Error err = MEM_OK;
     b->data = mem_alloc_array(char, allocator, n, &err);
@@ -77,8 +89,14 @@ string_builder_init_cap(String_Builder *b, size_t n, mem_Allocator allocator)
     return err;
 }
 
-global mem_Allocator_Error
-string_write_char(String_Builder *b, char c)
+STRINGS_BUILDER_DEF void
+string_builder_reset(string_Builder *b)
+{
+    b->len = 0;
+}
+
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_write_char(string_Builder *b, char c)
 {
     mem_Allocator_Error err = MEM_OK;
     size_t cap = b->cap;
@@ -100,8 +118,8 @@ string_write_char(String_Builder *b, char c)
     return err;
 }
 
-global mem_Allocator_Error
-string_write_string(String_Builder *b, String s)
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_write_string(string_Builder *b, string_View s)
 {
     mem_Allocator_Error err = MEM_OK;
     size_t new_len;
@@ -143,15 +161,15 @@ string_write_string(String_Builder *b, String s)
     return err;
 }
 
-global mem_Allocator_Error
-string_write_cstring(String_Builder *b, const char *s)
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_write_cstring(string_Builder *b, const char *s)
 {
-    String s2 = {s, strlen(s)};
-    return string_write_string(b, s2);
+    string_View sv = string_make_cstring(s);
+    return string_write_string(b, sv);
 }
 
-global mem_Allocator_Error
-string_write_uint(String_Builder *b, uint u, int base)
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_write_uint(string_Builder *b, uint u, int base)
 {
     local_persist const char DIGIT_CHARS[] = "01234567890ABDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -211,8 +229,8 @@ string_write_uint(String_Builder *b, uint u, int base)
     return string_write_string(b, string_make(p, cast(size_t)(end - p)));
 }
 
-global mem_Allocator_Error
-string_write_int(String_Builder *b, int i, int base)
+STRINGS_BUILDER_DEF mem_Allocator_Error
+string_write_int(string_Builder *b, int i, int base)
 {
     // Get the absolute value of `i`. Use unsigned so we can represent
     // the absolute value of `INT_MIN` with a bit of work.
@@ -227,8 +245,8 @@ string_write_int(String_Builder *b, int i, int base)
     return string_write_uint(b, u, base);
 }
 
-global char
-string_pop_char(String_Builder *b)
+STRINGS_BUILDER_DEF char
+string_pop_char(string_Builder *b)
 {
     size_t n, i;
     char c;
@@ -249,15 +267,20 @@ string_pop_char(String_Builder *b)
     return c;
 }
 
-global String
-string_to_string(const String_Builder *b)
+STRINGS_BUILDER_DEF string_View
+string_to_string(const string_Builder *b)
 {
-    String s = {b->data, b->len};
-    return s;
+    return string_make(b->data, b->len);
 }
 
-global void
-string_builder_destroy(String_Builder *b)
+STRINGS_BUILDER_DEF const char *
+string_to_cstring(const string_Builder *b)
+{
+    return b->data;
+}
+
+STRINGS_BUILDER_DEF void
+string_builder_destroy(string_Builder *b)
 {
     mem_free_array(b->allocator, b->data, b->cap, NULL);
     b->data = NULL;
