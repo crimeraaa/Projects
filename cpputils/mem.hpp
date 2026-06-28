@@ -1,9 +1,9 @@
 #pragma once
 
-#include "common.hpp"
+#include "slice.hpp"
 
 namespace mem {
-    
+
 struct Allocator {
     enum class Mode : u8 {
         Alloc,
@@ -113,10 +113,20 @@ extern inline void *
 zero(void *data, std::size_t len)
 {
     auto p = cast(unsigned char *)data;
-    for (size_t i = 0; i < len; i++) {
+    for (std::size_t i = 0; i < len; i++) {
         *p++ = 0;
     }
     return p;
+}
+
+
+template<class T, class Z = std::size_t>
+extern inline void
+zero_slice(Slice<T, Z> a)
+{
+    for (auto &v : a) {
+        zero(&v, sizeof(T));
+    }
 }
 
 };

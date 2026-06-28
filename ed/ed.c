@@ -5,8 +5,6 @@
 #include <stdio.h> // fgets, stdin, stdout
 
 // local
-#include "../common.h"
-
 #define MEM_DEF internal
 #define MEM_IMPLEMENTATION
 #define MEM_ARENA_IMPLEMENTATION
@@ -18,186 +16,18 @@
 #define STRINGS_BUILDER_IMPLEMENTATION
 #include "../strings/builder.h"
 
-// A mutable `char` array that does not remember its allocator.
-// Each line is an independent allocation to allow in-place editing.
-typedef struct ed_Line ed_Line;
-struct ed_Line {
-    char  *data;
-    size_t len;
-    size_t cap;
-};
-
-// A 1-dimensional array of `ed_Line` that represents the contents
-// of the current file.
-typedef struct ed_Buffer ed_Buffer;
-struct ed_Buffer {
-    ed_Line *data;
-    // The number of lines we are actively using in `data`.
-    size_t len;
-
-    // The total number of lines we can have in `data` before a
-    // reallocation needs to occur.
-    size_t cap;
-};
-
-typedef struct ed_State ed_State;
-struct ed_State {
-    // The current file's contents.
-    ed_Buffer buffer;
-    mem_Allocator allocator;
-    const char *prompt;
-    bool help;
-};
+#include "ed.h"
 
 internal void
-ed_buffer_init(ed_Buffer *b)
+ed_run(ed_State *ed, string_View line)
 {
-    b->data = NULL;
-    b->len  = 0;
-    b->cap  = 0;
-}
-
-#if defined(__GNUC__) || defined(__clang__)
-__attribute__((__format__(printf, 2, 3)))
-#endif
-internal void
-ed_error(ed_State *ed, const char *fmt, ...)
-{
-    // lol
-    fputs("?\n", stderr);
-    if (ed->help) {
-        va_list args;
-        va_start(args, fmt);
-        vfprintf(stderr, fmt, args);
-        va_end(args);
-    }
-}
-
-// Append `s` to `b`, transferring ownership to `b`.
-internal mem_Allocator_Error
-ed_buffer_append(ed_Buffer *b, String s, mem_Allocator allocator)
-{
-    mem_Allocator_Error err = MEM_OK;
-    if (b->len + 1 > b->cap) {
-        ed_Line *new_data;
-        size_t new_cap;
-
-        new_cap = b->cap * 2;
-        if (new_cap == 0) {
-            new_cap = 8;
-        }
-
-        new_data = mem_resize_array(ed_Line,
-            allocator,
-            b->data, b->cap,
-            new_cap,
-            &err);
-        
-        if (new_data == NULL) {
-            return err;
-        }
-    }
-    b->data[b->len++] = (ed_Line){0};
-    return err;
-}
-
-internal mem_Allocator_Error
-ed_open_file(ed_State *ed, const char *file_name)
-{
-    FILE *file_ptr;
-    String_Builder line;
-    mem_Allocator_Error err = MEM_OK;
-
-    file_ptr = fopen(file_name, "r");
-    if (file_ptr == NULL) {
-        ed_error(ed, "Failed to open file '%s'.\n", file_name);
-        return MEM_INVALID_ARGUMENT; // I guess?
-    }
-
-    string_builder_init_none(&line, ed->allocator);
-
-    // Read the file's lines into memory.
-    for (;;) {
-        String s;
-        char buf[BUFSIZ];
-        s.data = fgets(buf, sizeof(buf), file_ptr);
-        if (s.data == NULL) {
-            break;
-        }
-
-        s = string_make_cstring(s.data);
-        for (;;) {
-            String last, next;
-            size_t i = string_index_char(s, '\n');
-            if (i == STRING_NOT_FOUND) {
-                break;
-            }
-            last = string_slice_until(s, i);
-            next = string_slice_from(s, i + 1);
-            err  = string_write_string(&line, last);
-            ed_buffer_append(&ed->buffer, last, ed->allocator);
-            s = next;
-        }
-        err = string_write_string(&line, s);
-        if (err) {
-            string_builder_destroy(&line);
-            goto cleanup_file;
-        }
-    }
-
-cleanup_file:
-    fclose(file_ptr);
-    return err;
-}
-
-internal void
-ed_state_init(ed_State *ed, const char *prompt, mem_Allocator allocator)
-{
-    ed_buffer_init(&ed->buffer);
-    ed->allocator = allocator;
-    ed->prompt    = prompt;
-    ed->help      = true;
-}
-
-#define ed_error(ed, fmt, ...)  (ed_error)(ed, fmt "\n", __VA_ARGS__)
-
-internal void
-ed_run(ed_State *ed, String line)
-{
-    size_t i = 0, n = line.len;
+    size_t i = 0;
     /** @brief 2. Look for the command proper.
      * @link https://pubs.opengroup.org/onlinepubs/9799919799/utilities/ed.html
      */
     switch (line.data[i]) {
     case 'a':
-    case 'c':
-    case 'd':
-    case 'e':
-    case 'E':
-    case 'f':
-    case 'g':
-    case 'G':
-    case 'h':
-    case 'H':
-    case 'i':
-    case 'j':
-    case 'k':
-    case 'l':
-    case 'm':
-    case 'n':
     case 'p':
-    case 'P':
-    case 'q':
-    case 'Q':
-    case 'r':
-    case 's':
-    case 't':
-    case 'u':
-    case 'v':
-    case 'V':
-    case 'w':
-    case '=':
-    case '!':
     default:
         ed_error(ed, "Command '%c' not implemented.", line.data[i]);
         break;
@@ -205,7 +35,7 @@ ed_run(ed_State *ed, String line)
 }
 
 internal bool
-ed_get_line(ed_State *ed, String_Builder *b, String *line)
+ed_get_line(ed_State *ed, string_Builder *b, string_View *line)
 {
     for (;;) {
         mem_Allocator_Error err;
@@ -219,11 +49,12 @@ ed_get_line(ed_State *ed, String_Builder *b, String *line)
             *line = string_to_string(b);
             return true;
         }
+
         err = string_write_char(b, c);
         if (err) {
             if (ed->help) {
                 fprintf(stderr,
-                    "Command line has maximum of %zu characters.",
+                    "Command line maximum is %zu characters.",
                     b->cap);
             }
             return false;
@@ -237,20 +68,21 @@ global int
 main(int argc, char *argv[])
 {
     ed_State ed;
-    String_Builder b;
-    char buf[512];
+    string_Builder b;
     mem_Arena arena;
+    char buf[256];
 
     // TODO: Allow `-p` flag from CLI? Since it's always nul-terminated,
     //       we don't need to worry about allocations.
-    ed_state_init(&ed, "*", mem_global_heap_allocator());
+    ed_init(&ed, "*", mem_global_heap_allocator());
     mem_arena_init(&arena, buf, sizeof(buf));
     string_builder_init_cap(&b, sizeof(buf), mem_arena_allocator(&arena));
     for (;;) {
-        String line;
+        string_View line;
         if (ed.prompt) {
             fputs(ed.prompt, stdout);
         }
+
         string_builder_reset(&b);
         // EOF or memory error occured?
         if (!ed_get_line(&ed, &b, &line)) {
@@ -261,6 +93,94 @@ main(int argc, char *argv[])
         }
         ed_run(&ed, line);
     }
-    string_builder_destroy(&b);
     return 0;
+}
+
+global void
+ed_init(ed_State *ed, const char *prompt, mem_Allocator allocator)
+{
+    ed->allocator = allocator;
+    ed->prompt    = prompt;
+    ed->help      = true;
+}
+
+global void
+(ed_error)(ed_State *ed, const char *file, int line, const char *fmt, ...)
+{
+    // lol
+    fputs("?\n", stderr);
+    if (ed->help) {
+        va_list args;
+        va_start(args, fmt);
+        fprintf(stderr, "%s:%i: ", file, line);
+        vfprintf(stderr, fmt, args);
+        va_end(args);
+    }
+}
+
+global int
+ed_read_file(ed_State *ed, const char *name, size_t *size)
+{
+    FILE *f = NULL;
+    int line_count = 0;
+
+    f     = fopen(name, "r");
+    *size = 0;
+    if (!f) {
+        ed_error(ed, "Failed to read file '%s'.", name);
+        return -1;
+    }
+
+    for (;;) {
+        size_t line_len;
+        char *line = ed_read_stream_line(ed, f, &line_len);
+        if (!line) {
+            break;
+        }
+
+        // We use malloc so this is fine even if we don't pass
+        // in the string builder's capacity.
+        mem_free_array(ed->allocator, line, line_len, NULL);
+    }
+
+    fclose(f);
+    return line_count;
+}
+
+global char *
+ed_read_stream_line(ed_State *ed, FILE *f, size_t *len)
+{
+    string_Builder b;
+    mem_Allocator_Error err = MEM_OK;
+    int c = 0;
+
+    *len = 0;
+    string_builder_init_none(&b, ed->allocator);
+    for (;;) {
+        c = fgetc(f);
+        if (c == EOF || c == '\n') {
+            break;
+        }
+        // On Windows, if we find CR ('\r'), we might have CRLF ("\r\n").
+        else if (c == '\r') {
+            c = fgetc(f);
+            // Didn't get CRLF, so we need to return whatever we just read
+            // to ensure the next `fgetc()` call returns it again.
+            if (c != '\n') {
+                ungetc(c, f);
+            }
+            break;
+        }
+
+        err = string_write_char(&b, c);
+        if (err) {
+            fputs("[FATAL]: realloc failed!\n", stderr);
+            exit(2);
+        }
+    }
+
+    // Since we're using malloc anyway, we don't need to return
+    // the allocated capacity.
+    *len = b.len;
+    return b.data;
 }

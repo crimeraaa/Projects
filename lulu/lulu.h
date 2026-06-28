@@ -24,5 +24,8 @@ enum lulu_Error {
 
 typedef enum lulu_Error lulu_Error;
 
+global const char *
+lulu_error_string(lulu_Error err);
+
 #endif // !LULU_H
 

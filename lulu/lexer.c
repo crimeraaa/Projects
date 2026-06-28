@@ -7,7 +7,7 @@
 #define STRINGS_IMPLEMENTATION
 #include "lexer.h"
 
-internal const String
+internal const string_View
 TOKEN_STRINGS[] = {
 #define TOKEN_STRING(e, s) {s, sizeof(s) - 1}
     TOKEN_KINDS(TOKEN_STRING),
@@ -21,11 +21,11 @@ token_string(Token_Kind k)
 }
 
 global Lexer
-lexer_init(String input)
+lexer_make(string_View input)
 {
     Lexer x = {input,
-        /*start      =*/ input.data, /*cursor   =*/ input.data,
-        /*line       =*/ 1,          /*col      =*/ 1};
+        /*start =*/input.data, /*cursor =*/input.data,
+        /*line  =*/1,          /*col    =*/1};
     return x;
 }
 
@@ -113,7 +113,7 @@ lexer_skip_whitespace(Lexer *x)
     }
 }
 
-internal inline String
+internal inline string_View
 lexer_get_lexeme(const Lexer *x)
 {
     size_t n = cast(size_t)(x->cursor - x->start);
@@ -123,10 +123,9 @@ lexer_get_lexeme(const Lexer *x)
 // Wrapper function. Call this manually only for multiline strings.
 // Does not initalize `.number`.
 internal void
-lexer_init_token_fields(const Lexer *x,
-    Token *t,
+lexer_init_token_fields(Token *t,
     Token_Kind k,
-    String lexeme,
+    string_View lexeme,
     i32 line, i32 col)
 {
     t->kind     = k;
@@ -139,7 +138,7 @@ lexer_init_token_fields(const Lexer *x,
 internal void
 lexer_init_token(const Lexer *x, Token *t, Token_Kind k)
 {
-    String s;
+    string_View s;
     i32 line, col;
 
     s = lexer_get_lexeme(x);
@@ -148,7 +147,7 @@ lexer_init_token(const Lexer *x, Token *t, Token_Kind k)
     }
     line = x->line;
     col  = cast(i32)(cast(size_t)x->col - s.len);
-    lexer_init_token_fields(x, t, k, s, line, col);
+    lexer_init_token_fields(t, k, s, line, col);
 }
 
 // Keep advancing while the character pointed to by the cursor
@@ -187,7 +186,7 @@ lexer_ascii_is_ident(char c)
 }
 
 internal inline Token_Kind
-lexer_get_keyword(String s, Token_Kind k)
+lexer_get_keyword(string_View s, Token_Kind k)
 {
     return string_eq(s, TOKEN_STRINGS[k]) ? k : TOKEN_IDENT;
 }
@@ -195,7 +194,7 @@ lexer_get_keyword(String s, Token_Kind k)
 internal lulu_Error
 lexer_scan_keyword(Lexer *x, Token *t)
 {
-    String s;
+    string_View s;
     Token_Kind k = TOKEN_IDENT;
     lexer_consume_fn(x, lexer_ascii_is_ident);
     s = lexer_get_lexeme(x);
@@ -259,21 +258,22 @@ lexer_scan_keyword(Lexer *x, Token *t)
 }
 
 internal u64
-lexer_ascii_to_digit(char c, int base, bool *ok)
+lexer_ascii_to_digit(char c, u64 base, bool *ok)
 {
     u64 digit = 0;
     if (ascii_is_decimal(c)) {
         digit = cast(u64)(c - '0');
-        *ok   = true;
     } else if (ascii_is_hexadecimal(c)) {
         char a = ascii_is_upper(c) ? 'A' : 'a';
         digit  = cast(u64)(c - a + 0xA);
-        *ok    = true;
     } else {
         // We should never have spaces in this function.
         // Rather, we can only encounter invalid base-`base` digits.
         *ok = false;
+        return 0;
     }
+
+    *ok = (digit < base);
     return digit;
 }
 
@@ -285,7 +285,7 @@ lexer_ascii_to_digit(char c, int base, bool *ok)
 internal u64
 lexer_scan_u64(const Lexer *x, bool *ok)
 {
-    String s;
+    string_View s;
     u64 u = 0, base = 0;
 
     *ok = true;
@@ -327,15 +327,15 @@ lexer_scan_u64(const Lexer *x, bool *ok)
     return u;
 }
 
-#define FLAG_FLOAT  (1 << 0)
-#define FLAG_FRAC   (1 << 1)
-#define FLAG_EXP    (1 << 2)
-#define FLAG_SIGN   (1 << 3)
+#define FLAG_FRAC   (1 << 0)
+#define FLAG_EXP    (1 << 1)
+#define FLAG_SIGN   (1 << 2)
+#define FLAG_FLOAT  (FLAG_FRAC | FLAG_EXP)
 
 internal f64
 lexer_scan_f64(const Lexer *x, u8 flags, bool *ok)
 {
-    String s;
+    string_View s;
     char *p;
     f64 d;
     unused(flags);
@@ -350,20 +350,19 @@ lexer_scan_f64(const Lexer *x, u8 flags, bool *ok)
 internal lulu_Error
 lexer_scan_number(Lexer *x, Token *t)
 {
-    String s;
     Token_Kind k;
     u8 flags = 0;
     bool ok;
 
     lexer_consume_decimal(x);
     if (lexer_match_char(x, '.')) {
-        flags |= FLAG_FLOAT | FLAG_FRAC;
+        flags |= FLAG_FRAC;
         lexer_consume_decimal(x);
     }
 
     // This should only work for base-10, but we'll check later.
     if (lexer_match_either_char(x, 'e', 'E')) {
-        flags |= FLAG_FLOAT | FLAG_EXP;
+        flags |= FLAG_EXP;
         if (lexer_match_either_char(x, '+', '-')) {
             flags |= FLAG_SIGN;
         }
@@ -411,7 +410,7 @@ lexer_scan_token(Lexer *x, Token *t)
     lexer_skip_whitespace(x);
     if (lexer_eof(x)) {
         lexer_init_token(x, t, TOKEN_EOF);
-        return LULU_OK;
+        return LULU_EOF;
     }
 
     x->start = x->cursor;
@@ -422,7 +421,6 @@ lexer_scan_token(Lexer *x, Token *t)
     } else if (ascii_is_decimal(c)) {
         return lexer_scan_number(x, t);
     }
-
 
     switch (c) {
     case '=': k = lexer_match_char(x, '=') ? TOKEN_EQ : TOKEN_ASSIGN; break;

@@ -26,7 +26,7 @@ struct Cpu {
 
     // Execution state.
     u8 opcode;
-    u8 fetched;     
+    u8 fetched;
     u16 addr_abs, addr_rel;
     u8 cycles;
 };

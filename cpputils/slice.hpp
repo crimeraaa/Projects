@@ -5,11 +5,11 @@
 #include "common.hpp"
 #include "traits.hpp"
 
-template<class Value, class Size = std::size_t>
+template<class T, class Z = std::size_t>
 struct Slice {
-    static_assert(traits::is_integer<Size>, "What?");
-    using value_type      = Value;
-    using size_type       = Size;
+    static_assert(traits::is_integer<Z>, "What?");
+    using value_type      = T;
+    using size_type       = Z;
     using pointer         = value_type *;
     using reference       = value_type &;
     using iterator        = pointer;
@@ -19,6 +19,8 @@ struct Slice {
 
     // Iterator crap
     struct Pair;
+    struct Forward_Iterator;
+    struct Reverse_Iterator;
 
     pointer   data;
     size_type len;
@@ -38,7 +40,7 @@ struct Slice {
     const_reference
     operator[](Index index) const
     {
-        auto &s = *const_cast<Slice<Value> *>(this);
+        auto &s = *const_cast<Slice<T> *>(this);
         return s[index];
     }
 
@@ -54,25 +56,27 @@ struct Slice {
 
 template<class T, class Z>
 struct Slice<T, Z>::Pair {
-    struct Forward_Iterator;
-    struct Reverse_Iterator;
 
     size_type  index;
     value_type value;
 }; // Pair
 
 template<class T, class Z>
-struct Slice<T, Z>::Pair::Forward_Iterator {
-    size_t   index;
-    Slice<T> state;
+struct Slice<T, Z>::Forward_Iterator {
+    size_type index;
+    Slice<T>  state;
 
     Forward_Iterator
     begin() const noexcept
-    { return {/*index =*/0, this->state}; }
+    {
+        return {/*index =*/0, this->state};
+    }
 
     Forward_Iterator
     end() const noexcept
-    { return {/*index =*/this->state.len, this->state}; }
+    {
+        return {/*index =*/this->state.len, this->state};
+    }
 
     bool
     operator==(const Forward_Iterator &stop) const noexcept
@@ -99,29 +103,33 @@ struct Slice<T, Z>::Pair::Forward_Iterator {
         auto v = this->state[i];
         return {/*index =*/i, /*value =*/v};
     }
-}; // Iterator
+}; // Forward_Iterator
 
 template<class T, class Z>
-struct Slice<T, Z>::Pair::Reverse_Iterator {
-    size_t   index;
-    Slice<T> state;
+struct Slice<T, Z>::Reverse_Iterator {
+    size_type index;
+    Slice<T>  state;
 
     Forward_Iterator
     begin() const noexcept
-    { return {/*index =*/this->state.len, this->state}; }
+    {
+        return {/*index =*/this->state.len, this->state};
+    }
 
     Forward_Iterator
     end() const noexcept
-    { return {/*index =*/0, this->state}; }
+    {
+        return {/*index =*/0, this->state};
+    }
 
     bool
-    operator==(const Forward_Iterator &stop) const noexcept
+    operator==(const Reverse_Iterator &stop) const noexcept
     {
         return this->index == stop.index;
     }
 
     bool
-    operator!=(const Forward_Iterator &stop) const noexcept
+    operator!=(const Reverse_Iterator &stop) const noexcept
     {
         return !(*this == stop);
     }
@@ -139,17 +147,17 @@ struct Slice<T, Z>::Pair::Reverse_Iterator {
         auto v = this->state[i];
         return {/*index =*/i, /*value =*/v};
     }
-}; // Iterator
+}; // Reverse_Iterator
 
 template<class T, class Z>
-typename Slice<T, Z>::Pair::Forward_Iterator
+typename Slice<T, Z>::Forward_Iterator
 enumerate(Slice<T, Z> s)
 {
     return {/*index =*/0, /*state =*/s};
 }
 
 template<class T, class Z>
-typename Slice<T, Z>::Pair::Reverse_Iterator
+typename Slice<T, Z>::Reverse_Iterator
 reversed(Slice<T, Z> s)
 {
     return {/*index =*/s.len, /*state =*/s};

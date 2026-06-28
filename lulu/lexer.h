@@ -66,7 +66,7 @@ typedef enum Token_Kind Token_Kind;
 typedef struct Token Token;
 struct Token {
     Token_Kind kind;
-    String lexeme;
+    string_View lexeme;
 
     // Position information.
     i32 line, col;
@@ -79,7 +79,7 @@ struct Token {
 
 typedef struct Lexer Lexer;
 struct Lexer {
-    String input;
+    string_View input;
 
     // Lexeme's starting position in `input`.
     const char *start;
@@ -95,7 +95,7 @@ global const char *
 token_string(Token_Kind k);
 
 global Lexer
-lexer_init(String input);
+lexer_make(string_View input);
 
 global lulu_Error
 lexer_scan_token(Lexer *x, Token *t);
