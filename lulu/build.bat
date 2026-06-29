@@ -1,6 +1,6 @@
 @echo OFF
 
-set CL_FLAGS=/nologo /W4 /Zi /std:c11 /fsanitize=address /Fo:obj\ /Fe:bin\
+set CL_FLAGS=/nologo /W3 /Zi /std:c11 /fsanitize=address /Fo:obj\ /Fe:bin\
 set LINK_FLAGS=/link /debug
 
 pushd %~dp0

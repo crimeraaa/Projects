@@ -21,7 +21,7 @@
 
 // Easier to grep.
 #define cast(T)         (T)
-#define unused(expr)    cast(void)(expr)
+#define unused(expr)    cast(void)(sizeof(expr))
 
 #define bit_size(T)     (sizeof(T) * CHAR_BIT)
 #define count_of(expr)  (sizeof(expr) / sizeof((expr)[0]))

@@ -1,9 +1,7 @@
 #ifndef LULU_LEXER_H
 #define LULU_LEXER_H
 
-#include "lulu.h"
-
-#include "../strings/strings.h"
+#include "internal.h"
 
 // Although we wish to implement a typed version of Lua, the base types
 // themsleves are not keywords and can be re-assigned. This is similar to how
@@ -31,6 +29,7 @@
     x(TOKEN_PERIOD,   "."),                                                    \
     x(TOKEN_CONCAT,   ".."),                                                   \
     x(TOKEN_VARARG,   "..."),                                                  \
+    x(TOKEN_ARROW,    "->"),                                                   \
     x(TOKEN_AND,      "and"),                                                  \
     x(TOKEN_BREAK,    "break"),                                                \
     x(TOKEN_DO,       "do"),                                                   \
@@ -66,41 +65,50 @@ typedef enum Token_Kind Token_Kind;
 typedef struct Token Token;
 struct Token {
     Token_Kind kind;
-    string_View lexeme;
+    const char *lexeme;
+    size_t len;
+    Value_Literal value;
 
     // Position information.
     i32 line, col;
-
-    union {
-        f64 f;
-        u64 u;
-    } number;
 };
 
 typedef struct Lexer Lexer;
 struct Lexer {
-    string_View input;
+    // File name.
+    const char *name;
+
+    // File contents.
+    const char *input;
+    size_t len;
 
     // Lexeme's starting position in `input`.
-    const char *start;
+    size_t start;
 
     // Current view position in `input`. Must be `>= start`.
-    const char *cursor;
+    size_t cursor;
 
     // Position information.
     i32 line, col;
 };
 
-global const char *
-token_string(Token_Kind k);
+enum Lexer_Error {
+    LEXER_OK,
+    LEXER_UNEXPECTED_CHARACTER,
+    LEXER_INVALID_NUMBER,
+    LEXER_UNTERMINATED_STRING,
+};
 
-global Lexer
-lexer_make(string_View input);
+typedef enum Lexer_Error Lexer_Error;
 
-global lulu_Error
+LULU_INTERNAL_FUNC const char *
+token_cstring(Token_Kind k);
+
+LULU_INTERNAL_FUNC Lexer
+lexer_make(const char *name, const char *input, size_t len);
+
+LULU_INTERNAL_FUNC Lexer_Error
 lexer_scan_token(Lexer *x, Token *t);
 
 #endif // !LULU_LEXER_H
-
-
 

@@ -1,12 +1,13 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "../common.h"
-#include "lexer.c"
+#include "state.c"
+#include "parser.c"
+#include "api.c"
 
 #define PROMPT ">>> "
 
-internal char *
+static char *
 get_string_fixed(char *buf, size_t buf_len, size_t *line_len)
 {
     char *line;
@@ -22,58 +23,48 @@ get_string_fixed(char *buf, size_t buf_len, size_t *line_len)
     return line;
 }
 
-internal void
-run(const char *s, size_t n)
+static void
+run(lulu_State *L, const char *s, size_t n, Arena *arena)
 {
-    Lexer x = lexer_make(string_make(s, n));
-    for (;;) {
-        Token t;
-        lulu_Error err;
-        err = lexer_scan_token(&x, &t);
-        if (err) {
-            if (err != LULU_EOF) {
-                fprintf(stderr, "[ERROR]: %s\n", lulu_error_string(err));
-            }
-            break;
-        }
-
-        printf("Token_Kind(%i) | '%.*s'\n",
-            t.kind,
-            cast(int)t.lexeme.len, t.lexeme.data);
-    }
+    Ast_Node *root = parser_parse(L, "stdin", s, n, arena);
+    ast_print(root);
 }
 
-global int
-main(void)
+static void
+wrap(lulu_State *L, void *user_data)
 {
-    char buf[256];
+    Arena arena;
+    char line_buf[256];
+    char arena_buf[4096];
+
+    unused(user_data);
+    arena = arena_make(arena_buf, sizeof(arena_buf));
     for (;;) {
         char *s;
         size_t n;
 
-        s = get_string_fixed(buf, sizeof(buf), &n);
+        s = get_string_fixed(line_buf, sizeof(line_buf), &n);
         if (!s) {
             fputc('\n', stdout);
             break;
         }
         n    = strcspn(s, "\r\n");
         s[n] = 0;
-        run(s, n);
+        run(L, s, n, &arena);
+        arena_free_all(&arena);
+    }
+}
+
+extern int
+main(void)
+{
+    lulu_State *L = lulu_open();
+    lulu_Error err;
+
+    err = state_try(L, wrap, NULL);
+    if (err) {
+        printf("%s\n", lulu_error_string(err));
     }
     return 0;
 }
 
-global const char *
-lulu_error_string(lulu_Error err)
-{
-    switch (err) {
-    case LULU_OK:                   return "no error";
-    case LULU_EOF:                  return "end of file";
-    case LULU_UNEXPECTED_CHARACTER: return "unexpected character";
-    case LULU_INVALID_NUMBER:       return "invalid number";
-    case LULU_UNTERMINATED_STRING:  return "unterminated string";
-    case LULU_UNEXPECTED_TOKEN:     return "unexpected token";
-    case LULU_RUNTIME_ERROR:        return "runtime error";
-    }
-    return NULL;
-}
