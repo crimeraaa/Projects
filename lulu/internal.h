@@ -24,11 +24,4 @@ typedef int64_t i64;
 typedef float   f32;
 typedef double  f64;
 
-typedef union Value_Literal Value_Literal;
-union Value_Literal {
-    u64 u;
-    i64 i;
-    f64 f;
-};
-
 #endif // !LULU_INTERNAL_H

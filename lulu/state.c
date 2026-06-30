@@ -1,3 +1,6 @@
+#include <stdlib.h>
+#include <stdio.h>
+
 #include "state.h"
 
 struct lulu_Error_Handler {
@@ -8,9 +11,11 @@ struct lulu_Error_Handler {
 
 
 LULU_API lulu_State *
-lulu_open(void)
+lulu_open(void *backing_buf, size_t backing_size)
 {
-    static lulu_State L = {/*handler=*/NULL};
+    static lulu_State L;
+    L.arena   = arena_make(backing_buf, backing_size);
+    L.handler = NULL;
     return &L;
 }
 
@@ -30,6 +35,12 @@ state_try(lulu_State *L, Protected_Fn fn, void *user_data)
 LULU_INTERNAL_FUNC void
 state_throw(lulu_State *L, lulu_Error err)
 {
-    L->handler->err = err;
-    longjmp(L->handler->env, 1);
+    if (L->handler) {
+        L->handler->err = err;
+        longjmp(L->handler->env, 1);
+    } else {
+        const char *msg = lulu_error_string(err);
+        fprintf(stderr, "[FATAL] Unprotected call to Lulu API (%s)\n", msg);
+        exit(1);
+    }
 }

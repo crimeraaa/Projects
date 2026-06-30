@@ -2,72 +2,83 @@
 #define LULU_LEXER_H
 
 #include "internal.h"
+#include "strings.h"
 
 // Although we wish to implement a typed version of Lua, the base types
 // themsleves are not keywords and can be re-assigned. This is similar to how
 // Odin does it.
-#define TOKEN_KINDS(x)                                                         \
-    x(TOKEN_NONE,     "<none>"),                                               \
-    x(TOKEN_EOF,      "<eof>"),                                                \
-    x(TOKEN_IDENT,    "<identifier>"),                                         \
-    x(TOKEN_INT,      "<int>"),                                                \
-    x(TOKEN_FLOAT,    "<float>"),                                              \
-    x(TOKEN_STRING,   "<string>"),                                             \
-    x(TOKEN_ASSIGN,   "="),                                                    \
-    x(TOKEN_ADD,      "+"),     x(TOKEN_SUB,           "-"),                   \
-    x(TOKEN_MUL,      "*"),     x(TOKEN_DIV,           "/"),                   \
-    x(TOKEN_MOD,      "%"),     x(TOKEN_POW,           "^"),                   \
-    x(TOKEN_EQ,       "=="),    x(TOKEN_NEQ,           "~="),                  \
-    x(TOKEN_LT,       "<"),     x(TOKEN_LEQ,           "<="),                  \
-    x(TOKEN_GT,       ">"),     x(TOKEN_GEQ,           ">="),                  \
-    x(TOKEN_OPEN_PAREN,   "("), x(TOKEN_CLOSE_PAREN,   ")"),                   \
-    x(TOKEN_OPEN_CURLY,   "{"), x(TOKEN_CLOSE_CURLY,   "}"),                   \
-    x(TOKEN_OPEN_BRACKET, "["), x(TOKEN_CLOSE_BRACKET, "]"),                   \
-    x(TOKEN_COLON,    ":"),                                                    \
-    x(TOKEN_SEMICOL,  ";"),                                                    \
-    x(TOKEN_COMMA,    ","),                                                    \
-    x(TOKEN_PERIOD,   "."),                                                    \
-    x(TOKEN_CONCAT,   ".."),                                                   \
-    x(TOKEN_VARARG,   "..."),                                                  \
-    x(TOKEN_ARROW,    "->"),                                                   \
-    x(TOKEN_AND,      "and"),                                                  \
-    x(TOKEN_BREAK,    "break"),                                                \
-    x(TOKEN_DO,       "do"),                                                   \
-    x(TOKEN_ELSE,     "else"),                                                 \
-    x(TOKEN_ELSEIF,   "elseif"),                                               \
-    x(TOKEN_END,      "end"),                                                  \
-    x(TOKEN_FALSE,    "false"),                                                \
-    x(TOKEN_FOR,      "for"),                                                  \
-    x(TOKEN_FUNCTION, "function"),                                             \
-    x(TOKEN_IF,       "if"),                                                   \
-    x(TOKEN_IN,       "in"),                                                   \
-    x(TOKEN_LOCAL,    "local"),                                                \
-    x(TOKEN_NIL,      "nil"),                                                  \
-    x(TOKEN_NOT,      "not"),                                                  \
-    x(TOKEN_OR,       "or"),                                                   \
-    x(TOKEN_REPEAT,   "repeat"),                                               \
-    x(TOKEN_RETURN,   "return"),                                               \
-    x(TOKEN_THEN,     "then"),                                                 \
-    x(TOKEN_TRUE,     "true"),                                                 \
-    x(TOKEN_UNTIL,    "until"),                                                \
-    x(TOKEN_WHILE,    "while")
+#define TOKEN_KINDS(X)                                                         \
+    X(TOKEN_NONE,          "<none>")                                           \
+    X(TOKEN_EOF,           "<eof>")                                            \
+    X(TOKEN_IDENT,         "<identifier>")                                     \
+    X(TOKEN_INT,           "<int>")                                            \
+    X(TOKEN_FLOAT,         "<float>")                                          \
+    X(TOKEN_STRING,        "<string>")                                         \
+    X(TOKEN_LEN,           "#")                                                \
+    X(TOKEN_ASSIGN,        "=")                                                \
+    X(TOKEN_ADD,           "+")                                                \
+    X(TOKEN_SUB,           "-")                                                \
+    X(TOKEN_MUL,           "*")                                                \
+    X(TOKEN_DIV,           "/")                                                \
+    X(TOKEN_MOD,           "%")                                                \
+    X(TOKEN_POW,           "^")                                                \
+    X(TOKEN_EQ,            "==")                                               \
+    X(TOKEN_NEQ,           "~=")                                               \
+    X(TOKEN_LT,            "<")                                                \
+    X(TOKEN_LEQ,           "<=")                                               \
+    X(TOKEN_GT,            ">")                                                \
+    X(TOKEN_GEQ,           ">=")                                               \
+    X(TOKEN_OPEN_PAREN,    "(")                                                \
+    X(TOKEN_CLOSE_PAREN,   ")")                                                \
+    X(TOKEN_OPEN_CURLY,    "{")                                                \
+    X(TOKEN_CLOSE_CURLY,   "}")                                                \
+    X(TOKEN_OPEN_BRACKET,  "[")                                                \
+    X(TOKEN_CLOSE_BRACKET, "]")                                                \
+    X(TOKEN_COLON,          ":")                                               \
+    X(TOKEN_SEMICOL,        ";")                                               \
+    X(TOKEN_COMMA,          ",")                                               \
+    X(TOKEN_PERIOD,         ".")                                               \
+    X(TOKEN_CONCAT,         "..")                                              \
+    X(TOKEN_VARARG,         "...")                                             \
+    X(TOKEN_ARROW,          "->")                                              \
+    X(TOKEN_AND,            "and")                                             \
+    X(TOKEN_BREAK,          "break")                                           \
+    X(TOKEN_DO,             "do")                                              \
+    X(TOKEN_ELSE,           "else")                                            \
+    X(TOKEN_ELSEIF,         "elseif")                                          \
+    X(TOKEN_END,            "end")                                             \
+    X(TOKEN_FALSE,          "false")                                           \
+    X(TOKEN_FOR,            "for")                                             \
+    X(TOKEN_FUNCTION,       "function")                                        \
+    X(TOKEN_IF,             "if")                                              \
+    X(TOKEN_IN,             "in")                                              \
+    X(TOKEN_LOCAL,          "local")                                           \
+    X(TOKEN_NIL,            "nil")                                             \
+    X(TOKEN_NOT,            "not")                                             \
+    X(TOKEN_OR,             "or")                                              \
+    X(TOKEN_REPEAT,         "repeat")                                          \
+    X(TOKEN_RETURN,         "return")                                          \
+    X(TOKEN_THEN,           "then")                                            \
+    X(TOKEN_TRUE,           "true")                                            \
+    X(TOKEN_UNTIL,          "until")                                           \
+    X(TOKEN_WHILE,          "while")
 
 /**
  * @link https://www.lua.org/manual/5.1/manual.html
  */
 enum Token_Kind {
-#define TOKEN_KIND(e, s) e
-    TOKEN_KINDS(TOKEN_KIND),
-#undef TOKEN_KIND
+#define X(e, s) e,
+    TOKEN_KINDS(X)
+#undef X
 };
 
-typedef enum Token_Kind Token_Kind;
-typedef struct Token Token;
+typedef enum   Token_Kind Token_Kind;
+typedef struct Token      Token;
 struct Token {
     Token_Kind kind;
-    const char *lexeme;
-    size_t len;
-    Value_Literal value;
+
+    // String view into the source code.
+    String lexeme;
 
     // Position information.
     i32 line, col;
@@ -75,12 +86,8 @@ struct Token {
 
 typedef struct Lexer Lexer;
 struct Lexer {
-    // File name.
-    const char *name;
-
-    // File contents.
-    const char *input;
-    size_t len;
+    // File name and contents.
+    String path, input;
 
     // Lexeme's starting position in `input`.
     size_t start;
@@ -105,10 +112,19 @@ LULU_INTERNAL_FUNC const char *
 token_cstring(Token_Kind k);
 
 LULU_INTERNAL_FUNC Lexer
-lexer_make(const char *name, const char *input, size_t len);
+lexer_make(String path, String input);
+
+LULU_INTERNAL_FUNC const char *
+lexer_error_string(Lexer_Error err);
 
 LULU_INTERNAL_FUNC Lexer_Error
 lexer_scan_token(Lexer *x, Token *t);
+
+LULU_INTERNAL_FUNC bool
+lexer_parse_u64(String s, u64 *v);
+
+LULU_INTERNAL_FUNC bool
+lexer_parse_f64(String s, f64 *v);
 
 #endif // !LULU_LEXER_H
 

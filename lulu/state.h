@@ -6,9 +6,12 @@
 
 // local
 #include "internal.h"
+#include "arena.h"
 
 typedef struct lulu_Error_Handler lulu_Error_Handler;
 struct lulu_State {
+    // Used to allocate nodes for the compilation stage.
+    Arena arena;
     lulu_Error_Handler *handler;
 };
 
