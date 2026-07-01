@@ -24,12 +24,12 @@ get_string_fixed(char *buf, size_t buf_len, size_t *n)
 extern int
 main(void)
 {
-    lulu_State   *L;
+    lulu_State *  L;
     unsigned char arena_buf[4096];
 
     L = lulu_open(arena_buf, sizeof(arena_buf));
     for (;;) {
-        char      *s;
+        char *     s;
         size_t     n;
         lulu_Error err;
         char       line_buf[256];

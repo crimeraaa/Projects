@@ -3,8 +3,11 @@
 LULU_INTERNAL_FUNC Value_Literal
 value_literal_from_string(Token_Kind k, String s)
 {
-    Value_Literal v = {VALUE_NONE, /*hash=*/0, {0}};
+    Value_Literal v = {VALUE_INVALID, /*hash=*/0, {0}};
     switch (k) {
+    case TOKEN_NIL:
+        v.kind = VALUE_NIL;
+        break;
     case TOKEN_INT:
         if (lexer_parse_u64(s, &v.value_uint)) {
             v.kind = VALUE_UINT;

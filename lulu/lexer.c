@@ -10,13 +10,13 @@ TOKEN_STRINGS[] = {
 };
 
 static String
-token_string(Token_Kind k)
+token_kind_string(Token_Kind k)
 {
     return TOKEN_STRINGS[k];
 }
 
 LULU_INTERNAL_FUNC const char *
-token_cstring(Token_Kind k)
+token_kind_cstring(Token_Kind k)
 {
     return TOKEN_STRINGS[k].data;
 }
@@ -129,7 +129,7 @@ lexer_init_token(const Lexer *x, Token *t, Token_Kind k)
     s    = lexer_get_lexeme(x);
     line = x->line;
     col  = cast(i32)(cast(usize)x->col - s.len);
-    *t   = token_make(k, (s.len > 0) ? s : token_string(k), line, col);
+    *t   = token_make(k, (s.len > 0) ? s : token_kind_string(k), line, col);
 }
 
 // Keep advancing while the character pointed to by the cursor
@@ -240,7 +240,7 @@ lexer_skip_whitespace(Lexer *x)
 static Token_Kind
 lexer_get_keyword_kind(String s, Token_Kind kind, usize offset)
 {
-    String kw = token_string(kind);
+    String kw = token_kind_string(kind);
     if (s.len != kw.len) {
         return TOKEN_IDENT;
     }
@@ -262,6 +262,7 @@ lexer_scan_keyword_or_ident(Lexer *x, String s, Token *t)
         switch (s.data[0]) {
         case 'a': k = lexer_get_keyword_kind(s, TOKEN_AND,   1); break;
         case 'b': k = lexer_get_keyword_kind(s, TOKEN_BREAK, 1); break;
+        case 'c': k = lexer_get_keyword_kind(s, TOKEN_CAST,  1); break;
         case 'd': k = lexer_get_keyword_kind(s, TOKEN_DO,    1); break;
         case 'e':
             switch (s.len) {
@@ -316,27 +317,34 @@ lexer_scan_keyword_or_ident(Lexer *x, String s, Token *t)
     return LEXER_OK;
 }
 
-static bool
-ascii_to_digit(char c, int base, int *digit)
+/*
+ Returns:
+    The character converted to an integer in the given base,
+    or -1 if it was invalid.
+ */
+static int
+char_to_digit(char c, int base)
 {
+    int digit = 0;
     if (char_is_decimal(c)) {
-        *digit = c - '0';
+        digit = c - '0';
     } else if (char_is_lower(c)) {
-        *digit = c - 'a' + 0xa;
+        digit = c - 'a' + 0xa;
     } else if (char_is_upper(c)) {
-        *digit = c - 'A' + 0xA;
+        digit = c - 'A' + 0xA;
     } else {
         // We should never have spaces in this function.
         // Rather, we can only encounter invalid base-`base` digits.
-        return false;
+        return -1;
     }
-    return *digit < base;
+    return (digit < base) ? digit : -1;
 }
 
-/** 
- * @note We assume that we only ever receive positive integers, because
- *       unary negation on literals only occurs during constant folding
- *       (if we even have it).
+/*
+ NOTE(2026-07-02):
+    We assume that we only ever receive positive integers, because
+    unary negation on literals only occurs during constant folding
+    (if we even have that!).
  */
 LULU_INTERNAL_FUNC bool
 lexer_parse_u64(String s, u64 *v)
@@ -366,8 +374,8 @@ lexer_parse_u64(String s, u64 *v)
 
     // Work from the most significant to least significant digits.
     for (usize i = 0; i < s.len; i++) {
-        int digit;
-        if (!ascii_to_digit(s.data[i], base, &digit)) {
+        int digit = char_to_digit(s.data[i], base);
+        if (digit < 0) {
             return false;
         }
         *v *= cast(u64)base;

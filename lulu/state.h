@@ -20,7 +20,7 @@ typedef void (*Protected_Fn)(lulu_State *L, void *user_data);
 LULU_INTERNAL_FUNC lulu_Error
 state_try(lulu_State *L, Protected_Fn fn, void *user_data);
 
-LULU_INTERNAL_FUNC void
+LULU_INTERNAL_FUNC LULU_NORETURN void
 state_throw(lulu_State *L, lulu_Error err);
 
 #endif // !LULU_STATE_H

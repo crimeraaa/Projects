@@ -89,7 +89,7 @@ arena_resize_copy(Arena *a, u8 *old_mem, usize old_size, usize new_size)
 
 LULU_INTERNAL_FUNC void *
 arena_resize(Arena *a,
-    void  *p, usize old_size,
+    void *p, usize old_size,
     usize new_size)
 {
     u8 *old_mem = cast(u8 *)p;

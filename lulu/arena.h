@@ -10,7 +10,7 @@
 typedef struct Arena Arena;
 struct Arena {
     // Backing buffer information.
-    u8   *buf;
+    u8 *  buf;
     usize buf_size;
 
     // Current usage.

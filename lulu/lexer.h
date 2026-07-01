@@ -43,6 +43,7 @@
     X(TOKEN_ARROW,          "->")                                              \
     X(TOKEN_AND,            "and")                                             \
     X(TOKEN_BREAK,          "break")                                           \
+    X(TOKEN_CAST,           "cast")                                            \
     X(TOKEN_DO,             "do")                                              \
     X(TOKEN_ELSE,           "else")                                            \
     X(TOKEN_ELSEIF,         "elseif")                                          \
@@ -109,7 +110,7 @@ enum Lexer_Error {
 typedef enum Lexer_Error Lexer_Error;
 
 LULU_INTERNAL_FUNC const char *
-token_cstring(Token_Kind k);
+token_kind_cstring(Token_Kind k);
 
 LULU_INTERNAL_FUNC Lexer
 lexer_make(String path, String input);

@@ -6,7 +6,8 @@
 #include "lexer.h"
 
 enum Value_Literal_Kind {
-    VALUE_NONE,
+    VALUE_INVALID,
+    VALUE_NIL,
     VALUE_BOOL,
     VALUE_UINT, VALUE_INT,  // TODO(2026-06-30): Use a bigint instead
     VALUE_FLOAT,

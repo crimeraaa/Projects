@@ -28,7 +28,7 @@ static void
 state_parse_protected(lulu_State *L, void *user_data)
 {
     Pdata *pd;
-    Ast   *prog;
+    Ast *  prog;
 
     pd   = cast(Pdata *)user_data;
     prog = parser_parse(L, pd->path, pd->input);
