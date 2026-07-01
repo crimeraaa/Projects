@@ -1,14 +1,13 @@
 // standard
 #include <inttypes.h>
 #include <stdio.h>
-#include <stdlib.h>
 
 // local
 #include "ast.h"
 #include "state.h"
 
 static void *
-state_arena_alloc(lulu_State *L, size_t size)
+state_arena_alloc(lulu_State *L, usize size)
 {
     void *p = arena_alloc(&L->arena, size);
     if (!p) {
@@ -17,64 +16,80 @@ state_arena_alloc(lulu_State *L, size_t size)
     return p;
 }
 
-#define ast_node_new(T, L) cast(T *)state_arena_alloc(L, sizeof(T))
+#define ast_new(T, L) cast(T *)state_arena_alloc(L, sizeof(T))
 
-LULU_INTERNAL_FUNC Ast_Node *
+LULU_INTERNAL_FUNC Ast *
 ast_literal_new(lulu_State *L, const Token *token)
 {
-    Ast_Literal *n = ast_node_new(Ast_Literal, L);
-    n->kind  = AST_LITERAL;
-    n->token = *token;
-    n->value = value_literal_from_string(token->kind, token->lexeme);
-    return cast(Ast_Node *)n;
+    Ast_Literal *l = ast_new(Ast_Literal, L);
+    l->kind  = AST_LITERAL;
+    l->token = *token;
+    l->value = value_literal_from_string(token->kind, token->lexeme);
+    return cast(Ast *)l;
 }
 
-LULU_INTERNAL_FUNC Ast_Node *
+LULU_INTERNAL_FUNC Ast *
 ast_ident_new(lulu_State *L, const Token *token)
 {
-    Ast_Ident *n = ast_node_new(Ast_Ident, L);
-    n->kind  = AST_IDENT;
-    n->hash  = string_hash(token->lexeme);
-    n->token = *token;
-    return cast(Ast_Node *)n;
+    Ast_Ident *i = ast_new(Ast_Ident, L);
+    i->kind  = AST_IDENT;
+    i->hash  = string_hash(token->lexeme);
+    i->token = *token;
+    return cast(Ast *)i;
 }
 
-LULU_INTERNAL_FUNC Ast_Node *
-ast_paren_new(lulu_State *L,
-    const Token *open,
-    const Token *close,
-    Ast_Node    *expr)
+LULU_INTERNAL_FUNC Ast *
+ast_paren_new(lulu_State *L, const Token *open, const Token *close, Ast *expr)
 {
-    Ast_Paren *n = ast_node_new(Ast_Paren, L);
-    n->kind  = AST_PAREN;
-    n->open  = *open;
-    n->close = *close;
-    n->expr  = expr;
-    return cast(Ast_Node *)n;
+    Ast_Paren *p = ast_new(Ast_Paren, L);
+    p->kind  = AST_PAREN;
+    p->open  = *open;
+    p->close = *close;
+    p->expr  = expr;
+    return cast(Ast *)p;
 }
 
-LULU_INTERNAL_FUNC Ast_Node *
-ast_unary_new(lulu_State *L, const Token *op, Ast_Node *arg)
+LULU_INTERNAL_FUNC Ast *
+ast_decl_new(lulu_State *L, Ast *name, Ast *type, Ast *value)
 {
-    Ast_Unary *n  = ast_node_new(Ast_Unary, L);
-    n->kind  = AST_UNARY;
-    n->op    = *op;
-    n->arg   = arg;
-    return cast(Ast_Node *)n;
+    Ast_Decl *d = ast_new(Ast_Decl, L);
+    d->kind  = AST_DECL;
+    d->name  = name;
+    d->type  = type;
+    d->value = value;
+    return cast(Ast *)d;
 }
 
-LULU_INTERNAL_FUNC Ast_Node *
-ast_binary_new(lulu_State *L,
-    const Token *op,
-    Ast_Node    *left,
-    Ast_Node    *right)
+LULU_INTERNAL_FUNC Ast *
+ast_assign_new(lulu_State *L, const Token *op, Ast *left, Ast *right)
 {
-    Ast_Binary *n  = ast_node_new(Ast_Binary, L);
-    n->kind  = AST_BINARY;
-    n->op    = *op;
-    n->left  = left;
-    n->right = right;
-    return cast(Ast_Node *)n;
+    Ast_Assign *a = ast_new(Ast_Assign, L);
+    a->kind  = AST_ASSIGN;
+    a->op    = *op;
+    a->left  = left;
+    a->right = right;
+    return cast(Ast *)a;
+}
+
+LULU_INTERNAL_FUNC Ast *
+ast_unary_new(lulu_State *L, const Token *op, Ast *arg)
+{
+    Ast_Unary *u  = ast_new(Ast_Unary, L);
+    u->kind  = AST_UNARY;
+    u->op    = *op;
+    u->arg   = arg;
+    return cast(Ast *)u;
+}
+
+LULU_INTERNAL_FUNC Ast *
+ast_binary_new(lulu_State *L, const Token *op, Ast *left, Ast *right)
+{
+    Ast_Binary *b  = ast_new(Ast_Binary, L);
+    b->kind  = AST_BINARY;
+    b->op    = *op;
+    b->left  = left;
+    b->right = right;
+    return cast(Ast *)b;
 }
 
 // Printer node.
@@ -85,21 +100,61 @@ struct Ast_Pnode {
 };
 
 // Printer list.
-typedef struct Ast_Plist Ast_Print;
+typedef struct Ast_Plist Ast_Plist;
 struct Ast_Plist {
     Ast_Pnode *head;
     Ast_Pnode *tail;
 };
 
 static void
-ast_node_print(Ast_Print *p, const Ast_Node *n);
+ast_node_print(Ast_Plist *p, const Ast *a);
+
+static const char *
+char_escape(char c, char *buf)
+{
+    char *it = buf;
+
+    *it++ = '\\';
+    switch (c) {
+    case '\a': *it++ = 'a'; break;
+    case '\b': *it++ = 'b'; break;
+    case '\t': *it++ = 't'; break;
+    case '\n': *it++ = 'n'; break;
+    case '\v': *it++ = 'v'; break;
+    case '\f': *it++ = 'f'; break;
+    case '\r': *it++ = 'r'; break;
+    case '\\':
+    case '\'':
+    case '\"': *it++ = c;   break;
+    default:
+        // Overwrite the '\\' character.
+        it[-1] = c;
+        break;
+    }
+    // Nul-terminate.
+    *it++ = 0;
+    return buf;
+}
 
 static void
 string_print(const char *prefix, String s)
 {
+    bool is_escaped = false;
     printf("%s(\"", prefix);
-    for (size_t i = 0; i < s.len; i++) {
-        printf("%c", s.data[i]);
+    for (usize i = 0; i < s.len; i++) {
+        char c = s.data[i];
+        if (is_escaped) {
+            char buf[8];
+            printf("%s", char_escape(c, buf));
+            is_escaped = false;
+            continue;
+        }
+
+        if (c == '\\') {
+            is_escaped = true;
+            continue;
+        }
+        printf("%c", c);
     }
     printf("\")");
 }
@@ -111,9 +166,9 @@ string_bool(bool b)
 }
 
 static void
-ast_literal_print(const Ast_Literal *n)
+ast_literal_print(const Ast_Literal *l)
 {
-    Value_Literal v = n->value;
+    Value_Literal v = l->value;
     switch (v.kind) {
     case VALUE_NONE:   printf("(invalid value)");                     break;
     case VALUE_BOOL:   printf("bool(%s)", string_bool(v.value_bool)); break;
@@ -125,81 +180,111 @@ ast_literal_print(const Ast_Literal *n)
 }
 
 static void
-ast_ident_print(const Ast_Ident *n)
+ast_ident_print(const Ast_Ident *i)
 {
-    string_print("ident", n->token.lexeme);
+    string_print("ident", i->token.lexeme);
 }
 
 static void
-ast_print_arm(Ast_Print *p, const Ast_Node *n, bool is_elbow)
+ast_print_arm_info(Ast_Plist *p, const Ast *a, bool is_elbow, const char *info)
 {
     Ast_Pnode  next = {/*next=*/NULL, /*done=*/false};
     Ast_Pnode *curr = p->tail;
 
     for (Ast_Pnode *it = p->head; it != curr; it = it->next) {
-        char arm = it->done ? ' ' : '|';
+        // If we already finished printing the headers for this ndoe
+        // then avoid cluttering the output with pipe characters.
+        char arm = (it->done) ? ' ' : '|';
         printf("%c   ", arm);
     }
 
-    printf("%c-> ", (is_elbow) ? '`' : '|');
     curr->done = is_elbow;
+    printf("%c-> ", (is_elbow) ? '`' : '|');
+    if (info) {
+        printf("%-6s = ", info);
+    }
 
-    // Necessary so recursive calls see the full list.
+    // Necessary so child recursive calls see the full list.
     curr->next = &next;
     p->tail    = &next;
-    ast_node_print(p, n);
-    p->tail    = curr;
+    ast_node_print(p, a);
 
-    // Prevent parent calls from seeing invalid stack memory.
+    // Prevent parent recursive calls from seeing invalid stack memory.
+    p->tail    = curr;
     curr->next = NULL;
+
     if (!is_elbow) {
         printf("\n");
     }
 }
 
 static void
-ast_paren_print(Ast_Print *p, const Ast_Paren *n)
+ast_print_arm(Ast_Plist *p, const Ast *a, bool is_elbow)
+{
+    ast_print_arm_info(p, a, is_elbow, /*info=*/NULL);
+}
+
+static void
+ast_paren_print(Ast_Plist *p, const Ast_Paren *r)
 {
     printf("paren\n");
-    ast_print_arm(p, n->expr, /*is_elbow=*/true);
+    ast_print_arm(p, r->expr, /*is_elbow=*/true);
 }
 
 static void
-ast_unary_print(Ast_Print *p, const Ast_Unary *n)
+ast_decl_print(Ast_Plist *p, const Ast_Decl *d)
 {
-    printf("unary(%s)\n", token_cstring(n->op.kind));
-    ast_print_arm(p, n->arg, /*is_elbow=*/true);
+    printf("decl\n");
+    ast_print_arm_info(p, d->name,  /*is_elbow=*/false, /*info=*/"name");
+    ast_print_arm_info(p, d->type,  /*is_elbow=*/false, /*info=*/"type");
+    ast_print_arm_info(p, d->value, /*is_elbow=*/true,  /*info=*/"value");
 }
 
 static void
-ast_binary_print(Ast_Print *p, const Ast_Binary *n)
+ast_assign_print(Ast_Plist *p, const Ast_Assign *a)
 {
-    printf("binary(%s)\n", token_cstring(n->op.kind));
-    ast_print_arm(p, n->left,  /*is_elbow=*/false);
-    ast_print_arm(p, n->right, /*is_elbow=*/true);
+    printf("assign(%s)\n", token_cstring(a->op.kind));
+    ast_print_arm_info(p, a->left,  /*is_elbow=*/false, /*info=*/"left");
+    ast_print_arm_info(p, a->right, /*is_elbow=*/true,  /*info=*/"right");
 }
 
+static void
+ast_unary_print(Ast_Plist *p, const Ast_Unary *u)
+{
+    printf("unary(%s)\n", token_cstring(u->op.kind));
+    ast_print_arm(p, u->arg, /*is_elbow=*/true);
+}
 
 static void
-ast_node_print(Ast_Print *p, const Ast_Node *n)
+ast_binary_print(Ast_Plist *p, const Ast_Binary *b)
 {
-    switch (n->kind) {
-    case AST_LITERAL: ast_literal_print(&n->literal);  break;
-    case AST_IDENT:   ast_ident_print(&n->ident);      break;
-    case AST_PAREN:   ast_paren_print(p, &n->paren);   break;
-    case AST_UNARY:   ast_unary_print(p, &n->unary);   break;
-    case AST_BINARY:  ast_binary_print(p, &n->binary); break;
+    printf("binary(%s)\n", token_cstring(b->op.kind));
+    ast_print_arm(p, b->left,  /*is_elbow=*/false);
+    ast_print_arm(p, b->right, /*is_elbow=*/true);
+}
+
+static void
+ast_node_print(Ast_Plist *p, const Ast *a)
+{
+    switch (a->kind) {
+    case AST_LITERAL: ast_literal_print(&a->literal);  break;
+    case AST_IDENT:   ast_ident_print(&a->ident);      break;
+    case AST_DECL:    ast_decl_print(p, &a->decl);     break;
+    case AST_ASSIGN:  ast_assign_print(p, &a->assign); break;
+    case AST_PAREN:   ast_paren_print(p, &a->paren);   break;
+    case AST_UNARY:   ast_unary_print(p, &a->unary);   break;
+    case AST_BINARY:  ast_binary_print(p, &a->binary); break;
     default:
-        printf("(Ast_Kind(%i) not yet implemented)", n->kind);
+        printf("(Ast_Kind(%i) not yet implemented)", a->kind);
         break;
     }
 }
 
 LULU_INTERNAL_FUNC void
-ast_print(const Ast_Node *n)
+ast_print(const Ast *a)
 {
-    Ast_Pnode n2 = {/*next=*/NULL, /*done=*/false};
-    Ast_Print p  = {&n2, &n2};
-    ast_node_print(&p, n);
+    Ast_Pnode n = {/*next=*/NULL, /*done=*/false};
+    Ast_Plist p = {&n, &n};
+    ast_node_print(&p, a);
     printf("\n");
 }

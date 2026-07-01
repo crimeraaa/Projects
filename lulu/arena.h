@@ -7,26 +7,25 @@
 // local
 #include "internal.h"
 
-typedef uintptr_t uintptr;
-
 typedef struct Arena Arena;
 struct Arena {
     // Backing buffer information.
-    unsigned char *buf;
-    size_t buf_size;
+    u8   *buf;
+    usize buf_size;
 
     // Current usage.
-    size_t prev_index, curr_index;
+    usize prev_offset;
+    usize curr_offset;
 };
 
 LULU_INTERNAL_FUNC Arena
-arena_make(void *buf, size_t buf_size);
+arena_make(void *buf, usize buf_size);
 
 LULU_INTERNAL_FUNC void *
-arena_alloc(Arena *a, size_t size);
+arena_alloc(Arena *a, usize size);
 
 LULU_INTERNAL_FUNC void *
-arena_resize(Arena *a, void *old_mem, size_t old_size, size_t new_size);
+arena_resize(Arena *a, void *p, usize old_size, usize new_size);
 
 LULU_INTERNAL_FUNC void
 arena_free_all(Arena *a);

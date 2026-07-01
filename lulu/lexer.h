@@ -90,10 +90,10 @@ struct Lexer {
     String path, input;
 
     // Lexeme's starting position in `input`.
-    size_t start;
+    usize start;
 
     // Current view position in `input`. Must be `>= start`.
-    size_t cursor;
+    usize cursor;
 
     // Position information.
     i32 line, col;

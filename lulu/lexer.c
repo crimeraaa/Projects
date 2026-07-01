@@ -29,13 +29,14 @@ lexer_make(String path, String input)
 }
 
 static const char *
-lexer_get_ptr(const Lexer *x, size_t i)
+lexer_get_ptr(const Lexer *x, usize i)
 {
     return x->input.data + i;
 }
 
-static size_t
-lexer_len(const Lexer *x)
+// Must be of the same type as the cursor.
+static usize
+lexer_end(const Lexer *x)
 {
     return x->input.len;
 }
@@ -43,11 +44,11 @@ lexer_len(const Lexer *x)
 static bool
 lexer_eof(const Lexer *x)
 {
-    return x->cursor >= lexer_len(x);
+    return x->cursor >= lexer_end(x);
 }
 
 static char
-lexer_get(const Lexer *x, size_t i)
+lexer_get(const Lexer *x, usize i)
 {
     return *lexer_get_ptr(x, i);
 }
@@ -61,7 +62,7 @@ lexer_peek_char(const Lexer *x)
 static char
 lexer_peek_next_char(Lexer *x)
 {
-    if (x->cursor < lexer_len(x)) {
+    if (x->cursor < lexer_end(x)) {
         return lexer_get(x, x->cursor + 1);
     }
     return 0;
@@ -102,7 +103,7 @@ lexer_get_lexeme(const Lexer *x)
 {
     String s;
     s.data = lexer_get_ptr(x, x->start);
-    s.len  = cast(size_t)(x->cursor - x->start);
+    s.len  = cast(usize)(x->cursor - x->start);
     return s;
 }
 
@@ -127,7 +128,7 @@ lexer_init_token(const Lexer *x, Token *t, Token_Kind k)
 
     s    = lexer_get_lexeme(x);
     line = x->line;
-    col  = cast(i32)(cast(size_t)x->col - s.len);
+    col  = cast(i32)(cast(usize)x->col - s.len);
     *t   = token_make(k, (s.len > 0) ? s : token_string(k), line, col);
 }
 
@@ -237,14 +238,14 @@ lexer_skip_whitespace(Lexer *x)
 // Since MSVC is absolutely braindead, they pass 16-byte structs on the stack
 // rather than in registers. So we have to manually manage the string views...
 static Token_Kind
-lexer_get_keyword_kind(String s, Token_Kind kind, size_t offset)
+lexer_get_keyword_kind(String s, Token_Kind kind, usize offset)
 {
     String kw = token_string(kind);
     if (s.len != kw.len) {
         return TOKEN_IDENT;
     }
 
-    for (size_t i = offset; i < s.len; i++) {
+    for (usize i = offset; i < s.len; i++) {
         if (s.data[i] != kw.data[i]) {
             return TOKEN_IDENT;
         }
@@ -364,7 +365,7 @@ lexer_parse_u64(String s, u64 *v)
     *v = 0;
 
     // Work from the most significant to least significant digits.
-    for (size_t i = 0; i < s.len; i++) {
+    for (usize i = 0; i < s.len; i++) {
         int digit;
         if (!ascii_to_digit(s.data[i], base, &digit)) {
             return false;
@@ -455,7 +456,7 @@ lexer_scan_string(Lexer *x, Token *t, char quote)
     }
 
     // Skip the quotes.
-    t->lexeme = string_slice_from(t->lexeme, 2);
+    t->lexeme = string_slice(t->lexeme, 1, t->lexeme.len - 1);
     return LEXER_OK;
 }
 

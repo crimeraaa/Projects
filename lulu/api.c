@@ -27,24 +27,25 @@ struct Pdata {
 static void
 state_parse_protected(lulu_State *L, void *user_data)
 {
-    Pdata    *pdata;
-    Ast_Node *program;
+    Pdata *pd;
+    Ast   *prog;
 
-    pdata   = cast(Pdata *)user_data;
-    program = parser_parse(L, pdata->path, pdata->input);
-    ast_print(program);
-
-    // Don't call this inside the parse proper because we may recursively
-    // call it in the future. So we don't want to invalidate the recursive
-    // parent functions.
-    arena_free_all(&L->arena);
+    pd   = cast(Pdata *)user_data;
+    prog = parser_parse(L, pd->path, pd->input);
+    ast_print(prog);
 }
 
 LULU_API lulu_Error
 lulu_compile(lulu_State *L, const char *path, const char *input, size_t len)
 {
-    Pdata pdata;
-    pdata.path  = string_make_cstring(path);
-    pdata.input = string_make(input, len);
-    return state_try(L, state_parse_protected, &pdata);
+    Pdata pd;
+    lulu_Error err;
+    pd.path  = string_make_cstring(path);
+    pd.input = string_make(input, len);
+    err      = state_try(L, state_parse_protected, &pd);
+
+    // Don't call this inside the parse proper so that in case of errors
+    // we still free the whole program.
+    arena_free_all(&L->arena);
+    return err;
 }

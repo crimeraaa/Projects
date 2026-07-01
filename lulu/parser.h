@@ -16,7 +16,7 @@ struct Parser {
     Token consumed;
 };
 
-LULU_INTERNAL_FUNC Ast_Node *
+LULU_INTERNAL_FUNC Ast *
 parser_parse(lulu_State *L, String path, String input);
 
 #endif // !LULU_PARSER_H

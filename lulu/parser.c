@@ -29,17 +29,17 @@ struct Parser_Rule {
 static Parser_Rule
 parser_match_rule(Token_Kind k);
 
-static Ast_Node *
-parser_expression(Parser *p, Precedence prec);
+static Ast *
+parser_expr(Parser *p, Precedence prec);
 
 // Because C is stupid and doesn't have default arguments
-static Ast_Node *
-parser_expression0(Parser *p);
+static Ast *
+parser_expr0(Parser *p);
 
 static const char *
-parser_clamp_string(char *buf, size_t buf_len, String s)
+parser_clamp_string(char *buf, usize buf_len, String s)
 {
-    size_t it = 0, stop;
+    usize it = 0, stop;
     // The iteration range is exclusive, so we save the last index for the
     // nul character.
     stop = (s.len < buf_len - 1) ? s.len : buf_len - 1;
@@ -130,27 +130,32 @@ parser_expect(Parser *p, Token_Kind k)
     }
 }
 
-static Ast_Node *
-parser_binary(Parser *p, Precedence right_prec, Ast_Node *left)
+/*
+ Assumptions
+ 1) We just consumed a binary operator.
+ */
+static Ast *
+parser_binary(Parser *p, Precedence right_prec, Ast *left)
 {
     Token op;
-    Ast_Node *right;
+    Ast *right;
 
     // Copy by value as the nonlocal state will update.
-    op    = p->consumed;
-    right = parser_expression(p, right_prec);
+    op = p->consumed;
+
+    // Consume the first token of the right-hand side expression.
+    parser_advance(p);
+    right = parser_expr(p, right_prec);
     return ast_binary_new(p->L, &op, left, right);
 }
 
-static Ast_Node *
-parser_expression(Parser *p, Precedence prec)
+static Ast *
+parser_expr(Parser *p, Precedence prec)
 {
     lulu_State *L;
     Token prefix;
-    Ast_Node *expr = NULL;
+    Ast *expr = NULL;
 
-    // Consume the first token of the prefix expression.
-    parser_advance(p);
     L      = p->L;
     prefix = p->consumed;
     switch (prefix.kind) {
@@ -158,6 +163,7 @@ parser_expression(Parser *p, Precedence prec)
     case TOKEN_FLOAT:
     case TOKEN_FALSE:
     case TOKEN_TRUE:
+    case TOKEN_STRING:
         expr = ast_literal_new(L, &prefix);
         if (expr->literal.value.kind == VALUE_NONE) {
             parser_error_at(p,
@@ -168,13 +174,21 @@ parser_expression(Parser *p, Precedence prec)
     case TOKEN_SUB:
     case TOKEN_LEN:
     case TOKEN_NOT:
-        expr = parser_expression(p, PREC_UNARY);
+        // Skip the unary operand so the first token of the argument
+        // is our current.
+        parser_advance(p);
+        expr = parser_expr(p, PREC_UNARY);
         expr = ast_unary_new(L, &prefix, expr);
         break;
     case TOKEN_OPEN_PAREN:
-        expr = parser_expression0(p);
+        // Skip the open parenthesis so the first token of the
+        // inner expression is our current.
+        parser_advance(p);
+        expr = parser_expr0(p);
+
         parser_expect(p, TOKEN_CLOSE_PAREN);
         expr = ast_paren_new(L, &prefix, &p->consumed, expr);
+        // TODO(2026-07-01): Determine if next token is start of a cast!
         break;
     case TOKEN_IDENT:
         expr = ast_ident_new(L, &prefix);
@@ -200,10 +214,94 @@ parser_expression(Parser *p, Precedence prec)
     return expr;
 }
 
-static Ast_Node *
-parser_expression0(Parser *p)
+static Ast *
+parser_expr0(Parser *p)
 {
-    return parser_expression(p, PREC_NONE);
+    return parser_expr(p, PREC_NONE);
+}
+
+/*
+ Assumptions
+ 1) We are about to consume an identifier.
+ */
+static Ast *
+parser_type(Parser *p)
+{
+    parser_expect(p, TOKEN_IDENT);
+    return ast_ident_new(p->L, &p->consumed);
+}
+
+/*
+ Assumptions
+ 1) We just consumed a colon, i.e. the ':' character.
+ */
+static Ast *
+parser_decl(Parser *p, Ast *left)
+{
+    Ast *type, *right; 
+
+    type = parser_type(p);
+
+    // Consume and skip the '=' so our current token is the first one for
+    // the right-hand side expression.
+    parser_expect(p, TOKEN_ASSIGN);
+    parser_advance(p);
+    right = parser_expr0(p);
+    return ast_decl_new(p->L, left, type, right);
+}
+
+/*
+ Assumptions
+ 1) We just consumed an equals sign, i.e. the '=' character.
+ */
+static Ast *
+parser_assign(Parser *p, Ast *left)
+{
+    Token op;
+    Ast *right;
+
+    op = p->consumed;
+
+    // Consume the first token of the right-hand side expression.
+    parser_advance(p);
+    right = parser_expr0(p);
+    return ast_assign_new(p->L, &op, left, right);
+}
+
+static Ast *
+parser_program(Parser *p)
+{
+    Ast  *a = NULL;
+    Token t = p->token;
+    switch (t.kind) {
+    case TOKEN_IDENT:
+        // Consume the identifier.
+        parser_advance(p);
+
+        // TODO(2026-07-01): Allow multiple declarations/assignments
+        switch (p->token.kind) {
+        case TOKEN_COLON:
+            // Consume the ':'.
+            parser_advance(p);
+            a = ast_ident_new(p->L, &t);
+            a = parser_decl(p, a);
+            break;
+        case TOKEN_ASSIGN:
+            // Consume the '='.
+            parser_advance(p);
+            a = ast_ident_new(p->L, &t);
+            a = parser_assign(p, a);
+            break;
+        default:
+            a = parser_expr0(p);
+            break;
+        }
+        break;
+    default:
+        parser_error(p, "Expected a statement");
+        break;
+    }
+    return a;
 }
 
 
@@ -219,17 +317,17 @@ parser_make(lulu_State *L, String path, String input)
     return p;
 }
 
-LULU_INTERNAL_FUNC Ast_Node *
+LULU_INTERNAL_FUNC Ast *
 parser_parse(lulu_State *L, String path, String input)
 {
-    Ast_Node *root;
+    Ast *a;
     Parser p;
 
     // TODO(2026-06-30): Allow type declarations and type casting
-    p    = parser_make(L, path, input);
-    root = parser_expression0(&p);
+    p = parser_make(L, path, input);
+    a = parser_program(&p);
     parser_expect(&p, TOKEN_EOF);
-    return root;
+    return a;
 }
 
 #define LEFT(p)  {cast(u8)p, cast(u8)p + 1}
@@ -248,7 +346,7 @@ PARSER_RULES[] = {
     LEFT(PREC_COMPARISON), LEFT(PREC_COMPARISON),
 };
 
-static Parser_Rule
+static inline Parser_Rule
 parser_rule_left(Precedence prec)
 {
     Parser_Rule r = LEFT(prec);
