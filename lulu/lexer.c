@@ -4,7 +4,7 @@
 
 static const String
 TOKEN_STRINGS[] = {
-#define X(e, s) {s, sizeof(s) - 1},
+#define X(e, s) string_literal(s),
     TOKEN_KINDS(X)
 #undef X
 };

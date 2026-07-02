@@ -2,14 +2,7 @@
 
 #include "state.h"
 #include "parser.h"
-
-#if 0
-#define LOGFLN(fmt, ...) printf("%-16s " fmt "\n", &__func__[7], __VA_ARGS__)
-#define LOGLN(msg)       LOGFLN("%s", msg)
-#else
-#define LOGFLN(...)
-#define LOGLN(msg)
-#endif
+#include "memory.h"
 
 enum Precedence {
     PREC_NONE, // Zero value. Useful to indicate a rule does not exist.
@@ -64,7 +57,7 @@ parser_clamp_string(char *buf, usize buf_len, String s)
 }
 
 LULU_NORETURN static void
-parser_error_at(const Parser *p, const char *info, const Token *t)
+parser_error_at(Parser *p, const char *info, const Token *t)
 {
     char name[80];
     char loc[80];
@@ -78,13 +71,13 @@ parser_error_at(const Parser *p, const char *info, const Token *t)
 
 // The most common case is to error at the current token.
 LULU_NORETURN static void
-parser_error(const Parser *p, const char *info)
+parser_error(Parser *p, const char *info)
 {
     parser_error_at(p, info, &p->token);
 }
 
 LULU_NORETURN static void
-parser_error_consumed(const Parser *p, const char *info)
+parser_error_consumed(Parser *p, const char *info)
 {
     parser_error_at(p, info, &p->consumed);
 }
@@ -161,7 +154,6 @@ static Ast *
 parser_operand(Parser *p, bool lhs)
 {
     Ast *operand = NULL;
-    LOGFLN("token: %s", token_kind_cstring(p->token.kind));
     switch (p->token.kind) {
     case TOKEN_INT:
     case TOKEN_FLOAT:
@@ -171,7 +163,7 @@ parser_operand(Parser *p, bool lhs)
     case TOKEN_TRUE:
         parser_advance(p);
         operand = ast_literal_new(p->L, &p->consumed);
-        if (operand->literal.value.kind == VALUE_INVALID) {
+        if (operand->Literal.value.kind == VALUE_INVALID) {
             const char *info = lexer_error_string(LEXER_INVALID_NUMBER);
             parser_error_consumed(p, info);
         }
@@ -196,18 +188,22 @@ parser_operand(Parser *p, bool lhs)
     return operand;
 }
 
+static Slice_Ast
+parser_expr_list0(Parser *p, bool lhs);
+
 static Ast *
 parser_call(Parser *p, Ast *func)
 {
-    Token open, close;
-    Ast * arg = NULL;
+    Token     open, close;
+    Slice_Ast args = {NULL, 0};
 
     open = parser_advance(p);
     if (!parser_check(p, TOKEN_CLOSE_PAREN)) {
-        arg = parser_expr0(p, /*lhs=*/false);
+        args = parser_expr_list0(p, /*lhs=*/false);
     }
+
     close = parser_expect(p, TOKEN_CLOSE_PAREN);
-    return ast_call_new(p->L, &open, &close, func, arg);
+    return ast_call_new(p->L, &open, &close, func, args);
 }
 
 static Ast *
@@ -219,14 +215,12 @@ parser_atom_expr(Parser *p, Ast *operand, bool lhs)
 
     bool loop = true;
     while (loop) {
-        LOGFLN("token=\"%s\", loop=%i", token_kind_cstring(p->token.kind), loop);
         switch (p->token.kind) {
         case TOKEN_OPEN_PAREN:
             operand = parser_call(p, operand);
             break;
         default:
             loop = false;
-            LOGFLN("loop=%i", loop);
             break;
         }
         // After the first atom, we are no longer assignable.
@@ -280,13 +274,10 @@ static Ast *
 parser_expr(Parser *p, bool lhs, Precedence prec)
 {
     Ast *expr = parser_unary_expr(p, lhs);
-    LOGFLN("lhs=%i, prec=%i", lhs, prec);
     for (;;) {
         Token       op;
         Ast *       right;
         Parser_Rule rule = parser_match_rule(p->token.kind);
-
-        LOGFLN("left_prec=%i", rule.left_prec);
 
         // This also catches tokens that are not binary operators.
         if (cast(Precedence)rule.left_prec < prec) {
@@ -307,31 +298,92 @@ parser_expr0(Parser *p, bool lhs)
     return parser_expr(p, lhs, PREC_EXPR);
 }
 
+typedef struct Ast_List Ast_List;
+struct Ast_List {
+    // Must be allocated on the recursive stack frame.
+    Ast_List *prev;
+    Ast *     ast;
+};
+
+static const char *
+AST_TYPE_NAMES[] = {
+#define X2(s)       #s " *"
+#define X(e, ...)   X2(Ast_##e),
+    AST_KINDS(X)
+#undef X
+#undef X2
+};
+
+static const char *
+ast_type_name(Ast *a)
+{
+    return AST_TYPE_NAMES[a->kind];
+}
+
+
+// This helps us avoid a permanent allocator for the slice.
+static void
+parser_expr_list(Parser *p, bool lhs, Slice_Ast *exprs, Ast_List *tail)
+{
+    tail->ast = parser_expr0(p, lhs);
+    if (parser_match(p, TOKEN_COMMA)) {
+        Ast_List next = {tail, NULL};
+        parser_expr_list(p, lhs, exprs, &next);
+        return;
+    }
+
+    usize count = 0;
+    for (Ast_List *it = tail; it != NULL; it = it->prev) {
+        count++;
+    }
+
+    // Allocate exactly as much as we need upfront.
+    // Iterating the list again is probably a marginal cost compared to
+    // constantly resizing the slice each time we add a node.
+    exprs->data = mem_arena_alloc_array(Ast *, p->L, count);
+    exprs->len  = count;
+
+    for (Ast_List *it = tail; it != NULL; it = it->prev) {
+        exprs->data[--count] = it->ast;
+    }
+
+    for (usize i = 0; i < exprs->len; i++) {
+        Ast *a = exprs->data[i];
+    }
+}
+
+static Slice_Ast
+parser_expr_list0(Parser *p, bool lhs)
+{
+    Slice_Ast exprs = {NULL, 0};
+    Ast_List  list  = {NULL, NULL};
+    parser_expr_list(p, lhs, &exprs, &list);
+    return exprs;
+}
+
 /*
  Assumptions:
  1) We are about to consume a colon, i.e. the ':' character.
 
- TODO(2026-07-01):
-    Use an array of AST nodes for the left hand side in order to support
-    multiple declarations.
-
-    Also ensure that all targets are mere identifiers. Since this is a
+ TODO(2026-07-02):
+    Ensure that all targets are mere identifiers. Since this is a
     variable declaration, we can't 'declare' array indices, pointer
     dereferences, etc.
  */
 static Ast *
-parser_decl(Parser *p, Ast *left)
+parser_decl(Parser *p, Slice_Ast left)
 {
-    Ast *type, *right;
+    Slice_Ast right = {NULL, 0};
+    Ast *type;
 
+    // Consume ':'.
     parser_advance(p);
-    type  = parser_type(p);
-    right = NULL;
+    type = parser_type(p);
 
     // Consume the '=' so our current token is the first one for the
     // right-hand side expression.
     if (parser_match(p, TOKEN_ASSIGN)) {
-        right = parser_expr0(p, /*lhs=*/false);
+        right = parser_expr_list0(p, /*lhs=*/false);
     }
     return ast_decl_new(p->L, left, type, right);
 }
@@ -346,14 +398,14 @@ parser_decl(Parser *p, Ast *left)
     nonsensical.
  */
 static Ast *
-parser_assign(Parser *p, Ast *left)
+parser_assign(Parser *p, Slice_Ast lhs)
 {
-    Token op;
-    Ast * right;
+    Token     op;
+    Slice_Ast right;
 
     op    = parser_advance(p);
-    right = parser_expr0(p, /*lhs=*/false);
-    return ast_assign_new(p->L, &op, left, right);
+    right = parser_expr_list0(p, /*lhs=*/false);
+    return ast_assign_new(p->L, &op, lhs, right);
 }
 
 static Ast *
@@ -362,31 +414,24 @@ parser_simple_stmt(Parser *p)
     Ast * a = NULL;
     Token t = p->token;
     switch (t.kind) {
-    case TOKEN_IDENT:
+    case TOKEN_IDENT: {
         // We don't currently check for correctness.
-        LOGLN("=== BEGIN LHS ============");
-        a = parser_expr0(p, true);
-        LOGLN("=== END LHS, BEGIN RHS ===");
-        LOGFLN("token=\"%s\"", token_kind_cstring(p->token.kind));
+        Slice_Ast lhs = parser_expr_list0(p, /*lhs=*/true);
 
         // TODO(2026-07-01): Allow multiple declarations/assignments
         switch (p->token.kind) {
-        case TOKEN_COLON:
-            a = parser_decl(p, a);
-            break;
-        case TOKEN_ASSIGN:
-            a = parser_assign(p, a);
-            break;
+        case TOKEN_COLON:  a = parser_decl(p, lhs);   break;
+        case TOKEN_ASSIGN: a = parser_assign(p, lhs); break;
         default:
-            if (a->kind != AST_CALL) {
-                goto bruh;
+            a = lhs.data[0];
+            if (lhs.len == 1 && a->kind == Ast_Kind_Call_Expr) {
+                break;
             }
-            break;
+            parser_error(p, "Expected declaration/assignment/call");
         }
-        LOGLN("=== END RHS ==============");
         break;
+    }
     default:
-bruh:
         parser_error(p, "Expected a statement");
     }
     // Optional
@@ -398,11 +443,11 @@ bruh:
 static Parser
 parser_make(lulu_State *L, String path, String input)
 {
-    Parser p;
-    p.L        = L;
-    p.lexer    = lexer_make(path, input);
-    p.token    = token_make_none();
-    p.consumed = token_make_none();
+    Parser p = {L, lexer_make(path, input),
+         /*token     =*/token_make_none(),
+         /*consumed  =*/token_make_none(),
+         /*recursions=*/0};
+
     parser_advance(&p);
     return p;
 }
@@ -463,5 +508,3 @@ parser_match_rule(Token_Kind k)
 #undef RIGHT
 #undef LEFT
 
-#undef LOGLN
-#undef LOGFLN

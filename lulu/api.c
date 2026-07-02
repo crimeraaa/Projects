@@ -1,9 +1,10 @@
 #include "lulu.h"
 
-#include "ast.c"
 #include "arena.c"
+#include "ast.c"
 #include "state.c"
 #include "lexer.c"
+#include "memory.c"
 #include "parser.c"
 #include "value.c"
 

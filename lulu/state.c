@@ -44,3 +44,4 @@ state_throw(lulu_State *L, lulu_Error err)
         exit(1);
     }
 }
+
