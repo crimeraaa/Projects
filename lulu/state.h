@@ -3,7 +3,7 @@
 
 #include "lulu.h"
 #include "internal.h"
-#include "arena.h"
+#include "memory.h"
 
 typedef struct lulu_Error_Handler lulu_Error_Handler;
 struct lulu_State {

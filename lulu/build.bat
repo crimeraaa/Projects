@@ -1,7 +1,7 @@
 @echo OFF
 
-rem set ASAN_FLAGS=/fsanitize=address
-set ASAN_FLAGS=
+set ASAN_FLAGS=/fsanitize=address
+rem set ASAN_FLAGS=
 set LINK_FLAGS=/link /debug
 set CL_FLAGS=/nologo /W3 /Zi %ASAN_FLAGS% /std:c11 /Fo:obj\ /Fe:bin\
 

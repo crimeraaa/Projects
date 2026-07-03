@@ -3,7 +3,6 @@
 
 #include "lulu.h"
 #include "internal.h"
-#include "arena.h"
 #include "lexer.h"
 #include "value.h"
 

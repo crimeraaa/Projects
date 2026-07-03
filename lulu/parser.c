@@ -28,9 +28,6 @@ struct Parser_Rule {
     u8 right_prec; // (Parent) Tells the child node when to yield.
 };
 
-static Parser_Infix_Rule
-parser_get_infix_rule(Token_Kind k);
-
 // Parse a single expression of the given precedence.
 static Ast *
 parser_expr_prec(Parser *p, bool lhs, Precedence prec);
@@ -38,6 +35,50 @@ parser_expr_prec(Parser *p, bool lhs, Precedence prec);
 // Parse a single expression.
 static Ast *
 parser_expr(Parser *p, bool lhs);
+
+
+#define LEFT(p)  {cast(u8)p, cast(u8)p + 1}
+#define RIGHT(p) {cast(u8)p, cast(u8)p}
+
+static const Parser_Infix_Rule
+PARSER_INFIX_RULES[] = {
+    // Binary Arithmetic operators.
+    LEFT(Prec_Term),       LEFT(Prec_Term),
+    LEFT(Prec_Factor),     LEFT(Prec_Factor),
+    LEFT(Prec_Factor),     RIGHT(Prec_Exponent),
+
+    // Binary Relational operators.
+    LEFT(Prec_Equality),   LEFT(Prec_Equality),
+    LEFT(Prec_Comparison), LEFT(Prec_Comparison),
+    LEFT(Prec_Comparison), LEFT(Prec_Comparison),
+};
+
+static inline Parser_Infix_Rule
+parser_rule_left(Precedence prec)
+{
+    Parser_Infix_Rule r = LEFT(prec);
+    return r;
+}
+
+static Parser_Infix_Rule
+parser_get_infix_rule(Token_Kind k)
+{
+    static const Parser_Infix_Rule empty_rule = {Prec_None, Prec_None};
+    if (Token_Add <= k && k <= Token_Geq) {
+        return PARSER_INFIX_RULES[k - Token_Add];
+    }
+
+    switch (k) {
+    case Token_and: return parser_rule_left(Prec_And);
+    case Token_or:  return parser_rule_left(Prec_Or);
+    default:
+        break;
+    }
+    return empty_rule;
+}
+
+#undef RIGHT
+#undef LEFT
 
 static const char *
 parser_clamp_string(char *buf, usize buf_len, String s)
@@ -487,47 +528,4 @@ parser_parse(lulu_State *L, String path, String input)
     parser_expect(&p, Token_Eof);
     return a;
 }
-
-#define LEFT(p)  {cast(u8)p, cast(u8)p + 1}
-#define RIGHT(p) {cast(u8)p, cast(u8)p}
-
-static const Parser_Infix_Rule
-PARSER_INFIX_RULES[] = {
-    // Binary Arithmetic operators.
-    LEFT(Prec_Term),       LEFT(Prec_Term),
-    LEFT(Prec_Factor),     LEFT(Prec_Factor),
-    LEFT(Prec_Factor),     RIGHT(Prec_Exponent),
-
-    // Binary Relational operators.
-    LEFT(Prec_Equality),   LEFT(Prec_Equality),
-    LEFT(Prec_Comparison), LEFT(Prec_Comparison),
-    LEFT(Prec_Comparison), LEFT(Prec_Comparison),
-};
-
-static inline Parser_Infix_Rule
-parser_rule_left(Precedence prec)
-{
-    Parser_Infix_Rule r = LEFT(prec);
-    return r;
-}
-
-static Parser_Infix_Rule
-parser_get_infix_rule(Token_Kind k)
-{
-    static const Parser_Infix_Rule empty_rule = {Prec_None, Prec_None};
-    if (Token_Add <= k && k <= Token_Geq) {
-        return PARSER_INFIX_RULES[k - Token_Add];
-    }
-
-    switch (k) {
-    case Token_and: return parser_rule_left(Prec_And);
-    case Token_or:  return parser_rule_left(Prec_Or);
-    default:
-        break;
-    }
-    return empty_rule;
-}
-
-#undef RIGHT
-#undef LEFT
 

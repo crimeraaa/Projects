@@ -3,16 +3,44 @@
 
 #include <stddef.h> /* size_t */
 
-/* Functions that can be exported to other libraries. */
-#define LULU_API           extern
+/*
+ Description:
+    This marks function declarations that are visible to outside
+    libraries. That is, they can be referred to outside of Lulu.
 
-/* Functions that are not to be exported to other libraries.
- * Note that we do unity builds by default. */
-#define LULU_INTERNAL_FUNC extern
+    Note that Lulu declares no externally visible variables.
+ */
+#define LULU_API            extern
 
-/* Data variables that are not to be exported to other libraries.*
- * Note that we do unity builds by default. */
-#define LULU_INTERNAL_DATA extern
+/*
+ Description:
+    This marks functions declarations that are visible only to other
+    translation units within Lulu. They should not (ideally) become
+    visible to external libraries.
+
+    Note that we do unity builds by default.
+ */
+#define LULU_INTERNAL_FUNC  extern
+
+/*
+ Description:
+    This marks global data variables that are visible only to other
+    translation units within Lulu. They should not (ideally) become
+    visible to external libraries.
+
+    Note that we do unity builds by default.
+ */
+#define LULU_INTERNAL_DATA  extern
+
+/*
+ Description:
+    This is the default alignment used by the internal allocation API.
+    This ensures that all allocations are aligned to this boundary.
+    Such a guarantee may be useful to, say, ensure that we can always
+    read/write the target architecture's word size at time such as in
+    `memcpy`.
+ */
+#define LULU_DEFAULT_ALIGN  sizeof(void *)
 
 enum lulu_Error {
     LULU_OK, /* No error occured. */

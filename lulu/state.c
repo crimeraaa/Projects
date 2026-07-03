@@ -11,7 +11,6 @@ struct lulu_Error_Handler {
     jmp_buf             env;
 };
 
-
 LULU_API lulu_State *
 lulu_open(void *backing_buf, size_t backing_size)
 {

@@ -2,8 +2,9 @@
 #define LULU_INTERNAL_H
 
 // standard
-#include <stdbool.h>
-#include <stdint.h>
+#include <stdbool.h> // bool
+#include <stddef.h>  // size_t
+#include <stdint.h>  //  u?int\d+_t
 
 // local
 #include "lulu.h"
@@ -11,12 +12,14 @@
 #if defined(__GNUC__) || defined(__clang__)
 
 #define LULU_NORETURN       __attribute__((__noreturn__))
+#define LULU_FORMAT(f, a)   __attribute__((__format__(printf, f, a)))
 #define LULU__ASSERT_IMPL() __builtin_trap()
 
 #elif defined(_MSC_VER) // ^^^ GCC, clang; vvv MSVC
 
 #define LULU_NORETURN       __declspec(noreturn)
 #define LULU__ASSERT_IMPL() __debugbreak()
+#define LULU_FORMAT(f, a)
 
 #else // ^^^ MSVC ; vvv <unknown>
 
@@ -24,6 +27,7 @@
 
 // No harm in not knowing, but your compiler can't optimize for such cases.
 #define LULU_NORETURN
+#define LULU_FORMAT(f, a)
 
 // Always works but may not be good for debuggers.
 #define LULU__ASSERT_IMPL() abort()
@@ -33,12 +37,17 @@
 #define unused(expr)    cast(void)(expr)
 
 #if 1
+
 #define LULU_LOGFLN(fmt, ...) \
     fprintf(stderr, "%s:%i: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+
 #else
+
 #define LULU_LOGFLN(fmt, ...)
+
 #endif // LULU_LOGFLN
 #define LULU_LOGLN(msg) LULU_LOGFLN("%s", msg)
+
 
 // TODO(2026-07-03): Make configurable?
 #define LULU_USE_ASSERT 1
@@ -49,6 +58,7 @@
     Otherwise, when assertions are disabled, you WILL get strange behavior.
  */
 #if LULU_USE_ASSERT
+
 #define LULU_ASSERTF(expr, fmt, ...)                                           \
 do {                                                                           \
     if (!cast(bool)(expr)) {                                                   \
@@ -56,8 +66,11 @@ do {                                                                           \
         LULU__ASSERT_IMPL();                                                   \
     }                                                                          \
 } while (0)
+
 #else // ^^^ LULU_USE_ASSERT | vvv LULU_USE_ASSERT
+
 #define LULU_ASSERTF(expr, fmt, ...)
+
 #endif // LULU_USE_ASSERT
 
 #define LULU_ASSERTLN(e, msg)   LULU_ASSERTF(e, "%s", msg)
