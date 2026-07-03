@@ -8,61 +8,67 @@
 // themsleves are not keywords and can be re-assigned. This is similar to how
 // Odin does it.
 #define TOKEN_KINDS(X)                                                         \
-    X(TOKEN_NONE,          "<none>")                                           \
-    X(TOKEN_EOF,           "<eof>")                                            \
-    X(TOKEN_IDENT,         "<identifier>")                                     \
-    X(TOKEN_INT,           "<int>")                                            \
-    X(TOKEN_FLOAT,         "<float>")                                          \
-    X(TOKEN_STRING,        "<string>")                                         \
-    X(TOKEN_LEN,           "#")                                                \
-    X(TOKEN_ASSIGN,        "=")                                                \
-    X(TOKEN_ADD,           "+")                                                \
-    X(TOKEN_SUB,           "-")                                                \
-    X(TOKEN_MUL,           "*")                                                \
-    X(TOKEN_DIV,           "/")                                                \
-    X(TOKEN_MOD,           "%")                                                \
-    X(TOKEN_POW,           "^")                                                \
-    X(TOKEN_EQ,            "==")                                               \
-    X(TOKEN_NEQ,           "~=")                                               \
-    X(TOKEN_LT,            "<")                                                \
-    X(TOKEN_LEQ,           "<=")                                               \
-    X(TOKEN_GT,            ">")                                                \
-    X(TOKEN_GEQ,           ">=")                                               \
-    X(TOKEN_OPEN_PAREN,    "(")                                                \
-    X(TOKEN_CLOSE_PAREN,   ")")                                                \
-    X(TOKEN_OPEN_CURLY,    "{")                                                \
-    X(TOKEN_CLOSE_CURLY,   "}")                                                \
-    X(TOKEN_OPEN_BRACKET,  "[")                                                \
-    X(TOKEN_CLOSE_BRACKET, "]")                                                \
-    X(TOKEN_COLON,          ":")                                               \
-    X(TOKEN_SEMICOL,        ";")                                               \
-    X(TOKEN_COMMA,          ",")                                               \
-    X(TOKEN_PERIOD,         ".")                                               \
-    X(TOKEN_CONCAT,         "..")                                              \
-    X(TOKEN_VARARG,         "...")                                             \
-    X(TOKEN_ARROW,          "->")                                              \
-    X(TOKEN_AND,            "and")                                             \
-    X(TOKEN_BREAK,          "break")                                           \
-    X(TOKEN_CAST,           "cast")                                            \
-    X(TOKEN_DO,             "do")                                              \
-    X(TOKEN_ELSE,           "else")                                            \
-    X(TOKEN_ELSEIF,         "elseif")                                          \
-    X(TOKEN_END,            "end")                                             \
-    X(TOKEN_FALSE,          "false")                                           \
-    X(TOKEN_FOR,            "for")                                             \
-    X(TOKEN_FUNCTION,       "function")                                        \
-    X(TOKEN_IF,             "if")                                              \
-    X(TOKEN_IN,             "in")                                              \
-    X(TOKEN_LOCAL,          "local")                                           \
-    X(TOKEN_NIL,            "nil")                                             \
-    X(TOKEN_NOT,            "not")                                             \
-    X(TOKEN_OR,             "or")                                              \
-    X(TOKEN_REPEAT,         "repeat")                                          \
-    X(TOKEN_RETURN,         "return")                                          \
-    X(TOKEN_THEN,           "then")                                            \
-    X(TOKEN_TRUE,           "true")                                            \
-    X(TOKEN_UNTIL,          "until")                                           \
-    X(TOKEN_WHILE,          "while")
+    X(Token_None,   "<none>")                                                  \
+    X(Token_Eof,    "<eof>")                                                   \
+    X(Token_Ident,  "<identifier>")                                            \
+    X(Token_Int,    "<int>")                                                   \
+    X(Token_Float,  "<float>")                                                 \
+    X(Token_String, "<string>")                                                \
+/* BEGIN(1): Operators */                                                      \
+    X(Token_Len,    "#")                                                       \
+    X(Token_Assign, "=")                                                       \
+/* BEGIN(2): Binary Operators */                                               \
+    X(Token_Add, "+")                                                          \
+    X(Token_Sub, "-")                                                          \
+    X(Token_Mul, "*")                                                          \
+    X(Token_Div, "/")                                                          \
+    X(Token_Mod, "%")                                                          \
+    X(Token_Pow, "^")                                                          \
+    X(Token_Eq,  "==")                                                         \
+    X(Token_Neq, "~=")                                                         \
+    X(Token_Lt,  "<")                                                          \
+    X(Token_Leq, "<=")                                                         \
+    X(Token_Gt,  ">")                                                          \
+    X(Token_Geq, ">=")                                                         \
+/* END(2): Binary Operators */                                                 \
+    X(Token_Open_Paren,    "(")                                                \
+    X(Token_Close_Paren,   ")")                                                \
+    X(Token_Open_Curly,    "{")                                                \
+    X(Token_Close_Curly,   "}")                                                \
+    X(Token_Open_Bracket,  "[")                                                \
+    X(Token_Close_Bracket, "]")                                                \
+    X(Token_Colon,         ":")                                                \
+    X(Token_Semicol,       ";")                                                \
+    X(Token_Comma,         ",")                                                \
+    X(Token_Period,        ".")                                                \
+    X(Token_Concat,        "..")                                               \
+    X(Token_Vararg,        "...")                                              \
+    X(Token_Arrow,         "->")                                               \
+/* END(1): Operators */                                                        \
+/* BEGIN:  Keywords  */                                                        \
+    X(Token_and,      "and")                                                   \
+    X(Token_break,    "break")                                                 \
+    X(Token_cast,     "cast")                                                  \
+    X(Token_do,       "do")                                                    \
+    X(Token_else,     "else")                                                  \
+    X(Token_elseif,   "elseif")                                                \
+    X(Token_end,      "end")                                                   \
+    X(Token_false,    "false")                                                 \
+    X(Token_for,      "for")                                                   \
+    X(Token_function, "function")                                              \
+    X(Token_if,       "if")                                                    \
+    X(Token_in,       "in")                                                    \
+    X(Token_local,    "local")                                                 \
+    X(Token_nil,      "nil")                                                   \
+    X(Token_not,      "not")                                                   \
+    X(Token_or,       "or")                                                    \
+    X(Token_repeat,   "repeat")                                                \
+    X(Token_return,   "return")                                                \
+    X(Token_then,     "then")                                                  \
+    X(Token_true,     "true")                                                  \
+    X(Token_until,    "until")                                                 \
+    X(Token_while,    "while")
+/* END: Keywords */
 
 /**
  * @link https://www.lua.org/manual/5.1/manual.html

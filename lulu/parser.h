@@ -1,10 +1,7 @@
 #ifndef LULU_PARSER_H
 #define LULU_PARSER_H
 
-// standard
-#include <setjmp.h>
-
-// local
+#include "lulu.h"
 #include "lexer.h"
 #include "ast.h"
 

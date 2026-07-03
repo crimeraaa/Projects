@@ -205,8 +205,8 @@ ast_print_Literal(Ast_Print *p, Ast_Literal *l)
     Value_Literal v = l->value;
     unused(p);
     switch (v.kind) {
-    case VALUE_NIL:     printf("nil");                              break;
     case VALUE_INVALID: printf("(invalid value)");                  break;
+    case VALUE_NIL:     printf("nil");                              break;
     case VALUE_BOOL:    printf("bool(%s)", bool2str(v.value_bool)); break;
     case VALUE_INT:     printf("i64(%" PRIi64 ")", v.value_int);    break;
     case VALUE_UINT:    printf("u64(%" PRIu64 ")", v.value_uint);   break;
@@ -392,7 +392,7 @@ ast_print_Binary_Expr(Ast_Print *p, Ast_Binary_Expr *b)
 static void
 ast_print_dispatch(Ast_Print *p, Ast *a)
 {
-    LULU_ASSERTLN(p->recursions < 250, "Too many recursions- any more is risky!");
+    LULU_ASSERT(p->recursions + 1 < AST_MAX_RECURSIONS);
     p->recursions++;
 
 #define ast_print_None(...) cast(void)0

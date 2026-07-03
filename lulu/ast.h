@@ -1,10 +1,14 @@
 #ifndef LULU_AST_H
 #define LULU_AST_H
 
+#include "lulu.h"
 #include "internal.h"
 #include "arena.h"
 #include "lexer.h"
 #include "value.h"
+
+// Safety net to avoid stack overflows due to recursion.
+#define AST_MAX_RECURSIONS  250
 
 // This is absolutely atrocious!
 #define AST_KINDS(X)                                                           \
@@ -71,8 +75,13 @@ enum Ast_Kind {
 };
 
 
-typedef enum   Ast_Kind Ast_Kind;
-typedef union  Ast      Ast;
+typedef enum   Ast_Kind  Ast_Kind;
+typedef union  Ast       Ast;
+
+/*
+ NIT(2026-07-03):
+    One of the few cases I would love to have C++ style templates.
+ */
 typedef struct Slice_Ast Slice_Ast;
 struct Slice_Ast {
     Ast **data; // 1D array of `Ast *`.

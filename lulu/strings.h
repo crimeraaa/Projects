@@ -5,6 +5,10 @@
 
 #include "internal.h"
 
+/*
+ NIT(2026-07-03):
+    One of the few cases I would love to have C++ style templates.
+ */
 typedef struct String String;
 struct String {
     const char *data;

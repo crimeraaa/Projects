@@ -1,10 +1,7 @@
 #ifndef LULU_STATE_H
 #define LULU_STATE_H
 
-// standard
-#include <setjmp.h>
-
-// local
+#include "lulu.h"
 #include "internal.h"
 #include "arena.h"
 
