@@ -288,8 +288,7 @@ static Ast *
 parser_unary_expr(Parser *p, bool lhs)
 {
     switch (p->token.kind) {
-    case Token_cast:
-    {
+    case Token_cast: {
         Token op = parser_advance(p);
         parser_expect(p, Token_Open_Paren);
 
@@ -406,16 +405,16 @@ static const Token *
 parser_unassignable_token(const Ast *a)
 {
     switch (a->kind) {
-    case Ast_Kind_None:         break;
-    case Ast_Kind_Literal:      return &a->Literal.token;
-    case Ast_Kind_Ident:        break;
-    case Ast_Kind_Paren_Expr:   return &a->Paren_Expr.open;
-    case Ast_Kind_Call_Expr:    return &a->Call_Expr.open;
-    case Ast_Kind_Cast_Expr:    return &a->Cast_Expr.op;
-    case Ast_Kind_Unary_Expr:   return &a->Unary_Expr.op;
-    case Ast_Kind_Binary_Expr:  return &a->Binary_Expr.op;
-    case Ast_Kind_Assign_Stmt:  return &a->Assign_Stmt.op;
-    case Ast_Kind_Decl_Stmt:    break;
+    case AstKind_None:        break;
+    case AstKind_Literal:     return &a->Literal.token;
+    case AstKind_Ident:       break;
+    case AstKind_ParenExpr:   return &a->ParenExpr.open;
+    case AstKind_CallExpr:    return &a->CallExpr.open;
+    case AstKind_CastExpr:    return &a->CastExpr.op;
+    case AstKind_UnaryExpr:   return &a->UnaryExpr.op;
+    case AstKind_BinaryExpr:  return &a->BinaryExpr.op;
+    case AstKind_AssignStmt:  return &a->AssignStmt.op;
+    case AstKind_DeclStmt:    break;
     }
     return NULL;
 }
@@ -431,7 +430,7 @@ static void
 parser_ensure_assignable(Parser *p, Slice_Ast exprs)
 {
     for (usize i = 0; i < exprs.len; i++) {
-        if (exprs.data[i]->kind != Ast_Kind_Ident) {
+        if (exprs.data[i]->kind != AstKind_Ident) {
             const Token *loc = parser_unassignable_token(exprs.data[i]);
             LULU_ASSERT(loc != NULL);
             parser_error_at(p, "Unassignable expression", loc);
@@ -489,7 +488,7 @@ parser_simple_stmt(Parser *p)
         default:
             a = left.data[0];
             // Only allow solo function calls as expression-statements.
-            if (left.len == 1 && a->kind == Ast_Kind_Call_Expr) {
+            if (left.len == 1 && a->kind == AstKind_CallExpr) {
                 break;
             }
             parser_error(p, "Expected declaration/assignment/call");

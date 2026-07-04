@@ -37,9 +37,9 @@
 #define unused(expr)    cast(void)(expr)
 
 #if 1
-
+#include <stdio.h> // fprintf
 #define LULU_LOGFLN(fmt, ...) \
-    fprintf(stderr, "%s:%i: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)
+    fprintf(stderr, "%s:%i: " fmt "\n", __func__, __LINE__, __VA_ARGS__)
 
 #else
 
@@ -62,7 +62,7 @@
 #define LULU_ASSERTF(expr, fmt, ...)                                           \
 do {                                                                           \
     if (!cast(bool)(expr)) {                                                   \
-        LULU_LOGFLN("Runtime assertion: " #expr "(" fmt ")", __VA_ARGS__);     \
+        LULU_LOGFLN(fmt, __VA_ARGS__);                                         \
         LULU__ASSERT_IMPL();                                                   \
     }                                                                          \
 } while (0)
@@ -74,7 +74,7 @@ do {                                                                           \
 #endif // LULU_USE_ASSERT
 
 #define LULU_ASSERTLN(e, msg)   LULU_ASSERTF(e, "%s", msg)
-#define LULU_ASSERT(e)          LULU_ASSERTLN(e, "you messed up!")
+#define LULU_ASSERT(e)          LULU_ASSERTLN(e, "Assertion failed: '" #e "'")
 
 // Fixed-size unsigned integer types.
 typedef uint8_t   u8;

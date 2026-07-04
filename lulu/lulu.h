@@ -53,7 +53,10 @@ typedef enum   lulu_Error lulu_Error;
 typedef struct lulu_State lulu_State;
 
 LULU_API lulu_State *
-lulu_open(void *backing_buf, size_t backing_size);
+lulu_open(void);
+
+LULU_API void
+lulu_close(lulu_State *L);
 
 LULU_API const char *
 lulu_error_string(lulu_Error err);

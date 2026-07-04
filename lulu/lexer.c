@@ -21,13 +21,6 @@ token_kind_cstring(Token_Kind k)
     return TOKEN_KIND_STRINGS[k].data;
 }
 
-LULU_INTERNAL_FUNC Lexer
-lexer_make(String path, String input)
-{
-    Lexer x = {path, input, /*start=*/0, /*cursor=*/0, /*line=*/1, /*col=*/1};
-    return x;
-}
-
 static const char *
 lexer_get_ptr(const Lexer *x, usize i)
 {

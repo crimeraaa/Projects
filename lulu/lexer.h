@@ -118,8 +118,12 @@ typedef enum Lexer_Error Lexer_Error;
 LULU_INTERNAL_FUNC const char *
 token_kind_cstring(Token_Kind k);
 
-LULU_INTERNAL_FUNC Lexer
-lexer_make(String path, String input);
+static inline Lexer
+lexer_make(String path, String input)
+{
+    Lexer x = {path, input, /*start=*/0, /*cursor=*/0, /*line=*/1, /*col=*/1};
+    return x;
+}
 
 LULU_INTERNAL_FUNC const char *
 lexer_error_string(Lexer_Error err);

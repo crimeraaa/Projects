@@ -1,18 +1,20 @@
-#include <stdio.h>
-#include <string.h>
+#include <stddef.h>  // size_t
+#include <stdio.h>   // fputc, fputs, printf, fgets
+#include <string.h>  // strcspn
 
 #include "api.c"
 
 #define PROMPT ">>> "
 
 static char *
-get_string_fixed(char *buf, size_t buf_len, size_t *n)
+get_string_fixed(size_t *n)
 {
+    static char buf[256];
     char *s;
 
     fputs(PROMPT, stdout);
     // Why does this standard function take an int? Are you stupid?
-    s  = fgets(buf, cast(int)buf_len, stdin);
+    s  = fgets(buf, cast(int)sizeof(buf), stdin);
     *n = 0;
     if (s) {
         *n    = strcspn(s, "\r\n");
@@ -24,17 +26,15 @@ get_string_fixed(char *buf, size_t buf_len, size_t *n)
 extern int
 main(void)
 {
-    lulu_State *  L;
-    unsigned char arena_buf[4096];
+    lulu_State *L;
 
-    L = lulu_open(arena_buf, sizeof(arena_buf));
+    L = lulu_open();
     for (;;) {
         char *     s;
         size_t     n;
         lulu_Error err;
-        char       line_buf[256];
 
-        s = get_string_fixed(line_buf, sizeof(line_buf), &n);
+        s = get_string_fixed(&n);
         if (!s) {
             fputc('\n', stdout);
             break;
@@ -47,7 +47,7 @@ main(void)
             printf("%s\n", lulu_error_string(err));
         }
     }
-
+    lulu_close(L);
     return 0;
 }
 

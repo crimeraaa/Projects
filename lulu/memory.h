@@ -2,31 +2,34 @@
 #define LULU_MEMORY_H
 
 #include "internal.h"
+#include "lulu.h"
 
+/// Defined in `memory.c`.
+typedef struct Page  Page;
 typedef struct Arena Arena;
 struct Arena {
-    // Backing buffer information.
-    u8 *  buf;
-    usize buf_size;
+    /*
+        The first page is only freed when the entire arena is explicitly
+        destroyed via `arena_destroy()`. It should not be freed when
+        `arena_free_all()` is called.
+     */
+    Page *head;
 
-    // Current usage.
-    usize prev_offset;
-    usize curr_offset;
+    /*
+        Beyond the first page, all succeeding pages we allocate can be
+        freed whenever `arena_free_all()` is called.
+     */
+    Page *tail;
 };
 
-static inline Arena
-arena_make(void *buf, usize buf_size)
-{
-    Arena a = {cast(u8 *)buf, buf_size, /*prev_offset=*/0, /*curr_offset=*/0};
-    return a;
-}
+LULU_INTERNAL_FUNC bool
+arena_init(Arena *a);
 
-static inline void
-arena_free_all(Arena *a)
-{
-    a->prev_offset = 0;
-    a->curr_offset = 0;
-}
+LULU_INTERNAL_FUNC void
+arena_free_all(Arena *a);
+
+LULU_INTERNAL_FUNC void
+arena_destroy(Arena *a);
 
 LULU_INTERNAL_FUNC void *
 mem_arena_alloc(lulu_State *L, usize size);

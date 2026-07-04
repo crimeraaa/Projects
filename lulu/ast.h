@@ -9,73 +9,83 @@
 // Safety net to avoid stack overflows due to recursion.
 #define AST_MAX_RECURSIONS  250
 
-// This is absolutely atrocious!
+/*
+ Description:
+    Macro hell!
+
+ NIT(2026-07-04):
+    We are using a horrible combination of PascalCase and snake_case:
+    PascalCase_SnakeCase!
+
+    Because visually parsing the tagged union's tag and actual variant
+    type can be confusing at times.
+ */
 #define AST_KINDS(X)                                                           \
     X(None, "none", struct {int _;})                                           \
     X(Literal, "literal", struct {                                             \
-        Ast_Kind      kind;                                                    \
+        AstKind       kind;                                                    \
         Token         token;                                                   \
         Value_Literal value;                                                   \
     })                                                                         \
     X(Ident, "ident", struct {                                                 \
-        Ast_Kind kind;                                                         \
+        AstKind  kind;                                                         \
         u32      hash;                                                         \
         Token    token;                                                        \
     })                                                                         \
-    X(Paren_Expr, "paren", struct {                                            \
-        Ast_Kind kind;                                                         \
+    X(ParenExpr, "paren", struct {                                             \
+        AstKind  kind;                                                         \
         Token    open;                                                         \
         Token    close;                                                        \
         Ast *    expr;                                                         \
     })                                                                         \
     /* Could also be a cast, e.g. `u64(x)` or `(uintptr)(p)`. */               \
-    X(Call_Expr, "call", struct {                                              \
-        Ast_Kind  kind;                                                        \
+    X(CallExpr, "call", struct {                                               \
+        AstKind   kind;                                                        \
         Token     open;  /* The opening '('. */                                \
         Token     close; /* The closing ')'. */                                \
         Ast *     func;                                                        \
         Slice_Ast args;                                                        \
     })                                                                         \
-    X(Cast_Expr, "cast", struct {                                              \
-        Ast_Kind  kind;                                                        \
+    X(CastExpr, "cast", struct {                                               \
+        AstKind   kind;                                                        \
         Token     op; /* 'cast' itself. */                                     \
         Ast *     type;                                                        \
         Ast *     expr;                                                        \
     })                                                                         \
-    X(Unary_Expr, "unary", struct {                                            \
-        Ast_Kind  kind;                                                        \
+    X(UnaryExpr, "unary", struct {                                             \
+        AstKind   kind;                                                        \
         Token     op;                                                          \
         Ast *     arg;                                                         \
     })                                                                         \
-    X(Binary_Expr, "binary", struct {                                          \
-        Ast_Kind  kind;                                                        \
+    X(BinaryExpr, "binary", struct {                                           \
+        AstKind   kind;                                                        \
         Token     op;                                                          \
         Ast *     left;                                                        \
         Ast *     right;                                                       \
     })                                                                         \
-    X(Assign_Stmt, "assign", struct {                                          \
-        Ast_Kind  kind;                                                        \
+    X(AssignStmt, "assign", struct {                                           \
+        AstKind   kind;                                                        \
         Token     op;    /* The '=' operator. */                               \
         Slice_Ast left;  /* Expression/s before '='. */                        \
         Slice_Ast right; /* Expression/s after '='. */                         \
     })                                                                         \
-    X(Decl_Stmt, "decl", struct {                                              \
-        Ast_Kind  kind;                                                        \
+    X(DeclStmt, "decl", struct {                                               \
+        AstKind   kind;                                                        \
         Slice_Ast names;  /* Expression before '='. */                         \
         Ast *     type;   /* Expression after ':' but before '='. */           \
         Slice_Ast values; /* Expression after '=' to assign `name` with. */    \
     })                                                                         \
 
 
-enum Ast_Kind {
-#define X(e, ...) Ast_Kind_##e,
+enum AstKind {
+#define X(e, ...) AstKind_##e,
     AST_KINDS(X)
 #undef X
 };
 
 
-typedef enum   Ast_Kind  Ast_Kind;
-typedef union  Ast       Ast;
+typedef enum   AstKind AstKind;
+typedef union  Ast     Ast;
 
 /*
  NIT(2026-07-03):
@@ -96,13 +106,13 @@ AST_KINDS(X)
 union Ast {
 #define X(e, ...) Ast_##e e;
     // Use this to select the actual, concrete member below.
-    Ast_Kind kind;
+    AstKind kind;
     AST_KINDS(X)
 #undef X
 };
 
 LULU_INTERNAL_FUNC const char *
-ast_kind_cstring(Ast_Kind k);
+ast_kind_cstring(AstKind k);
 
 LULU_INTERNAL_FUNC Ast *
 ast_literal_new(lulu_State *L, const Token *token);
