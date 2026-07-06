@@ -3,8 +3,10 @@
 #include "ast.c"
 #include "state.c"
 #include "lexer.c"
-#include "memory.c"
+#include "mem.c"
 #include "parser.c"
+#include "strings.h"
+#include "type.c"
 #include "value.c"
 
 LULU_API const char *
@@ -16,33 +18,14 @@ lulu_error_string(lulu_Error err)
     case LULU_RUNTIME_ERROR: return "Runtime error";
     case LULU_MEMORY_ERROR:  return "Out of memory";
     }
-    return NULL;
-}
-
-typedef struct Pdata Pdata;
-struct Pdata {
-    String path, input;
-};
-
-static void
-state_parse_protected(lulu_State *L, void *user_data)
-{
-    Pdata *pd   = cast(Pdata *)user_data;
-    Ast *  prog = parser_parse(L, pd->path, pd->input);
-    ast_print(prog);
+    LULU_UNREACHABLE();
+    return nullptr;
 }
 
 LULU_API lulu_Error
 lulu_compile(lulu_State *L, const char *path, const char *input, size_t len)
 {
-    Pdata pd;
-    lulu_Error err;
-    pd.path  = string_make_cstring(path);
-    pd.input = string_make(input, len);
-    err      = state_try(L, state_parse_protected, &pd);
-
-    // Don't call this inside the parse proper so that in case of errors
-    // we still free the whole program.
-    arena_free_all(&L->arena);
-    return err;
+    String path2  = string_make_cstring(path);
+    String input2 = string_make(input, len);
+    return state_parse_protected(L, path2, input2);
 }

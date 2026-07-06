@@ -29,6 +29,11 @@ main(void)
     lulu_State *L;
 
     L = lulu_open();
+    if (!L) {
+        fprintf(stderr, "Failed to create main Lulu state\n");
+        return 1;
+    }
+
     for (;;) {
         char *     s;
         size_t     n;
@@ -47,6 +52,7 @@ main(void)
             printf("%s\n", lulu_error_string(err));
         }
     }
+
     lulu_close(L);
     return 0;
 }

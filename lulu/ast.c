@@ -4,7 +4,7 @@
 
 // local
 #include "ast.h"
-#include "memory.h"
+#include "mem.h"
 
 static const char *
 AST_KIND_STRINGS[] = {
@@ -31,13 +31,14 @@ token_cstring(const Token *t)
     return token_kind_cstring(t->kind);
 }
 
-#define ast_new(T, L)   cast(Ast *)mem_arena_alloc_item(T, L)
+#define ast_size_of(T)  offsetof(Ast, None) + sizeof(T)
+#define ast_new(L, T)   cast(Ast *)mem_arena_alloc(L, ast_size_of(T))
 
 LULU_INTERNAL_FUNC Ast *
 ast_literal_new(lulu_State *L, const Token *token)
 {
-    Ast *a = ast_new(Ast_Literal, L);
-    a->Literal.kind  = AstKind_Literal;
+    Ast *a = ast_new(L, Ast_Literal);
+    a->kind          = AstKind_Literal;
     a->Literal.token = *token;
     a->Literal.value = value_literal_from_string(token->kind, token->lexeme);
     return a;
@@ -46,8 +47,8 @@ ast_literal_new(lulu_State *L, const Token *token)
 LULU_INTERNAL_FUNC Ast *
 ast_ident_new(lulu_State *L, const Token *token)
 {
-    Ast *a = ast_new(Ast_Ident, L);
-    a->Ident.kind  = AstKind_Ident;
+    Ast *a = ast_new(L, Ast_Ident);
+    a->kind        = AstKind_Ident;
     a->Ident.hash  = string_hash(token->lexeme);
     a->Ident.token = *token;
     return a;
@@ -56,8 +57,8 @@ ast_ident_new(lulu_State *L, const Token *token)
 LULU_INTERNAL_FUNC Ast *
 ast_paren_new(lulu_State *L, const Token *open, const Token *close, Ast *expr)
 {
-    Ast *a = ast_new(Ast_ParenExpr, L);
-    a->ParenExpr.kind  = AstKind_ParenExpr;
+    Ast *a = ast_new(L, Ast_ParenExpr);
+    a->kind            = AstKind_ParenExpr;
     a->ParenExpr.open  = *open;
     a->ParenExpr.close = *close;
     a->ParenExpr.expr  = expr;
@@ -67,8 +68,8 @@ ast_paren_new(lulu_State *L, const Token *open, const Token *close, Ast *expr)
 LULU_INTERNAL_FUNC Ast *
 ast_cast_new(lulu_State *L, const Token *op, Ast *type, Ast *expr)
 {
-    Ast *c = ast_new(Ast_CastExpr, L);
-    c->CastExpr.kind = AstKind_CastExpr;
+    Ast *c = ast_new(L, Ast_CastExpr);
+    c->kind          = AstKind_CastExpr;
     c->CastExpr.op   = *op;
     c->CastExpr.type = type;
     c->CastExpr.expr = expr;
@@ -78,8 +79,8 @@ ast_cast_new(lulu_State *L, const Token *op, Ast *type, Ast *expr)
 LULU_INTERNAL_FUNC Ast *
 ast_call_new(lulu_State *L, const Token *open, const Token *close, Ast *func, Slice_Ast args)
 {
-    Ast *a = ast_new(Ast_CallExpr, L);
-    a->CallExpr.kind  = AstKind_CallExpr;
+    Ast *a = ast_new(L, Ast_CallExpr);
+    a->kind           = AstKind_CallExpr;
     a->CallExpr.open  = *open;
     a->CallExpr.close = *close;
     a->CallExpr.func  = func;
@@ -90,18 +91,18 @@ ast_call_new(lulu_State *L, const Token *open, const Token *close, Ast *func, Sl
 LULU_INTERNAL_FUNC Ast *
 ast_unary_new(lulu_State *L, const Token *op, Ast *arg)
 {
-    Ast *u = ast_new(Ast_UnaryExpr, L);
-    u->UnaryExpr.kind  = AstKind_UnaryExpr;
-    u->UnaryExpr.op    = *op;
-    u->UnaryExpr.arg   = arg;
+    Ast *u = ast_new(L, Ast_UnaryExpr);
+    u->kind          = AstKind_UnaryExpr;
+    u->UnaryExpr.op  = *op;
+    u->UnaryExpr.arg = arg;
     return u;
 }
 
 LULU_INTERNAL_FUNC Ast *
 ast_binary_new(lulu_State *L, const Token *op, Ast *left, Ast *right)
 {
-    Ast *b  = ast_new(Ast_BinaryExpr, L);
-    b->BinaryExpr.kind  = AstKind_BinaryExpr;
+    Ast *b  = ast_new(L, Ast_BinaryExpr);
+    b->kind             = AstKind_BinaryExpr;
     b->BinaryExpr.op    = *op;
     b->BinaryExpr.left  = left;
     b->BinaryExpr.right = right;
@@ -111,8 +112,8 @@ ast_binary_new(lulu_State *L, const Token *op, Ast *left, Ast *right)
 LULU_INTERNAL_FUNC Ast *
 ast_assign_new(lulu_State *L, const Token *op, Slice_Ast left, Slice_Ast right)
 {
-    Ast *a = ast_new(Ast_AssignStmt, L);
-    a->AssignStmt.kind  = AstKind_AssignStmt;
+    Ast *a = ast_new(L, Ast_AssignStmt);
+    a->kind             = AstKind_AssignStmt;
     a->AssignStmt.op    = *op;
     a->AssignStmt.left  = left;
     a->AssignStmt.right = right;
@@ -122,8 +123,8 @@ ast_assign_new(lulu_State *L, const Token *op, Slice_Ast left, Slice_Ast right)
 LULU_INTERNAL_FUNC Ast *
 ast_decl_new(lulu_State *L, Slice_Ast names, Ast *type, Slice_Ast values)
 {
-    Ast *a = ast_new(Ast_DeclStmt, L);
-    a->DeclStmt.kind   = AstKind_DeclStmt;
+    Ast *a = ast_new(L, Ast_DeclStmt);
+    a->kind            = AstKind_DeclStmt;
     a->DeclStmt.names  = names;
     a->DeclStmt.type   = type;
     a->DeclStmt.values = values;
@@ -171,19 +172,16 @@ ast_print_char(Ast_Print *p, char c)
 
 
 static inline void
-ast_print_kind(Ast_Print *p, Ast *a)
+ast_print_kind(Ast_Print *p, AstKind k)
 {
-    ast_print_string(p, ast_cstring(a));
+    ast_print_string(p, ast_kind_cstring(k));
 }
 
 static void
-ast_print_kind_op(Ast_Print *p, Ast *a, const Token *t)
+ast_print_kind_op(Ast_Print *p, AstKind k, const Token *t)
 {
-    ast_print_format(p, "%s(%s)", ast_cstring(a), token_cstring(t));
+    ast_print_format(p, "%s(%s)", ast_kind_cstring(k), token_cstring(t));
 }
-
-#define ast_print_kind(p, a)    (ast_print_kind)(p, cast(Ast *)a)
-#define ast_print_kind_op(p, a) (ast_print_kind_op)(p, cast(Ast *)a, &(a)->op)
 
 /*
  TODO(2026-07-03):
@@ -278,7 +276,7 @@ ast_print_Literal(Ast_Print *p, Ast_Literal *l)
 static void
 ast_print_Ident(Ast_Print *p, Ast_Ident *i)
 {
-    ast_print_kind(p, i);
+    ast_print_kind(p, AstKind_Ident);
     ast_print_string(p, " = ");
     ast_print_quoted_string(p, i->token.lexeme);
 }
@@ -308,7 +306,7 @@ static void
 ast_print_push(Ast_Print *p, Ast_Print_Node *next)
 {
     next->prev    = p->tail;
-    next->next    = NULL;
+    next->next    = nullptr;
     next->done    = false;
     p->tail->next = next;
     p->tail       = next;
@@ -318,7 +316,7 @@ ast_print_push(Ast_Print *p, Ast_Print_Node *next)
 static void
 ast_print_pop(Ast_Print *p)
 {
-    p->tail->next = NULL;
+    p->tail->next = nullptr;
     p->tail       = p->tail->prev;
 }
 
@@ -342,7 +340,7 @@ ast_print_arm_info(Ast_Print *p, Ast *a, bool is_elbow, const char *info)
 static void
 ast_print_arm(Ast_Print *p, Ast *a, bool is_elbow)
 {
-    ast_print_arm_info(p, a, is_elbow, NULL);
+    ast_print_arm_info(p, a, is_elbow, nullptr);
 }
 
 static void
@@ -353,7 +351,7 @@ ast_print_slice(Ast_Print *p, Slice_Ast nodes, bool is_elbow, const char *info)
     ast_print_arrow(p, is_elbow);
     ast_print_format(p, "%s[%zu]", info, nodes.len);
 
-    // Last iteration will be the ident of the slice's last element.
+    // Last iteration will be the index of the slice's last element.
     usize i = 0;
     ast_print_push(p, &next);
     for (; i < nodes.len - 1; i++) {
@@ -373,8 +371,8 @@ ast_print_ParenExpr(Ast_Print *p, Ast_ParenExpr *r)
 static void
 ast_print_CallExpr(Ast_Print *p, Ast_CallExpr *c)
 {
-    bool have_args = (c->args.data != NULL);
-    ast_print_kind(p, c);
+    bool have_args = (c->args.data != nullptr);
+    ast_print_kind(p, AstKind_CallExpr);
     ast_print_arm_info(p, c->func, /*is_elbow=*/!have_args, "func");
     if (have_args) {
         ast_print_slice(p, c->args, /*is_elbow=*/true, "args");
@@ -384,7 +382,7 @@ ast_print_CallExpr(Ast_Print *p, Ast_CallExpr *c)
 static void
 ast_print_CastExpr(Ast_Print *p, Ast_CastExpr *c)
 {
-    ast_print_kind(p, c);
+    ast_print_kind(p, AstKind_CastExpr);
     ast_print_arm_info(p, c->type, /*is_elbow=*/false, "type");
     ast_print_arm_info(p, c->expr, /*is_elbow=*/true,  "expr");
 }
@@ -392,9 +390,9 @@ ast_print_CastExpr(Ast_Print *p, Ast_CastExpr *c)
 static void
 ast_print_DeclStmt(Ast_Print *p, Ast_DeclStmt *d)
 {
-    bool have_values = (d->values.data != NULL);
+    bool have_values = (d->values.data != nullptr);
 
-    ast_print_kind(p, d);
+    ast_print_kind(p, AstKind_DeclStmt);
     ast_print_slice(p, d->names, /*is_elbow=*/false, "names");
     ast_print_arm_info(p, d->type, /*is_elbow=*/!have_values, "type");
     if (have_values) {
@@ -405,7 +403,7 @@ ast_print_DeclStmt(Ast_Print *p, Ast_DeclStmt *d)
 static void
 ast_print_AssignStmt(Ast_Print *p, Ast_AssignStmt *a)
 {
-    ast_print_kind_op(p, a);
+    ast_print_kind_op(p, AstKind_AssignStmt, &a->op);
     ast_print_slice(p, a->left,  /*is_elbow=*/false, "left");
     ast_print_slice(p, a->right, /*is_elbow=*/true,  "right");
 }
@@ -413,14 +411,14 @@ ast_print_AssignStmt(Ast_Print *p, Ast_AssignStmt *a)
 static void
 ast_print_UnaryExpr(Ast_Print *p, Ast_UnaryExpr *u)
 {
-    ast_print_kind_op(p, u);
+    ast_print_kind_op(p, AstKind_UnaryExpr, &u->op);
     ast_print_arm(p, u->arg, /*is_elbow=*/true);
 }
 
 static void
 ast_print_BinaryExpr(Ast_Print *p, Ast_BinaryExpr *b)
 {
-    ast_print_kind_op(p, b);
+    ast_print_kind_op(p, AstKind_BinaryExpr, &b->op);
     ast_print_arm(p, b->left,  /*is_elbow=*/false);
     ast_print_arm(p, b->right, /*is_elbow=*/true);
 }
@@ -433,7 +431,7 @@ ast_print_dispatch(Ast_Print *p, Ast *a)
     p->recursions++;
 
 #define ast_print_None(...) cast(void)0
-#define X(e, ...)  case AstKind_##e: ast_print_##e(p, cast(Ast_##e *)a); break;
+#define X(e, ...)  case AstKind_##e: ast_print_##e(p, &a->e); break;
     // Macro magic!
     switch (a->kind) {
     AST_KINDS(X)
@@ -448,14 +446,12 @@ ast_print_dispatch(Ast_Print *p, Ast *a)
 LULU_INTERNAL_FUNC void
 ast_print(Ast *a)
 {
-    // We require a basal, non-null noded for the list.
-    Ast_Print_Node n = {NULL, NULL, false};
+    // We require a basal, non-nullptr noded for the list.
+    Ast_Print_Node n = {nullptr, nullptr, false};
     Ast_Print      p = {&n, &n, stdout, /*recursions=*/0};
     ast_print_dispatch(&p, a);
     ast_print_char(&p, '\n');
 }
 
-#undef ast_print_kind_op
-#undef ast_print_kind
 #undef ast_print_format
 #undef ast_new

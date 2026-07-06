@@ -13,12 +13,14 @@
 
 #define LULU_NORETURN       __attribute__((__noreturn__))
 #define LULU_FORMAT(f, a)   __attribute__((__format__(printf, f, a)))
+#define LULU_UNREACHABLE()  __builtin_trap()
 #define LULU__ASSERT_IMPL() __builtin_trap()
 
 #elif defined(_MSC_VER) // ^^^ GCC, clang; vvv MSVC
 
 #define LULU_NORETURN       __declspec(noreturn)
 #define LULU__ASSERT_IMPL() __debugbreak()
+#define LULU_UNREACHABLE()  cast(void)0
 #define LULU_FORMAT(f, a)
 
 #else // ^^^ MSVC ; vvv <unknown>
@@ -28,6 +30,7 @@
 // No harm in not knowing, but your compiler can't optimize for such cases.
 #define LULU_NORETURN
 #define LULU_FORMAT(f, a)
+#define LULU_UNREACHABLE()  cast(void)0
 
 // Always works but may not be good for debuggers.
 #define LULU__ASSERT_IMPL() abort()
@@ -35,6 +38,7 @@
 
 #define cast(T)         (T)
 #define unused(expr)    cast(void)(expr)
+#define count_of(expr)  (sizeof(expr) / sizeof((expr)[0]))
 
 #if 1
 #include <stdio.h> // fprintf
@@ -75,6 +79,10 @@ do {                                                                           \
 
 #define LULU_ASSERTLN(e, msg)   LULU_ASSERTF(e, "%s", msg)
 #define LULU_ASSERT(e)          LULU_ASSERTLN(e, "Assertion failed: '" #e "'")
+
+#ifndef __cplusplus
+#define nullptr NULL
+#endif
 
 // Fixed-size unsigned integer types.
 typedef uint8_t   u8;

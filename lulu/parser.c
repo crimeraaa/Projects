@@ -157,7 +157,7 @@ static Token
 token_make_none(void)
 {
     static const Token t = {Token_None,
-        /*lexeme=*/NULL, /*len=*/0,
+        /*lexeme=*/nullptr, /*len=*/0,
         /*line  =*/0,    /*col=*/0};
     return t;
 }
@@ -201,7 +201,7 @@ NOTE(2026-07-03):
 static Ast *
 parser_operand(Parser *p, bool lhs)
 {
-    Ast *operand = NULL;
+    Ast *operand = nullptr;
     switch (p->token.kind) {
     case Token_Int:
     case Token_Float:
@@ -239,7 +239,7 @@ static Ast *
 parser_call(Parser *p, Ast *func)
 {
     Token     open, close;
-    Slice_Ast args = {NULL, 0};
+    Slice_Ast args = {nullptr, 0};
 
     open = parser_advance(p);
     if (!parser_check(p, Token_Close_Paren)) {
@@ -253,7 +253,7 @@ parser_call(Parser *p, Ast *func)
 static Ast *
 parser_atom_expr(Parser *p, bool lhs, Ast *operand)
 {
-    if (operand == NULL) {
+    if (operand == nullptr) {
         parser_error(p, "Expected an operand");
     }
 
@@ -384,7 +384,7 @@ parser_expr_list_recurse(Parser *p, bool lhs, Slice_Ast *exprs, usize count)
         parser_expr_list_recurse(p, lhs, exprs, count + 1);
     } else {
         // Base case: allocate exactly as much as we need upfront.
-        exprs->data = mem_arena_alloc_array(Ast *, p->L, count);
+        exprs->data = mem_arena_alloc_array(p->L, Ast *, count);
         exprs->len  = count;
 
     }
@@ -396,7 +396,7 @@ parser_expr_list_recurse(Parser *p, bool lhs, Slice_Ast *exprs, usize count)
 static Slice_Ast
 parser_expr_list(Parser *p, bool lhs)
 {
-    Slice_Ast exprs = {NULL, 0};
+    Slice_Ast exprs = {nullptr, 0};
     parser_expr_list_recurse(p, lhs, &exprs, /*count=*/1);
     return exprs;
 }
@@ -416,7 +416,7 @@ parser_unassignable_token(const Ast *a)
     case AstKind_AssignStmt:  return &a->AssignStmt.op;
     case AstKind_DeclStmt:    break;
     }
-    return NULL;
+    return nullptr;
 }
 
 /*
@@ -432,7 +432,7 @@ parser_ensure_assignable(Parser *p, Slice_Ast exprs)
     for (usize i = 0; i < exprs.len; i++) {
         if (exprs.data[i]->kind != AstKind_Ident) {
             const Token *loc = parser_unassignable_token(exprs.data[i]);
-            LULU_ASSERT(loc != NULL);
+            LULU_ASSERT(loc != nullptr);
             parser_error_at(p, "Unassignable expression", loc);
         }
     }
@@ -449,7 +449,7 @@ parser_decl(Parser *p, Slice_Ast left)
 
     // Consume ':'.
     parser_advance(p);
-    Slice_Ast right = {NULL, 0};
+    Slice_Ast right = {nullptr, 0};
     Ast *     type  = parser_type(p);
 
     // Right-hand side is optional- the default value is zero.
@@ -476,7 +476,7 @@ parser_assign(Parser *p, Slice_Ast left)
 static Ast *
 parser_simple_stmt(Parser *p)
 {
-    Ast *a = NULL;
+    Ast *a = nullptr;
     switch (p->token.kind) {
     case Token_Ident: {
         Slice_Ast left = parser_expr_list(p, /*lhs=*/true);
@@ -505,11 +505,12 @@ parser_simple_stmt(Parser *p)
 
 
 static Parser
-parser_make(lulu_State *L, String path, String input)
+parser_make(lulu_State *L, Parser_Data *data)
 {
-    Parser p = {L, lexer_make(path, input),
+    Parser p = {L, lexer_make(data->path, data->input),
          /*token     =*/token_make_none(),
          /*consumed  =*/token_make_none(),
+         /*scratch   =*/&data->scratch,
          /*recursions=*/0};
 
     parser_advance(&p);
@@ -517,12 +518,12 @@ parser_make(lulu_State *L, String path, String input)
 }
 
 LULU_INTERNAL_FUNC Ast *
-parser_parse(lulu_State *L, String path, String input)
+parser_parse(lulu_State *L, Parser_Data *data)
 {
     Ast *  a;
     Parser p;
 
-    p = parser_make(L, path, input);
+    p = parser_make(L, data);
     a = parser_simple_stmt(&p);
     parser_expect(&p, Token_Eof);
     return a;

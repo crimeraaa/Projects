@@ -22,14 +22,29 @@ struct Arena {
     Page *tail;
 };
 
-LULU_INTERNAL_FUNC bool
-arena_init(Arena *a);
+typedef struct Scratch Scratch;
+struct Scratch {
+    Arena *backing;
+    Page * saved_page;
+
+    // Track these manually as the underlying page itself may update.
+    usize prev_offset, curr_offset;
+};
 
 LULU_INTERNAL_FUNC void
-arena_free_all(Arena *a);
+mem_arena_init(lulu_State *L, Arena *a);
 
 LULU_INTERNAL_FUNC void
-arena_destroy(Arena *a);
+mem_arena_free_all(Arena *a);
+
+LULU_INTERNAL_FUNC void
+mem_arena_destroy(Arena *a);
+
+LULU_INTERNAL_FUNC Scratch
+mem_scratch_begin(Arena *a);
+
+LULU_INTERNAL_FUNC void
+mem_scratch_end(Scratch *x);
 
 LULU_INTERNAL_FUNC void *
 mem_arena_alloc(lulu_State *L, usize size);
@@ -37,13 +52,13 @@ mem_arena_alloc(lulu_State *L, usize size);
 LULU_INTERNAL_FUNC void *
 mem_arena_resize(lulu_State *L, void *pointer, usize old_size, usize new_size);
 
-#define mem_arena_alloc_item(T, L)                                             \
+#define mem_arena_alloc_item(L, T)                                             \
     cast(T *)mem_arena_alloc(L, sizeof(T))
 
-#define mem_arena_alloc_array(T, L, count)                                     \
+#define mem_arena_alloc_array(L, T, count)                                     \
     cast(T *)mem_arena_alloc(L, sizeof(T) * (count))
 
-#define mem_arena_resize_array(T, L, old_mem, old_count, new_count)            \
+#define mem_arena_resize_array(L, T, old_mem, old_count, new_count)            \
     cast(T *)mem_arena_resize(L, old_mem,                                      \
         /*old_size=*/sizeof(T) * (old_count),                                  \
         /*new_size=*/sizeof(T) * (new_count))

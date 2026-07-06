@@ -237,13 +237,7 @@ lexer_get_keyword_kind(String s, Token_Kind kind, usize offset)
     if (s.len != kw.len) {
         return Token_Ident;
     }
-
-    for (usize i = offset; i < s.len; i++) {
-        if (s.data[i] != kw.data[i]) {
-            return Token_Ident;
-        }
-    }
-    return kind;
+    return string_eq(s, kw) ? kind : Token_Ident;
 }
 
 static Lexer_Error
@@ -251,60 +245,55 @@ lexer_scan_keyword_or_ident(Lexer *x, String s, Token *t)
 {
     Token_Kind k = Token_Ident;
     // len("do") <= n <= len("function")
-    if (2 <= s.len && s.len <= 8) {
-        switch (s.data[0]) {
-        case 'a': k = lexer_get_keyword_kind(s, Token_and,   1); break;
-        case 'b': k = lexer_get_keyword_kind(s, Token_break, 1); break;
-        case 'c': k = lexer_get_keyword_kind(s, Token_cast,  1); break;
-        case 'd': k = lexer_get_keyword_kind(s, Token_do,    1); break;
-        case 'e':
-            switch (s.len) {
-            case 3: k = lexer_get_keyword_kind(s, Token_end,    1); break;
-            case 4: k = lexer_get_keyword_kind(s, Token_else,   1); break;
-            case 6: k = lexer_get_keyword_kind(s, Token_elseif, 1); break;
-            }
-            break;
-        case 'f':
-            switch (s.data[1]) {
-            case 'a': k = lexer_get_keyword_kind(s, Token_false,    2); break;
-            case 'o': k = lexer_get_keyword_kind(s, Token_for,      2); break;
-            case 'u': k = lexer_get_keyword_kind(s, Token_function, 2); break;
-            }
-            break;
-        case 'i':
-            switch (s.data[1]) {
-            case 'f': k = lexer_get_keyword_kind(s, Token_if, 2); break;
-            case 'n': k = lexer_get_keyword_kind(s, Token_in, 2); break;
-            }
-            break;
-        case 'l': k = lexer_get_keyword_kind(s, Token_local, 1); break;
-        case 'n':
-            switch (s.data[1]) {
-            case 'i': k = lexer_get_keyword_kind(s, Token_nil, 2); break;
-            case 'o': k = lexer_get_keyword_kind(s, Token_not, 2); break;
-            }
-            break;
-        case 'o': k = lexer_get_keyword_kind(s, Token_or, 1); break;
-        case 'r':
-            if (s.len != 6 || s.data[1] != 'e') {
-                break;
-            }
-            switch (s.data[2]) {
-            case 'p': k = lexer_get_keyword_kind(s, Token_repeat, 2); break;
-            case 't': k = lexer_get_keyword_kind(s, Token_return, 2); break;
-            }
-            break;
-        case 't':
-            switch (s.data[1]) {
-            case 'h': k = lexer_get_keyword_kind(s, Token_then, 2); break;
-            case 'r': k = lexer_get_keyword_kind(s, Token_true, 2); break;
-            }
-            break;
-        case 'u': k = lexer_get_keyword_kind(s, Token_until, 1); break;
-        case 'w': k = lexer_get_keyword_kind(s, Token_while, 1); break;
-        default:
-            break;
+    if (2 <= s.len && s.len <= 8) switch (s.data[0]) {
+    case 'a': k = lexer_get_keyword_kind(s, Token_and,   1); break;
+    case 'b': k = lexer_get_keyword_kind(s, Token_break, 1); break;
+    case 'c': k = lexer_get_keyword_kind(s, Token_cast,  1); break;
+    case 'd': k = lexer_get_keyword_kind(s, Token_do,    1); break;
+    case 'e':
+        switch (s.len) {
+        case 3: k = lexer_get_keyword_kind(s, Token_end,    1); break;
+        case 4: k = lexer_get_keyword_kind(s, Token_else,   1); break;
+        case 6: k = lexer_get_keyword_kind(s, Token_elseif, 1); break;
         }
+        break;
+    case 'f':
+        switch (s.data[1]) {
+        case 'a': k = lexer_get_keyword_kind(s, Token_false,    2); break;
+        case 'o': k = lexer_get_keyword_kind(s, Token_for,      2); break;
+        case 'u': k = lexer_get_keyword_kind(s, Token_function, 2); break;
+        }
+        break;
+    case 'i':
+        switch (s.data[1]) {
+        case 'f': k = lexer_get_keyword_kind(s, Token_if, 2); break;
+        case 'n': k = lexer_get_keyword_kind(s, Token_in, 2); break;
+        }
+        break;
+    case 'l': k = lexer_get_keyword_kind(s, Token_local, 1); break;
+    case 'n':
+        switch (s.data[1]) {
+        case 'i': k = lexer_get_keyword_kind(s, Token_nil, 2); break;
+        case 'o': k = lexer_get_keyword_kind(s, Token_not, 2); break;
+        }
+        break;
+    case 'o': k = lexer_get_keyword_kind(s, Token_or, 1); break;
+    case 'r':
+        if (s.len == 6 && s.data[1] == 'e') switch (s.data[2]) {
+        case 'p': k = lexer_get_keyword_kind(s, Token_repeat, 2); break;
+        case 't': k = lexer_get_keyword_kind(s, Token_return, 2); break;
+        }
+        break;
+    case 't':
+        switch (s.data[1]) {
+        case 'h': k = lexer_get_keyword_kind(s, Token_then, 2); break;
+        case 'r': k = lexer_get_keyword_kind(s, Token_true, 2); break;
+        }
+        break;
+    case 'u': k = lexer_get_keyword_kind(s, Token_until, 1); break;
+    case 'w': k = lexer_get_keyword_kind(s, Token_while, 1); break;
+    default:
+        break;
     }
     lexer_init_token(x, t, k);
     return LEXER_OK;
@@ -343,15 +332,12 @@ LULU_INTERNAL_FUNC bool
 lexer_parse_u64(String s, u64 *v)
 {
     int base = 0;
-
-    if (s.len > 2 && s.data[0] == '0') {
-        switch (s.data[1]) {
+    if (s.len > 2 && s.data[0] == '0') switch (s.data[1]) {
         case 'b': case 'B': base = 2;  break;
         case 'o': case 'O': base = 8;  break;
         case 'd': case 'D': base = 10; break;
         case 'z': case 'Z': base = 12; break;
         case 'x': case 'X': base = 16; break;
-        }
     }
 
     if (base == 0) {
@@ -362,7 +348,7 @@ lexer_parse_u64(String s, u64 *v)
         s = string_slice_from(s, 2);
     }
 
-    // Avoid reading to and writing from garbage values.
+    // Avoid reading from and writing to garbage values.
     *v = 0;
 
     // Work from the most significant to least significant digits.
@@ -544,5 +530,6 @@ lexer_error_string(Lexer_Error err)
     case LEXER_INVALID_NUMBER:       return "Invalid number";
     case LEXER_UNTERMINATED_STRING:  return "Unterminated string";
     }
-    return NULL;
+    LULU_UNREACHABLE();
+    return nullptr;
 }
