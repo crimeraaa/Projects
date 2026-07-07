@@ -5,20 +5,7 @@
 #include "internal.h"
 #include "strings.h"
 #include "mem.h"
-
-typedef struct Type          Type;
-typedef struct TypeEnv_Entry TypeEnv_Entry;
-struct TypeEnv_Entry {
-    String key;
-    Type * type;
-};
-
-typedef struct TypeEnv TypeEnv;
-struct TypeEnv {
-    TypeEnv_Entry *data;
-    usize          used;
-    usize          cap;
-};
+#include "type.h"
 
 typedef struct lulu_Error_Handler lulu_Error_Handler;
 struct lulu_State {

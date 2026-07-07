@@ -1,11 +1,12 @@
 #include <stdio.h> // [f]printf
 
-#include "ast.h"
+#include "lexer.h"
 #include "state.h"
 #include "parser.h"
-#include "memory.h"
+#include "compiler.h"
+#include "type.h"
 
-enum Precedence {
+typedef enum Precedence {
     Prec_None, // Zero value. Useful to indicate a rule does not exist.
     Prec_Expr, // Default precedence to parse with.
     Prec_Or,
@@ -14,71 +15,17 @@ enum Precedence {
     Prec_Comparison,
     Prec_Term,      // x {+,-} y
     Prec_Factor,    // x {*,/,%} y
-    Prec_Exponent,  // x ^ y
     Prec_Unary,     // {-,#,not} x
     Prec_Call,
-};
-
-typedef enum Precedence Precedence;
-
-// Rules for infix parsing.
-typedef struct Parser_Rule Parser_Infix_Rule;
-struct Parser_Rule {
-    u8 left_prec;  // (Child) Determines when to yield our recursive descent.
-    u8 right_prec; // (Parent) Tells the child node when to yield.
-};
+} Precedence;
 
 // Parse a single expression of the given precedence.
-static Ast *
+static Expr
 parser_expr_prec(Parser *p, bool lhs, Precedence prec);
 
 // Parse a single expression.
-static Ast *
+static Expr
 parser_expr(Parser *p, bool lhs);
-
-
-#define LEFT(p)  {cast(u8)p, cast(u8)p + 1}
-#define RIGHT(p) {cast(u8)p, cast(u8)p}
-
-static const Parser_Infix_Rule
-PARSER_INFIX_RULES[] = {
-    // Binary Arithmetic operators.
-    LEFT(Prec_Term),       LEFT(Prec_Term),
-    LEFT(Prec_Factor),     LEFT(Prec_Factor),
-    LEFT(Prec_Factor),     RIGHT(Prec_Exponent),
-
-    // Binary Relational operators.
-    LEFT(Prec_Equality),   LEFT(Prec_Equality),
-    LEFT(Prec_Comparison), LEFT(Prec_Comparison),
-    LEFT(Prec_Comparison), LEFT(Prec_Comparison),
-};
-
-static inline Parser_Infix_Rule
-parser_rule_left(Precedence prec)
-{
-    Parser_Infix_Rule r = LEFT(prec);
-    return r;
-}
-
-static Parser_Infix_Rule
-parser_get_infix_rule(Token_Kind k)
-{
-    static const Parser_Infix_Rule empty_rule = {Prec_None, Prec_None};
-    if (Token_Add <= k && k <= Token_Geq) {
-        return PARSER_INFIX_RULES[k - Token_Add];
-    }
-
-    switch (k) {
-    case Token_and: return parser_rule_left(Prec_And);
-    case Token_or:  return parser_rule_left(Prec_Or);
-    default:
-        break;
-    }
-    return empty_rule;
-}
-
-#undef RIGHT
-#undef LEFT
 
 static const char *
 parser_clamp_string(char *buf, usize buf_len, String s)
@@ -100,7 +47,13 @@ parser_clamp_string(char *buf, usize buf_len, String s)
     return buf;
 }
 
-LULU_NORETURN static void
+LULU_INTERNAL_FUNC void
+parser_error(Parser *p, const char *info)
+{
+    parser_error_at(p, info, &p->token);
+}
+
+LULU_INTERNAL_FUNC void
 parser_error_at(Parser *p, const char *info, const Token *t)
 {
     char name[80];
@@ -113,53 +66,14 @@ parser_error_at(Parser *p, const char *info, const Token *t)
     state_throw(p->L, LULU_SYNTAX_ERROR);
 }
 
-// The most common case is to error at the current token.
-LULU_NORETURN static void
-parser_error(Parser *p, const char *info)
-{
-    parser_error_at(p, info, &p->token);
-}
-
-LULU_NORETURN static void
-parser_error_consumed(Parser *p, const char *info)
-{
-    parser_error_at(p, info, &p->consumed);
-}
-
-#if 0
+// Scan a new current token.
 static void
-token_print(const Token *t)
-{
-    printf("%i:%i: Token(%02i) = \"%.*s\"\n",
-        t->line, t->col,
-        t->kind,
-        cast(int)t->lexeme.len, t->lexeme.data);
-}
-#endif
-
-// Scan a new current token. The previous, now-consumed token, is returned.
-static Token
 parser_advance(Parser *p)
 {
-    Lexer_Error err;
-    p->consumed = p->token;
-    err = lexer_scan_token(&p->lexer, &p->token);
-    // token_print(&p->consumed);
-    // token_print(&p->token);
-    // printf("===============\n");
+    Lexer_Error err = lexer_scan_token(&p->lexer, &p->token);
     if (err) {
         parser_error(p, lexer_error_string(err));
     }
-    return p->consumed;
-}
-
-static Token
-token_make_none(void)
-{
-    static const Token t = {Token_None,
-        /*lexeme=*/nullptr, /*len=*/0,
-        /*line  =*/0,    /*col=*/0};
-    return t;
 }
 
 static bool
@@ -178,7 +92,7 @@ parser_match(Parser *p, Token_Kind k)
     return found;
 }
 
-static Token
+static void
 parser_expect(Parser *p, Token_Kind k)
 {
     if (!parser_match(p, k)) {
@@ -186,7 +100,6 @@ parser_expect(Parser *p, Token_Kind k)
         snprintf(buf, sizeof(buf), "Expected '%s'", token_kind_cstring(k));
         parser_error(p, buf);
     }
-    return p->consumed;
 }
 
 
@@ -198,70 +111,67 @@ NOTE(2026-07-03):
 
     https://github.com/odin-lang/Odin/blob/1007ea278534e037fa586564c91113f5c925c286/src/parser.cpp#L2379
  */
-static Ast *
+static Expr
 parser_operand(Parser *p, bool lhs)
 {
-    Ast *operand = nullptr;
-    switch (p->token.kind) {
-    case Token_Int:
-    case Token_Float:
-    case Token_String:
-    case Token_false:
-    case Token_nil:
-    case Token_true:
-        parser_advance(p);
-        operand = ast_literal_new(p->L, &p->consumed);
-        if (operand->Literal.value.kind == VALUE_INVALID) {
+    lulu_State *L       = p->L;
+    Token       token   = p->token;
+    Expr        operand = expr_make_none();
+
+    parser_advance(p);
+    switch (token.kind) {
+    case Token_nil:     operand.kind = Expr_nil;   break;
+    case Token_false:   // fallthrough
+    case Token_true:    operand = expr_make_bool(L, &token);  break;
+    case Token_Int: {
+        u64 tmp;
+        if (!lexer_parse_u64(token.lexeme, &tmp)) {
             const char *info = lexer_error_string(LEXER_INVALID_NUMBER);
-            parser_error_consumed(p, info);
+            parser_error_at(p, info, &token);
         }
-        return operand;
-    case Token_Open_Paren: {
-        Token open, close;
-        open    = parser_advance(p);
-        operand = parser_expr(p, lhs);
-        close   = parser_expect(p, Token_Close_Paren);
-        return ast_paren_new(p->L, &open, &close, operand);
+        operand = expr_make_uint(L, &token, tmp);
+        break;
     }
+    case Token_Float: {
+        f64 tmp;
+        if (!lexer_parse_f64(token.lexeme, &tmp)) {
+            const char *info = lexer_error_string(LEXER_INVALID_NUMBER);
+            parser_error_at(p, info, &token);
+        }
+        operand = expr_make_real(L, &token, tmp);
+        break;
+    }
+    case Token_Open_Paren:
+        operand = parser_expr(p, lhs);
+        parser_expect(p, Token_Close_Paren);
+        break;
+    case Token_Open_Curly:
+        if (lhs) {
+            parser_error_at(p, "Cannot assign to a compound literal", &token);
+        } else {
+            parser_error_at(p, "Table constructors not yet supported", &token);
+        }
+        break;
     case Token_Ident:
-        parser_advance(p);
-        return ast_ident_new(p->L, &p->consumed);
+        parser_error_at(p, "Variables not yet supported", &token);
+        // operand = expr_make_ident(token.lexeme);
+        break;
     default:
+        parser_error_at(p, "Expected an operand", &token);
         break;
     }
     return operand;
 }
 
-static Slice_Ast
-parser_expr_list(Parser *p, bool lhs);
-
-static Ast *
-parser_call(Parser *p, Ast *func)
+static void
+parser_atom_expr(Parser *p, bool lhs, Expr *operand)
 {
-    Token     open, close;
-    Slice_Ast args = {nullptr, 0};
-
-    open = parser_advance(p);
-    if (!parser_check(p, Token_Close_Paren)) {
-        args = parser_expr_list(p, /*lhs=*/false);
-    }
-
-    close = parser_expect(p, Token_Close_Paren);
-    return ast_call_new(p->L, &open, &close, func, args);
-}
-
-static Ast *
-parser_atom_expr(Parser *p, bool lhs, Ast *operand)
-{
-    if (operand == nullptr) {
-        parser_error(p, "Expected an operand");
-    }
-
+#if 0
     bool loop = true;
     while (loop) {
         switch (p->token.kind) {
         case Token_Open_Paren:
-            operand = parser_call(p, operand);
+            parser_call(p, operand);
             break;
         default:
             loop = false;
@@ -270,47 +180,65 @@ parser_atom_expr(Parser *p, bool lhs, Ast *operand)
         // After the first atom, we are no longer assignable.
         lhs = false;
     }
-    return operand;
+#endif
+}
+
+static String
+parser_ident(Parser *p)
+{
+    String ident = p->token.lexeme;
+    parser_expect(p, Token_Ident);
+    return ident;
 }
 
 /*
  Assumptions:
  1) We are about to consume an identifier.
  */
-static Ast *
+static const Type *
 parser_type(Parser *p)
 {
-    parser_expect(p, Token_Ident);
-    return ast_ident_new(p->L, &p->consumed);
+    String      ident = parser_ident(p);
+    const Type *type  = type_get(p->L, ident);
+    if (!type) {
+        parser_error(p, "Unknown type name");
+    }
+    return type;
 }
 
-static Ast *
+static Expr
 parser_unary_expr(Parser *p, bool lhs)
 {
-    switch (p->token.kind) {
+    Expr  expr = expr_make_none();
+    Token op   = p->token;
+    switch (op.kind) {
     case Token_cast: {
-        Token op = parser_advance(p);
+        parser_advance(p);
         parser_expect(p, Token_Open_Paren);
 
-        Ast *type = parser_type(p);
+        const Type *type = parser_type(p);
         parser_expect(p, Token_Close_Paren);
 
-        Ast *expr = parser_expr(p, /*lhs=*/false);
-        return ast_cast_new(p->L, &op, type, expr);
+        expr = parser_expr_prec(p, /*lhs=*/false, Prec_Unary);
+        compiler_cast(p->compiler, type, &expr);
+        break;
     }
     case Token_Sub:
     case Token_Len:
     case Token_not: {
         // Skip the unary operand so the first token of the argument
         // is our current.
-        Token op   = parser_advance(p);
-        Ast * expr = parser_expr_prec(p, lhs, Prec_Unary);
-        return ast_unary_new(p->L, &op, expr);
-    }
-    default:
+        parser_advance(p);
+        expr = parser_expr_prec(p, lhs, Prec_Unary);
+        compiler_unary(p->compiler, &op, &expr);
         break;
     }
-    return parser_atom_expr(p, lhs, parser_operand(p, lhs));
+    default:
+        expr = parser_operand(p, lhs);
+        parser_atom_expr(p, lhs, &expr);
+        break;
+    }
+    return expr;
 }
 
 static void
@@ -327,205 +255,128 @@ parser_recurse_pop(Parser *p)
     p->recursions--;
 }
 
-static Ast *
+static Precedence
+parser_prec(Token_Kind k)
+{
+    switch (k) {
+    case Token_Add:
+    case Token_Sub: return Prec_Term;
+    case Token_Mul:
+    case Token_Div:
+    case Token_Mod: return Prec_Factor;
+    case Token_Eq:
+    case Token_Neq: return Prec_Equality;
+    case Token_Lt:
+    case Token_Leq:
+    case Token_Gt:
+    case Token_Geq: return Prec_Comparison;
+    case Token_and: return Prec_And;
+    case Token_or:  return Prec_Or;
+    default:
+        break;
+    }
+    return Prec_None;
+}
+
+static Expr
 parser_expr_prec(Parser *p, bool lhs, Precedence prec_in)
 {
+    Expr      a, b;
+    Compiler *c = p->compiler;
+
     parser_recurse_push(p);
-
-    Ast *expr = parser_unary_expr(p, lhs);
+    a = parser_unary_expr(p, lhs);
     for (;;) {
-        Parser_Infix_Rule rule = parser_get_infix_rule(p->token.kind);
-
         // This also catches tokens that are not binary operators.
-        if (cast(Precedence)rule.left_prec < prec_in) {
+        const Token op       = p->token;
+        Precedence  prec_out = parser_prec(op.kind);
+        if (prec_out < prec_in) {
             break;
         }
 
-        // Copy by value as the nonlocal state will update.
-        Token op    = parser_advance(p);
-        Ast * right = parser_expr_prec(p, /*lhs=*/false, cast(Precedence)rule.right_prec);
-        expr        = ast_binary_new(p->L, &op, expr, right);
+        parser_advance(p);
+#if PARSER_CONSTANT_FOLDING
+        if (a.kind != Expr_Literal) {
+            compiler_expr_any_reg(c, &a);
+        }
+#else
+        compiler_expr_any_reg(c, &a);
+        LULU_LOGF("a = {ExprKind = %i, reg = %u} with c.free_reg = %u",
+            a.kind, a.reg, p->compiler->free_reg);
+#endif
+        b = parser_expr_prec(p, false, prec_out + 1);
+        compiler_binary(c, &op, &a, &b);
     }
     parser_recurse_pop(p);
-    return expr;
+    return a;
 }
 
-static Ast *
+static Expr
 parser_expr(Parser *p, bool lhs)
 {
     return parser_expr_prec(p, lhs, Prec_Expr);
 }
 
-// For pretty-printing debug logging only
+static void
+parser_assign(Parser *p)
+{
+    Expr lhs = parser_expr(p, /*lhs=*/true);
+    compiler_return(p->compiler, &lhs);
 #if 0
-
-static const char *
-AST_TYPE_NAMES[] = {
-#define X(e, ...)   "Ast_" #e " *",
-    AST_KINDS(X)
-#undef X
-};
-
-static const char *
-ast_type_name(Ast *a)
-{
-    return AST_TYPE_NAMES[a->kind];
-}
-
-#endif 
-
-// This helps us avoid a permanent allocator for the slice.
-static void
-parser_expr_list_recurse(Parser *p, bool lhs, Slice_Ast *exprs, usize count)
-{
-    Ast *expr = parser_expr(p, lhs);
-    if (parser_match(p, Token_Comma)) {
-        // Recursive case.
-        parser_expr_list_recurse(p, lhs, exprs, count + 1);
-    } else {
-        // Base case: allocate exactly as much as we need upfront.
-        exprs->data = mem_arena_alloc_array(p->L, Ast *, count);
-        exprs->len  = count;
-
-    }
-
-    // Assign the array in reverse order due to the sequence of recursions.
-    exprs->data[count - 1] = expr;
-}
-
-static Slice_Ast
-parser_expr_list(Parser *p, bool lhs)
-{
-    Slice_Ast exprs = {nullptr, 0};
-    parser_expr_list_recurse(p, lhs, &exprs, /*count=*/1);
-    return exprs;
-}
-
-static const Token *
-parser_unassignable_token(const Ast *a)
-{
-    switch (a->kind) {
-    case AstKind_None:        break;
-    case AstKind_Literal:     return &a->Literal.token;
-    case AstKind_Ident:       break;
-    case AstKind_ParenExpr:   return &a->ParenExpr.open;
-    case AstKind_CallExpr:    return &a->CallExpr.open;
-    case AstKind_CastExpr:    return &a->CastExpr.op;
-    case AstKind_UnaryExpr:   return &a->UnaryExpr.op;
-    case AstKind_BinaryExpr:  return &a->BinaryExpr.op;
-    case AstKind_AssignStmt:  return &a->AssignStmt.op;
-    case AstKind_DeclStmt:    break;
-    }
-    return nullptr;
-}
-
-/*
- TODO(2026-07-03):
-    Make more robust in order to differentiate declarations and assignments.
-    E.g. pointer dereferences and array indices are not allowed inside
-    declarations, but they are allowed inside assignments. Maybe we can
-    use a bit-set?
- */
-static void
-parser_ensure_assignable(Parser *p, Slice_Ast exprs)
-{
-    for (usize i = 0; i < exprs.len; i++) {
-        if (exprs.data[i]->kind != AstKind_Ident) {
-            const Token *loc = parser_unassignable_token(exprs.data[i]);
-            LULU_ASSERT(loc != nullptr);
-            parser_error_at(p, "Unassignable expression", loc);
-        }
-    }
-}
-
-/*
- Assumptions:
- 1) We are about to consume a colon, i.e. the ':' character.
- */
-static Ast *
-parser_decl(Parser *p, Slice_Ast left)
-{
-    parser_ensure_assignable(p, left);
-
-    // Consume ':'.
-    parser_advance(p);
-    Slice_Ast right = {nullptr, 0};
-    Ast *     type  = parser_type(p);
-
-    // Right-hand side is optional- the default value is zero.
-    if (parser_match(p, Token_Assign)) {
-        right = parser_expr_list(p, /*lhs=*/false);
-    }
-    return ast_decl_new(p->L, left, type, right);
-}
-
-/*
- Assumptions
- 1) We are about to consume an equals sign, i.e. the '=' character.
- */
-static Ast *
-parser_assign(Parser *p, Slice_Ast left)
-{
-    parser_ensure_assignable(p, left);
-
-    Token     op    = parser_advance(p);
-    Slice_Ast right = parser_expr_list(p, /*lhs=*/false);
-    return ast_assign_new(p->L, &op, left, right);
-}
-
-static Ast *
-parser_simple_stmt(Parser *p)
-{
-    Ast *a = nullptr;
     switch (p->token.kind) {
-    case Token_Ident: {
-        Slice_Ast left = parser_expr_list(p, /*lhs=*/true);
-
-        // After the given expression list, what do we want to do?
-        switch (p->token.kind) {
-        case Token_Colon:  a = parser_decl(p, left);   break;
-        case Token_Assign: a = parser_assign(p, left); break;
-        default:
-            a = left.data[0];
-            // Only allow solo function calls as expression-statements.
-            if (left.len == 1 && a->kind == AstKind_CallExpr) {
-                break;
-            }
-            parser_error(p, "Expected declaration/assignment/call");
-        }
+    case Token_Colon:
+    case Token_Assign:
+    default:
+        parser_error(p, "Unassignable expression");
         break;
     }
+#endif
+}
+
+static void
+parser_stmt_expr(Parser *p)
+{
+    Expr e =parser_expr(p, /*lhs=*/false);
+    compiler_return(p->compiler, &e);
+}
+
+static void
+parser_simple_stmt(Parser *p)
+{
+    switch (p->token.kind) {
+    case Token_Ident:
+        parser_assign(p);
+        break;
     default:
-        parser_error(p, "Expected a statement");
+        parser_stmt_expr(p);
+        break;
     }
     // Optional.
     parser_match(p, Token_Semicol);
-    return a;
 }
 
 
 static Parser
-parser_make(lulu_State *L, Parser_Data *data)
+parser_make(lulu_State *L, Compiler *c, Parser_Data *data)
 {
-    Parser p = {L, lexer_make(data->path, data->input),
-         /*token     =*/token_make_none(),
-         /*consumed  =*/token_make_none(),
-         /*scratch   =*/&data->scratch,
-         /*recursions=*/0};
+    Parser p = {L, c, lexer_make(data->path, data->input),
+        /*token     =*/token_make_none(),
+        /*scratch   =*/&data->scratch,
+        /*recursions=*/0};
 
     parser_advance(&p);
     return p;
 }
 
-LULU_INTERNAL_FUNC Ast *
+LULU_INTERNAL_FUNC Chunk *
 parser_parse(lulu_State *L, Parser_Data *data)
 {
-    Ast *  a;
-    Parser p;
-
-    p = parser_make(L, data);
-    a = parser_simple_stmt(&p);
+    Parser   p;
+    Compiler c;
+    p     = parser_make(L, &c, data);
+    c     = compiler_make(L, &p, &data->chunk);
+    parser_simple_stmt(&p);
     parser_expect(&p, Token_Eof);
-    return a;
+    return c.chunk;
 }
 

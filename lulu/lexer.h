@@ -23,7 +23,6 @@
     X(Token_Mul, "*")                                                          \
     X(Token_Div, "/")                                                          \
     X(Token_Mod, "%")                                                          \
-    X(Token_Pow, "^")                                                          \
     X(Token_Eq,  "==")                                                         \
     X(Token_Neq, "~=")                                                         \
     X(Token_Lt,  "<")                                                          \
@@ -117,6 +116,15 @@ typedef enum Lexer_Error Lexer_Error;
 
 LULU_INTERNAL_FUNC const char *
 token_kind_cstring(Token_Kind k);
+
+static inline Token
+token_make_none(void)
+{
+    Token t = {Token_None,
+        /*lexeme=*/nullptr, /*len=*/0,
+        /*line  =*/0,       /*col=*/0};
+    return t;
+}
 
 static inline Lexer
 lexer_make(String path, String input)

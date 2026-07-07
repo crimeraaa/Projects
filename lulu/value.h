@@ -5,30 +5,31 @@
 #include "strings.h"
 #include "lexer.h"
 
-enum Value_Literal_Kind {
-    VALUE_INVALID,
-    VALUE_NIL,
-    VALUE_BOOL,
-    VALUE_UINT, VALUE_INT,  // TODO(2026-06-30): Use a bigint instead
-    VALUE_FLOAT,
-    VALUE_STRING,
+typedef enum Value_Kind {
+    Value_Invalid = -1,
+    Value_nil,
+    Value_bool,
+    Value_uint,
+    Value_int,
+    Value_real,
+    Value_string,
+} Value_Kind;
+
+typedef union Value Value;
+union Value {
+    u64  u;
+    i64  i;
+    f64  f;
+    bool b;
 };
 
-typedef enum   Value_Literal_Kind Value_Literal_Kind;
-typedef struct Value_Literal      Value_Literal;
-struct Value_Literal {
-    Value_Literal_Kind kind;
-    u32 hash;
-    union {
-        u64    value_uint;
-        i64    value_int;
-        f64    value_float;
-        bool   value_bool;
-        String value_string;
-    };
+typedef struct TValue TValue;
+struct TValue {
+    Value_Kind kind;
+    Value      value;
 };
 
-LULU_INTERNAL_FUNC Value_Literal
-value_literal_from_string(Token_Kind k, String s);
+LULU_INTERNAL_FUNC bool
+tvalue_eq(TValue a, TValue b);
 
 #endif // !LULU_VALUE_H

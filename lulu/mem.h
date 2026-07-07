@@ -1,10 +1,10 @@
-#ifndef LULU_MEMORY_H
-#define LULU_MEMORY_H
+#ifndef LULU_MEM_H
+#define LULU_MEM_H
 
 #include "internal.h"
 #include "lulu.h"
 
-/// Defined in `memory.c`.
+/// Defined in `mem.c`.
 typedef struct Page  Page;
 typedef struct Arena Arena;
 struct Arena {
@@ -50,7 +50,7 @@ LULU_INTERNAL_FUNC void *
 mem_arena_alloc(lulu_State *L, usize size);
 
 LULU_INTERNAL_FUNC void *
-mem_arena_resize(lulu_State *L, void *pointer, usize old_size, usize new_size);
+mem_arena_resize(lulu_State *L, void *old_ptr, usize old_size, usize new_size);
 
 #define mem_arena_alloc_item(L, T)                                             \
     cast(T *)mem_arena_alloc(L, sizeof(T))
@@ -63,4 +63,25 @@ mem_arena_resize(lulu_State *L, void *pointer, usize old_size, usize new_size);
         /*old_size=*/sizeof(T) * (old_count),                                  \
         /*new_size=*/sizeof(T) * (new_count))
 
-#endif  // LULU_MEMORY_H
+
+LULU_INTERNAL_FUNC void *
+mem_heap_resize(lulu_State *L, void *old_ptr, usize old_size, usize new_size);
+
+#define mem_heap_resize_array(L, T, old_ptr, old_cap, new_cap)                 \
+    cast(T *)mem_heap_resize(L,                                                \
+        old_ptr, sizeof(T) * (old_cap),                                        \
+        sizeof(T) * (new_cap))
+
+#define mem_heap_grow_array(L, T, pmem, pcap)                                  \
+do {                                                                           \
+    T *   _omem = *(pmem);                                                     \
+    usize _ocap = *(pcap);                                                     \
+    usize _ncap = _ocap > 8 ? _ocap * 2 : 8;                                   \
+    *(pmem)     = mem_heap_resize_array(L, T, _omem, _ocap, _ncap);            \
+    *(pcap)     = _ncap;                                                       \
+} while (0)
+
+#define mem_heap_free_array(L, mem, cap)                                       \
+    mem_heap_resize(L, mem, sizeof((mem)[0]) * cap, 0)
+
+#endif  // LULU_MEM_H

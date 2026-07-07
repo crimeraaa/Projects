@@ -6,6 +6,7 @@
 #include "state.h"
 #include "parser.h"
 #include "type.h"
+#include "debug.h"
 
 struct lulu_Error_Handler {
     lulu_Error_Handler *prev;
@@ -80,16 +81,18 @@ static void
 state_parse(lulu_State *L, void *user_data)
 {
     Parser_Data *data = cast(Parser_Data *)user_data;
-    Ast *        root = parser_parse(L, data);
-
-    ast_print(root);
+    parser_parse(L, data);
 }
 
 LULU_INTERNAL_FUNC lulu_Error
 state_parse_protected(lulu_State *L, String path, String input)
 {
-    Parser_Data data = {path, input, mem_scratch_begin(&L->arena)};
+    Parser_Data data = {path, input, chunk_make(), mem_scratch_begin(&L->arena)};
     lulu_Error  err  = state_try(L, state_parse, &data);
     mem_scratch_end(&data.scratch);
+    if (!err) {
+        debug_disassemble(&data.chunk);
+    }
+    chunk_destroy(L, &data.chunk);
     return err;
 }

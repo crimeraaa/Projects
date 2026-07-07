@@ -1,6 +1,7 @@
+#include <stdlib.h> // realloc, free
 #include <string.h> // memcpy
 
-#include "memory.h"
+#include "mem.h"
 #include "state.h"
 
 // 4 kilobyte page.
@@ -25,7 +26,7 @@ struct Page {
 };
 
 #if 1
-#define page_log(p, s, f, ...)  LULU_LOGFLN("["s"] "#p" = "f, __VA_ARGS__)
+#define page_log(p, s, f, ...)  LULU_LOGF("["s"] "#p" = "f, __VA_ARGS__)
 #else
 #define page_log(...)           cast(void)0
 #endif
@@ -174,10 +175,10 @@ mem_arena_alloc(lulu_State *L, usize size)
 }
 
 LULU_INTERNAL_FUNC void *
-mem_arena_resize(lulu_State *L, void *pointer, usize old_size, usize new_size)
+mem_arena_resize(lulu_State *L, void *old_ptr, usize old_size, usize new_size)
 {
     Arena *a       = &L->arena;
-    u8 *   old_mem = cast(u8 *)pointer;
+    u8 *   old_mem = cast(u8 *)old_ptr;
     if (old_mem == nullptr && old_size == 0) {
         // Nothing to resize, so we must be allocating a new block.
         return mem_arena_alloc(L, new_size);
@@ -227,6 +228,23 @@ mem_scratch_end(Scratch *x)
     p->prev_offset = x->prev_offset;
     p->curr_offset = x->curr_offset;
     page_log_usage(a->tail, "SCRATCH END");
+}
+
+LULU_INTERNAL_FUNC void *
+mem_heap_resize(lulu_State *L, void *old_ptr, usize old_size, usize new_size)
+{
+    unused(old_size);
+    if (new_size == 0) {
+        free(old_ptr);
+        return nullptr;
+    } else {
+        void *new_ptr = realloc(old_ptr, new_size);
+        // NOTE(2026-07-07): Leaks other memory blocks!
+        if (!new_ptr) {
+            state_throw(L, LULU_MEMORY_ERROR);
+        }
+        return new_ptr;
+    }
 }
 
 #undef page_log_usage

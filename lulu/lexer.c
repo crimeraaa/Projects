@@ -484,7 +484,6 @@ lexer_scan_token(Lexer *x, Token *t)
     case '*': k = Token_Mul; break;
     case '/': k = Token_Div; break;
     case '%': k = Token_Mod; break;
-    case '^': k = Token_Pow; break;
     case '~': k = lexer_match_char(x, '=') ? Token_Neq : Token_None; break;
     case '<': k = lexer_match_char(x, '=') ? Token_Leq : Token_Lt;   break;
     case '>': k = lexer_match_char(x, '=') ? Token_Geq : Token_Gt;   break;

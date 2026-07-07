@@ -4,14 +4,15 @@
 #include "lulu.h"
 #include "internal.h"
 #include "strings.h"
-#include "state.h"
 
 typedef enum Type_Atom_Kind {
     Type_Atom_None,
     Type_Atom_bool,
     Type_Atom_uint,
+    Type_Atom_int,
     Type_Atom_real,
     Type_Atom_string,
+    Type_Atom__COUNT,
 } Type_Atom_Kind;
 
 /*
@@ -38,6 +39,20 @@ struct Type {
     };
 };
 
+typedef struct TypeEnv_Entry TypeEnv_Entry;
+struct TypeEnv_Entry {
+    String key;
+    Type * type;
+};
+
+typedef struct TypeEnv TypeEnv;
+struct TypeEnv {
+    TypeEnv_Entry *data;
+    usize          used;
+    usize          cap;
+    const Type *   atoms[Type_Atom__COUNT];
+};
+
 LULU_INTERNAL_FUNC void
 type_env_init(lulu_State *L, TypeEnv *env);
 
@@ -49,6 +64,9 @@ type_eq(const Type *a, const Type *b);
 
 LULU_INTERNAL_FUNC const Type *
 type_get(lulu_State *L, String key);
+
+LULU_INTERNAL_FUNC const Type *
+type_atom_get(lulu_State *L, Type_Atom_Kind k);
 
 LULU_INTERNAL_FUNC void
 type_set(lulu_State *L, String key, Type *type);

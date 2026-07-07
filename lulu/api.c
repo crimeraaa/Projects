@@ -1,13 +1,15 @@
 #include "lulu.h"
-
-#include "ast.c"
-#include "state.c"
-#include "lexer.c"
-#include "mem.c"
-#include "parser.c"
 #include "strings.h"
+
+#include "mem.c"
+#include "state.c"
 #include "type.c"
+#include "lexer.c"
+#include "chunk.c"
+#include "parser.c"
+#include "compiler.c"
 #include "value.c"
+#include "debug.c"
 
 LULU_API const char *
 lulu_error_string(lulu_Error err)

@@ -42,15 +42,15 @@
 
 #if 1
 #include <stdio.h> // fprintf
-#define LULU_LOGFLN(fmt, ...) \
+#define LULU_LOGF(fmt, ...) \
     fprintf(stderr, "%s:%i: " fmt "\n", __func__, __LINE__, __VA_ARGS__)
 
 #else
 
 #define LULU_LOGFLN(fmt, ...)
 
-#endif // LULU_LOGFLN
-#define LULU_LOGLN(msg) LULU_LOGFLN("%s", msg)
+#endif // LULU_LOGF
+#define LULU_LOGLN(msg) LULU_LOGF("%s", msg)
 
 
 // TODO(2026-07-03): Make configurable?
@@ -66,7 +66,7 @@
 #define LULU_ASSERTF(expr, fmt, ...)                                           \
 do {                                                                           \
     if (!cast(bool)(expr)) {                                                   \
-        LULU_LOGFLN(fmt, __VA_ARGS__);                                         \
+        LULU_LOGF(fmt, __VA_ARGS__);                                           \
         LULU__ASSERT_IMPL();                                                   \
     }                                                                          \
 } while (0)

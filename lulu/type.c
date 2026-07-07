@@ -1,6 +1,6 @@
 #include "type.h"
-#include "memory.h"
 #include "state.h"
+#include "mem.h"
 
 #define type_size_of(T) offsetof(Type, atom) + sizeof(T)
 #define type_new(L, T)  cast(Type *)mem_arena_alloc(L, type_size_of(T))
@@ -16,9 +16,11 @@ type_atom_new(lulu_State *L, Type_Atom a)
 }
 
 
-static const Type_Atom TYPE_ATOMS[] = {
+static const Type_Atom
+TYPE_ATOMS[] = {
     {Type_Atom_bool,   string_literal("bool")},
     {Type_Atom_uint,   string_literal("uint")},
+    {Type_Atom_int,    string_literal("int")},
     {Type_Atom_real,   string_literal("real")},
     {Type_Atom_string, string_literal("string")},
 };
@@ -33,14 +35,17 @@ type_env_init(lulu_State *L, TypeEnv *env)
 
     // Don't add the type info for 'None'.
     for (usize i = 0; i < count_of(TYPE_ATOMS); i++) {
-        Type *t = type_atom_new(L, TYPE_ATOMS[i]);
-        type_set(L, TYPE_ATOMS[i].name, t);
+        Type_Atom a = TYPE_ATOMS[i];
+        Type *    t = type_atom_new(L, a);
+
+        env->atoms[a.kind] = t;
+        type_set(L, a.name, t);
     }
 
     for (usize i = 0; i < env->cap; i++) {
         TypeEnv_Entry e = env->data[i];
         if (e.type) {
-            LULU_LOGFLN("env[%zu]: type = %s", i, e.key.data);
+            LULU_LOGF("env[%zu]: type = %s", i, e.key.data);
         }
     }
 }
@@ -50,6 +55,12 @@ type_env_destroy(lulu_State *L, TypeEnv *env)
 {
     unused(L);
     unused(env);
+}
+
+LULU_INTERNAL_FUNC const Type *
+type_atom_get(lulu_State *L, Type_Atom_Kind k)
+{
+    return L->types.atoms[k];
 }
 
 LULU_INTERNAL_FUNC bool
@@ -63,7 +74,7 @@ type_eq(const Type *a, const Type *b)
 }
 
 static TypeEnv_Entry *
-type_env_find_entry(TypeEnv_Entry *data, usize cap, String key, u32 hash)
+type_find_entry(TypeEnv_Entry *data, usize cap, String key, u32 hash)
 {
     for (usize i = cast(usize)hash & (cap - 1);; i = (i + 1) & (cap - 1)) {
         TypeEnv_Entry *e = &data[i];
@@ -78,7 +89,7 @@ type_env_find_entry(TypeEnv_Entry *data, usize cap, String key, u32 hash)
 }
 
 static void
-type_env_rehash(lulu_State *L, TypeEnv *env, usize cap)
+type_rehash(lulu_State *L, TypeEnv *env, usize cap)
 {
     TypeEnv_Entry *data;
 
@@ -108,7 +119,7 @@ type_env_rehash(lulu_State *L, TypeEnv *env, usize cap)
             continue;
         }
 
-        dst  = type_env_find_entry(data, cap, src.key, src.type->hash);
+        dst  = type_find_entry(data, cap, src.key, src.type->hash);
         *dst = src;
     }
 
@@ -123,7 +134,7 @@ type_get(lulu_State *L, String key)
     TypeEnv *env  = &L->types;
     u32      hash = string_hash(key);
     LULU_ASSERT(env->cap > 0);
-    return type_env_find_entry(env->data, env->cap, key, hash)->type;
+    return type_find_entry(env->data, env->cap, key, hash)->type;
 }
 
 LULU_INTERNAL_FUNC void
@@ -135,10 +146,10 @@ type_set(lulu_State *L, String key, Type *type)
 
     // We require at least 1 empty slot in order for the search to work.
     if (env->used + 1 >= env->cap) {
-        type_env_rehash(L, env, (env->cap > 8) ? env->cap * 2 : 8);
+        type_rehash(L, env, (env->cap > 8) ? env->cap * 2 : 8);
     }
 
-    p = type_env_find_entry(env->data, env->cap, key, hash);
+    p = type_find_entry(env->data, env->cap, key, hash);
     if (!p->type) {
         env->used++;
     }
