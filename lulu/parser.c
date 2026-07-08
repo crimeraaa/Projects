@@ -4,6 +4,7 @@
 #include "state.h"
 #include "parser.h"
 #include "compiler.h"
+#include "expr.h"
 #include "type.h"
 
 typedef enum Precedence {
@@ -63,6 +64,8 @@ parser_error_at(Parser *p, const char *info, const Token *t)
         t->line, t->col, info,
         parser_clamp_string(loc, sizeof(loc), t->lexeme));
 
+
+    chunk_destroy(p->L, p->compiler->chunk);
     state_throw(p->L, LULU_SYNTAX_ERROR);
 }
 
@@ -124,8 +127,8 @@ parser_operand(Parser *p, bool lhs)
     case Token_false:   // fallthrough
     case Token_true:    operand = expr_make_bool(L, &token);  break;
     case Token_Int: {
-        u64 tmp;
-        if (!lexer_parse_u64(token.lexeme, &tmp)) {
+        lulu_uint tmp;
+        if (!lexer_parse_uint(token.lexeme, &tmp)) {
             const char *info = lexer_error_string(LEXER_INVALID_NUMBER);
             parser_error_at(p, info, &token);
         }
@@ -133,8 +136,8 @@ parser_operand(Parser *p, bool lhs)
         break;
     }
     case Token_Float: {
-        f64 tmp;
-        if (!lexer_parse_f64(token.lexeme, &tmp)) {
+        lulu_real tmp;
+        if (!lexer_parse_real(token.lexeme, &tmp)) {
             const char *info = lexer_error_string(LEXER_INVALID_NUMBER);
             parser_error_at(p, info, &token);
         }
@@ -296,13 +299,11 @@ parser_expr_prec(Parser *p, bool lhs, Precedence prec_in)
 
         parser_advance(p);
 #if PARSER_CONSTANT_FOLDING
-        if (a.kind != Expr_Literal) {
+        if (!expr_is_literal(&a)) {
             compiler_expr_any_reg(c, &a);
         }
 #else
         compiler_expr_any_reg(c, &a);
-        LULU_LOGF("a = {ExprKind = %i, reg = %u} with c.free_reg = %u",
-            a.kind, a.reg, p->compiler->free_reg);
 #endif
         b = parser_expr_prec(p, false, prec_out + 1);
         compiler_binary(c, &op, &a, &b);
@@ -336,7 +337,7 @@ parser_assign(Parser *p)
 static void
 parser_stmt_expr(Parser *p)
 {
-    Expr e =parser_expr(p, /*lhs=*/false);
+    Expr e = parser_expr(p, /*lhs=*/false);
     compiler_return(p->compiler, &e);
 }
 

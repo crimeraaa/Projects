@@ -47,7 +47,7 @@
 
 #else
 
-#define LULU_LOGFLN(fmt, ...)
+#define LULU_LOGF(fmt, ...)   cast(void)0
 
 #endif // LULU_LOGF
 #define LULU_LOGLN(msg) LULU_LOGF("%s", msg)
@@ -64,21 +64,22 @@
 #if LULU_USE_ASSERT
 
 #define LULU_ASSERTF(expr, fmt, ...)                                           \
-do {                                                                           \
-    if (!cast(bool)(expr)) {                                                   \
-        LULU_LOGF(fmt, __VA_ARGS__);                                           \
-        LULU__ASSERT_IMPL();                                                   \
-    }                                                                          \
-} while (0)
+    (cast(bool)(expr)                                                          \
+        ? cast(void)0                                                          \
+        : (LULU_LOGF(fmt, __VA_ARGS__), LULU__ASSERT_IMPL()))                  \
 
 #else // ^^^ LULU_USE_ASSERT | vvv LULU_USE_ASSERT
 
-#define LULU_ASSERTF(expr, fmt, ...)
+#define LULU_ASSERTF(expr, fmt, ...)    cast(void)0
 
 #endif // LULU_USE_ASSERT
 
-#define LULU_ASSERTLN(e, msg)   LULU_ASSERTF(e, "%s", msg)
+#define LULU_ASSERTLN(e, msg)   LULU_ASSERTF (e, "%s", msg)
 #define LULU_ASSERT(e)          LULU_ASSERTLN(e, "Assertion failed: '" #e "'")
+#define LULU_UNIMPLEMENTED()    LULU_ASSERTLN(false, "Unimplemented")
+#define LULU_PANICF(fmt, ...)   LULU_ASSERTF (false, fmt, __VA_ARGS__)
+#define LULU_PANICLN(msg)       LULU_PANICF  ("%s", msg)
+#define LULU_PANIC()            LULU_PANICLN ("Runtime panic")
 
 #ifndef __cplusplus
 #define nullptr NULL
@@ -103,5 +104,10 @@ typedef double    f64;
 // Convenience types.
 typedef size_t    usize;
 typedef uintptr_t uintptr;
+
+// TODO(2026-07-08): Make configurable?
+typedef i64 lulu_int;
+typedef u64 lulu_uint;
+typedef f64 lulu_real;
 
 #endif // !LULU_INTERNAL_H

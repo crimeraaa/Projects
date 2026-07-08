@@ -329,7 +329,7 @@ char_to_digit(char c, int base)
     (if we even have that!).
  */
 LULU_INTERNAL_FUNC bool
-lexer_parse_u64(String s, u64 *v)
+lexer_parse_uint(String s, lulu_uint *v)
 {
     int base = 0;
     if (s.len > 2 && s.data[0] == '0') switch (s.data[1]) {
@@ -357,8 +357,8 @@ lexer_parse_u64(String s, u64 *v)
         if (digit < 0) {
             return false;
         }
-        *v *= cast(u64)base;
-        *v += cast(u64)digit;
+        *v *= cast(lulu_uint)base;
+        *v += cast(lulu_uint)digit;
     }
 
     /*
@@ -378,7 +378,7 @@ lexer_parse_u64(String s, u64 *v)
 #define FLAG_FLOAT  (FLAG_FRAC | FLAG_EXP)
 
 LULU_INTERNAL_FUNC bool
-lexer_parse_f64(String s, f64 *v)
+lexer_parse_real(String s, lulu_real *v)
 {
     char *pend;
 

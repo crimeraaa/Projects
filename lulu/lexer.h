@@ -140,10 +140,10 @@ LULU_INTERNAL_FUNC Lexer_Error
 lexer_scan_token(Lexer *x, Token *t);
 
 LULU_INTERNAL_FUNC bool
-lexer_parse_u64(String s, u64 *v);
+lexer_parse_uint(String s, lulu_uint *v);
 
 LULU_INTERNAL_FUNC bool
-lexer_parse_f64(String s, f64 *v);
+lexer_parse_real(String s, lulu_real *v);
 
 #endif // !LULU_LEXER_H
 

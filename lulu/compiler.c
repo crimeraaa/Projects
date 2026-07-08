@@ -1,4 +1,8 @@
+#include <math.h> // trunc
+
 #include "compiler.h"
+#include "expr.h"
+#include "internal.h"
 #include "opcode.h"
 #include "type.h"
 
@@ -47,7 +51,6 @@ static i32
 compiler_code(Compiler *c, Instruction i)
 {
     i32 pc = cast(i32)c->chunk->code_len;
-    LULU_LOGF("code[%i] = %u", pc, i);
     chunk_add_instruction(c->L, c->chunk, i);
     return pc;
 }
@@ -55,13 +58,13 @@ compiler_code(Compiler *c, Instruction i)
 static i32
 compiler_code_ABC(Compiler *c, OpCode Op, u8 A, u16 B, u16 C)
 {
-    return compiler_code(c, instruction_make_ABC(Op, A, B, C));
+    return compiler_code(c, MAKE_ABC(Op, A, B, C));
 }
 
 static i32
 compiler_code_ABx(Compiler *c, OpCode Op, u8 A, u32 Bx)
 {
-    return compiler_code(c, instruction_make_ABx(Op, A, Bx));
+    return compiler_code(c, MAKE_ABx(Op, A, Bx));
 }
 
 static void
@@ -77,28 +80,32 @@ expr_discharge_reg(Compiler *c, Expr *e, u8 reg)
     expr_discharge_vars(c, e);
     switch (e->kind) {
     case Expr_Literal: 
-        LULU_ASSERT(e->type && e->type->kind == TypeKind_Atom);
-        switch (e->type->atom.kind) {
+        switch (expr_get_type_atom(e)->kind) {
         case Type_Atom_bool:
             compiler_code_ABx(c, Op_Load_imm, reg, cast(u32)e->literal_bool);
             break;
-        case Type_Atom_uint:
-            if (e->literal_uint <= INSTRUCTION_Bx_MAX) {
-                u32 imm = cast(u32)e->literal_uint;
-                compiler_code_ABx(c, Op_Load_imm, reg, imm);
+        case Type_Atom_uint: {
+            lulu_uint imm = expr_get_uint(e);
+            if (imm <= ARG_Bx_MAX) {
+                compiler_code_ABx(c, Op_Load_imm, reg, cast(u32)imm);
             } else {
                 compiler_error(c, "uint literal too large", e);
             }
             break;
-        case Type_Atom_int:
+        }
+
+        case Type_Atom_int: {
+            lulu_int imm = expr_get_int(e);
             // Use offset-K method for representing negatives.
-            if (INSTRUCTION_sBx_MIN <= e->literal_int && e->literal_int <= INSTRUCTION_sBx_MAX) {
-                u32 imm = cast(u32)(e->literal_int + INSTRUCTION_sBx_MAX);
-                compiler_code_ABx(c, Op_Load_imm, reg, imm);
+            if (ARG_sBx_MIN <= imm && imm <= ARG_sBx_MAX) {
+                imm += ARG_sBx_MAX;
+                compiler_code_ABx(c, Op_Load_imm, reg, cast(u32)imm);
             } else {
                 compiler_error(c, "int literal out of range", e);
             }
             break;
+        }
+
         case Type_Atom_real:
             compiler_error(c, "real literals not yet implemented", e);
             break;
@@ -113,7 +120,7 @@ expr_discharge_reg(Compiler *c, Expr *e, u8 reg)
         }
         break;
     case Expr_Pending:
-        instruction_set_A(&c->chunk->code[e->pc], reg);
+        SETARG_A(&c->chunk->code[e->pc], reg);
         break;
     default:
         LULU_ASSERT(!e->kind);
@@ -164,7 +171,7 @@ compiler_unary(Compiler *c, const Token *op, Expr *e)
         case Type_Atom_uint:
             // Since it's untyped, coerce it to signed.
             e->type        = type_atom_get(c->L, Type_Atom_int);
-            e->literal_int = cast(i64)e->literal_uint;
+            e->literal_int = cast(lulu_int)e->literal_uint;
             // Fallthrough
         case Type_Atom_int:  e->literal_int  = -e->literal_int;  return;
         case Type_Atom_real: e->literal_real = -e->literal_real; return;
@@ -172,7 +179,6 @@ compiler_unary(Compiler *c, const Token *op, Expr *e)
             break;
         }
         compiler_expr_any_reg(c, e);
-        // TODO(2026-07-07): Determine type in register, emit bytecode
         break;
     default:
         break;
@@ -188,16 +194,98 @@ expr_set_bool(lulu_State *L, Expr *e, bool b)
     e->literal_bool = b;
 }
 
+static bool
+compiler_coerce_signs(Compiler *c, Expr *u, Expr *i)
+{
+    // All positive signed integers can be coerced to unsigned integers.
+    lulu_int i_imm = expr_get_int(i);
+    if (i_imm >= 0) {
+        i->literal_uint = cast(lulu_uint)i_imm;
+        i->type         = u->type;
+    }
+    // Otherwise, try to coerce the unsigned integer to a signed one.
+    else {
+        lulu_uint u_imm = expr_get_uint(u);
+        // Can't possibly be represented as a signed integer.
+        if (u_imm > INT64_MAX) {
+            return false;
+        }
+        u->literal_int = cast(lulu_int)u_imm;
+        u->type        = i->type;
+    }
+    return true;
+}
+
+static bool
+compiler_coerce_uint_real(Compiler *c, Expr *u, Expr *r)
+{
+    lulu_uint u_imm = expr_get_uint(u);
+    u->literal_real = cast(lulu_real)u_imm;
+    u->type         = r->type;
+    return true;
+}
+
+static bool
+compiler_coerce_int_real(Compiler *c, Expr *i, Expr *r)
+{
+    lulu_int  i_imm = expr_get_int(i);
+    i->literal_real = cast(lulu_real)i_imm;
+    i->type         = r->type;
+    return true;
+}
+
+
+static bool
+compiler_coerce_numeric(Compiler *c, Expr *lhs, Expr *rhs)
+{
+    if (expr2_both_literal(lhs, rhs)) switch (expr_get_type_atom(lhs)->kind) {
+    case Type_Atom_uint:
+        switch (expr_get_type_atom(rhs)->kind) {
+        case Type_Atom_uint: LULU_UNREACHABLE(); break;
+        case Type_Atom_int:  return compiler_coerce_signs(c, lhs, rhs);
+        case Type_Atom_real: return compiler_coerce_uint_real(c, lhs, rhs);
+        default:
+            break;
+        }
+        break;
+    case Type_Atom_int:
+        switch (expr_get_type_atom(rhs)->kind) {
+        case Type_Atom_uint: return compiler_coerce_signs(c, rhs, lhs);
+        case Type_Atom_int:  LULU_UNREACHABLE(); break;
+        case Type_Atom_real: return compiler_coerce_int_real(c, lhs, rhs);
+        default:
+            break;
+        }
+        break;
+    case Type_Atom_real:
+        // TODO(2026-07-08): Do we really want propagation?
+        switch (expr_get_type_atom(rhs)->kind) {
+        case Type_Atom_uint: return compiler_coerce_uint_real(c, rhs, lhs);
+        case Type_Atom_int:  return compiler_coerce_int_real(c, rhs, lhs);
+        case Type_Atom_real: LULU_UNREACHABLE(); break;
+        default:
+            break;
+        }
+        break;
+    default:
+        return false;
+    }
+    return false;
+}
+
 // I'm not even going to pretend any of this is remotely sane
 #define arg(e, T)      (e)->literal_##T
 #define arith(T, op)   arg(lhs, T) op arg(rhs, T)
+#define div(T, op)     if (arg(rhs, T) == 0) return false; arith(T, op)
+#define mod            div
 #define compare(T, op) expr_set_bool(L, lhs, arg(lhs, T) op arg(rhs, T))
 #define binary(T)                                                              \
     switch ((op)->kind) {                                                      \
     case Token_Add: arith  (T, +=); break;                                     \
     case Token_Sub: arith  (T, -=); break;                                     \
     case Token_Mul: arith  (T, *=); break;                                     \
-    case Token_Div: arith  (T, /=); break;                                     \
+    case Token_Div: div    (T, /=); break;                                     \
+    case Token_Mod: mod    (T, %=); break;                                     \
     case Token_Eq:  compare(T, ==); break;                                     \
     case Token_Neq: compare(T, !=); break;                                     \
     case Token_Lt:  compare(T, <);  break;                                     \
@@ -212,21 +300,31 @@ expr_set_bool(lulu_State *L, Expr *e, bool b)
 static bool
 compiler_folded_arith(Compiler *c, const Token *op, Expr *lhs, Expr *rhs)
 {
-    lulu_State *L  = c->L;
-    if (lhs->kind != rhs->kind || lhs->kind != Expr_Literal) {
-        return false;
+    if (lhs->kind != rhs->kind) {
+        if (!compiler_coerce_numeric(c, lhs, rhs)) {
+            return false;
+        }
     }
 
-    LULU_ASSERT(lhs->type->kind == TypeKind_Atom);
-    switch (lhs->type->atom.kind) {
+    lulu_State *L = c->L;
+    switch (expr_get_type_atom(lhs)->kind) {
     case Type_Atom_uint: binary(uint); break;
     case Type_Atom_int:  binary(int);  break;
+#undef mod
+#define mod(...) return false
     case Type_Atom_real: binary(real); break;
     default:
         return false;
     }
     return true;
 }
+
+#undef mod
+#undef div
+#undef binary
+#undef compare
+#undef arith
+#undef arg
 
 static void
 expr_binary(Expr *lhs, Expr *rhs, i32 pc)
@@ -237,10 +335,9 @@ expr_binary(Expr *lhs, Expr *rhs, i32 pc)
 }
 
 static OpCode
-compiler_binary_opcode(const Token *op, Expr *e)
+compiler_binary_op(Compiler *c, const Token *op, Expr *e)
 {
-    LULU_ASSERT(e->type->kind == TypeKind_Atom);
-    switch (e->type->atom.kind) {
+    switch (expr_get_type_atom(e)->kind) {
     case Type_Atom_uint:
         switch (op->kind) {
         case Token_Add: return Op_Add_int;
@@ -267,13 +364,16 @@ compiler_binary_opcode(const Token *op, Expr *e)
         case Token_Sub: return Op_Sub_real;
         case Token_Mul: return Op_Mul_real;
         case Token_Div: return Op_Div_real;
-        case Token_Mod: return Op_Mod_real;
+        case Token_Mod:
+            compiler_error(c, "Modulo not supported for reals- consider using `fmod()`", e);
+            break;
         default:
             break;
         }
     default:
         break;
     }
+    LULU_PANICF("Invalid Token_Kind(%i) and/or ExprKind(%i)", op->kind, e->kind);
     LULU_UNREACHABLE();
     return Op_None;
 }
@@ -286,15 +386,10 @@ compiler_binary(Compiler *c, const Token *op, Expr *lhs, Expr *rhs)
         return;
     }
 #endif
-    u8 o2 = compiler_expr_any_reg(c, rhs);
-    LULU_LOGF("rhs = {ExprKind = %i, reg = %u} with o2 = %u and c.free_reg = %u",
-        rhs->kind, rhs->reg, o2, c->free_reg);
 
-    u8 o1 = compiler_expr_any_reg(c, lhs);
-    LULU_LOGF("lhs = {ExprKind = %i, reg = %u} with o1 = %u and c.free_reg = %u",
-        lhs->kind, lhs->reg, o1, c->free_reg);
-
-    if (o1 > o2) {
+    u8 r1 = expr_get_reg(lhs);
+    u8 r2 = compiler_expr_any_reg(c, rhs);
+    if (r1 > r2) {
         expr_pop(c, lhs);
         expr_pop(c, rhs);
     } else {
@@ -302,20 +397,9 @@ compiler_binary(Compiler *c, const Token *op, Expr *lhs, Expr *rhs)
         expr_pop(c, lhs);
     }
 
-    LULU_ASSERT(lhs->type->kind == TypeKind_Atom);
-    if (lhs->type == rhs->type) {
-        OpCode Op = compiler_binary_opcode(op, lhs);
-        expr_binary(lhs, rhs, compiler_code_ABC(c, Op, 0, o1, o2));
-    } else {
-        compiler_error(c, "Mismatched binary operand",
-            expr_is_numeric(lhs) ? rhs : lhs);
-    }
+    OpCode Op = compiler_binary_op(c, op, lhs);
+    expr_binary(lhs, rhs, compiler_code_ABC(c, Op, 0, r1, r2));
 }
-
-#undef binary
-#undef compare
-#undef arith
-#undef arg
 
 LULU_INTERNAL_FUNC void
 compiler_return(Compiler *c, Expr *e)

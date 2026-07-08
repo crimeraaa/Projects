@@ -6,6 +6,9 @@ chunk_destroy(lulu_State *L, Chunk *c)
 {
     mem_heap_free_array(L, c->code,   c->code_cap);
     mem_heap_free_array(L, c->values, c->values_cap);
+
+    // In case we throw errors, ensure we don't double free.
+    *c = chunk_make();
 }
 
 LULU_INTERNAL_FUNC void

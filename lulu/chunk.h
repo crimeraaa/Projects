@@ -6,7 +6,7 @@
 #include "opcode.h"
 #include "value.h"
 
-#define CHUNK_MAX_CONSTANTS ((1 << 24) - 1)
+#define CHUNK_MAX_CONSTANTS     ARG_MAX_Bx
 
 typedef struct Chunk Chunk;
 struct Chunk {
@@ -27,9 +27,9 @@ struct Chunk {
 static inline Chunk
 chunk_make(void)
 {
-    Chunk c = {nullptr, 0, 0,
-        /*values    =*/nullptr, 0, 0,
-        /*stack_size=*/0};
+    Chunk c = {/*code=*/nullptr, 0, 0,
+        /*values     =*/nullptr, 0, 0,
+        /*stack_size =*/0};
     return c;
 }
 

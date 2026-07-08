@@ -17,10 +17,10 @@ typedef enum Value_Kind {
 
 typedef union Value Value;
 union Value {
-    u64  u;
-    i64  i;
-    f64  f;
-    bool b;
+    lulu_uint u;
+    lulu_int  i;
+    lulu_real f;
+    bool      b;
 };
 
 typedef struct TValue TValue;

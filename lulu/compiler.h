@@ -5,6 +5,7 @@
 #include "internal.h"
 #include "chunk.h"
 #include "parser.h"
+#include "expr.h"
 
 struct Compiler {
     // Shared state.
