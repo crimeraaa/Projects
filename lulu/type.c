@@ -5,25 +5,21 @@
 #define type_size_of(T) offsetof(Type, atom) + sizeof(T)
 #define type_new(L, T)  cast(Type *)mem_arena_alloc(L, type_size_of(T))
 
-static Type *
-type_atom_new(lulu_State *L, Type_Atom a)
-{
-    Type *t = type_new(L, Type_Atom);
-    t->kind = TypeKind_Atom;
-    t->hash = string_hash(a.name);
-    t->atom = a;
-    return t;
-}
-
-
-static const Type_Atom
-TYPE_ATOMS[] = {
-    {Type_Atom_bool,   string_literal("bool")},
-    {Type_Atom_uint,   string_literal("uint")},
-    {Type_Atom_int,    string_literal("int")},
-    {Type_Atom_real,   string_literal("real")},
-    {Type_Atom_string, string_literal("string")},
+static const Type
+ATOM_TYPES[] = {
+    {TypeKind_None, {Atom_None,   {NULL, 0}}},
+    {TypeKind_Atom, {Atom_bool,   string_literal("bool")}},
+    {TypeKind_Atom, {Atom_uint,   string_literal("uint")}},
+    {TypeKind_Atom, {Atom_int,    string_literal("int")}},
+    {TypeKind_Atom, {Atom_real,   string_literal("real")}},
+    {TypeKind_Atom, {Atom_string, string_literal("string")}},
 };
+
+LULU_INTERNAL_FUNC const Type *
+atom_type_get(AtomKind k)
+{
+    return &ATOM_TYPES[k];
+}
 
 LULU_INTERNAL_FUNC void
 type_env_init(lulu_State *L, TypeEnv *env)
@@ -34,12 +30,9 @@ type_env_init(lulu_State *L, TypeEnv *env)
     env->cap  = 0;
 
     // Don't add the type info for 'None'.
-    for (usize i = 0; i < count_of(TYPE_ATOMS); i++) {
-        Type_Atom a = TYPE_ATOMS[i];
-        Type *    t = type_atom_new(L, a);
-
-        env->atoms[a.kind] = t;
-        type_set(L, a.name, t);
+    for (usize i = 1; i < count_of(ATOM_TYPES); i++) {
+        const Type *t = &ATOM_TYPES[i];
+        type_set(L, t->atom.name, t);
     }
 
     for (usize i = 0; i < env->cap; i++) {
@@ -55,12 +48,6 @@ type_env_destroy(lulu_State *L, TypeEnv *env)
 {
     unused(L);
     unused(env);
-}
-
-LULU_INTERNAL_FUNC const Type *
-type_atom_get(lulu_State *L, Type_Atom_Kind k)
-{
-    return L->types.atoms[k];
 }
 
 LULU_INTERNAL_FUNC bool
@@ -80,7 +67,7 @@ type_find_entry(TypeEnv_Entry *data, usize cap, String key, u32 hash)
         TypeEnv_Entry *e = &data[i];
         if (!e->type) {
             return e;
-        } else if (e->type->hash == hash && string_eq(e->key, key)) {
+        } else if (e->hash == hash && string_eq(e->key, key)) {
             return e;
         }
     }
@@ -119,7 +106,7 @@ type_rehash(lulu_State *L, TypeEnv *env, usize cap)
             continue;
         }
 
-        dst  = type_find_entry(data, cap, src.key, src.type->hash);
+        dst  = type_find_entry(data, cap, src.key, src.hash);
         *dst = src;
     }
 
@@ -138,11 +125,11 @@ type_get(lulu_State *L, String key)
 }
 
 LULU_INTERNAL_FUNC void
-type_set(lulu_State *L, String key, Type *type)
+type_set(lulu_State *L, String key, const Type *type)
 {
     TypeEnv_Entry *p;
     TypeEnv *const env  = &L->types;
-    const u32      hash = string_hash(key);
+    const u32       hash = string_hash(key);
 
     // We require at least 1 empty slot in order for the search to work.
     if (env->used + 1 >= env->cap) {
@@ -154,6 +141,7 @@ type_set(lulu_State *L, String key, Type *type)
         env->used++;
     }
     p->key  = key;
+    p->hash = hash;
     p->type = type;
 }
 

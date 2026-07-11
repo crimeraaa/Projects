@@ -80,19 +80,17 @@ state_throw(lulu_State *L, lulu_Error err)
 static void
 state_parse(lulu_State *L, void *user_data)
 {
-    Parser_Data *data = cast(Parser_Data *)user_data;
+    ParserData *data = cast(ParserData *)user_data;
     parser_parse(L, data);
+    debug_disassemble(&data->chunk);
 }
 
 LULU_INTERNAL_FUNC lulu_Error
 state_parse_protected(lulu_State *L, String path, String input)
 {
-    Parser_Data data = {path, input, chunk_make(), mem_scratch_begin(&L->arena)};
-    lulu_Error  err  = state_try(L, state_parse, &data);
+    ParserData data = {path, input, chunk_make(), mem_scratch_begin(&L->arena)};
+    lulu_Error err  = state_try(L, state_parse, &data);
     mem_scratch_end(&data.scratch);
-    if (!err) {
-        debug_disassemble(&data.chunk);
-    }
     chunk_destroy(L, &data.chunk);
     return err;
 }

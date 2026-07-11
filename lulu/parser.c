@@ -20,13 +20,20 @@ typedef enum Precedence {
     Prec_Call,
 } Precedence;
 
-// Parse a single expression of the given precedence.
-static Expr
-parser_expr_prec(Parser *p, bool lhs, Precedence prec);
+/*
+ Description:
+    Parses a single expression of the given precedence.
+ */
+static void
+parser_expr_prec(Parser *p, Expr *out, bool lhs, Precedence prec);
 
-// Parse a single expression.
-static Expr
-parser_expr(Parser *p, bool lhs);
+/*
+ Descripion:
+    Parses a single expression of the base precedence until no more
+    subexpressions can be found.
+ */
+static void
+parser_expr(Parser *p, Expr *out, bool lhs);
 
 static const char *
 parser_clamp_string(char *buf, usize buf_len, String s)
@@ -73,20 +80,20 @@ parser_error_at(Parser *p, const char *info, const Token *t)
 static void
 parser_advance(Parser *p)
 {
-    Lexer_Error err = lexer_scan_token(&p->lexer, &p->token);
+    LexerError err = lexer_scan_token(&p->lexer, &p->token);
     if (err) {
         parser_error(p, lexer_error_string(err));
     }
 }
 
 static bool
-parser_check(const Parser *p, Token_Kind k)
+parser_check(const Parser *p, TokenKind k)
 {
     return p->token.kind == k;
 }
 
 static bool
-parser_match(Parser *p, Token_Kind k)
+parser_match(Parser *p, TokenKind k)
 {
     bool found = parser_check(p, k);
     if (found) {
@@ -96,7 +103,7 @@ parser_match(Parser *p, Token_Kind k)
 }
 
 static void
-parser_expect(Parser *p, Token_Kind k)
+parser_expect(Parser *p, TokenKind k)
 {
     if (!parser_match(p, k)) {
         char buf[64];
@@ -114,25 +121,22 @@ NOTE(2026-07-03):
 
     https://github.com/odin-lang/Odin/blob/1007ea278534e037fa586564c91113f5c925c286/src/parser.cpp#L2379
  */
-static Expr
-parser_operand(Parser *p, bool lhs)
+static void
+parser_operand(Parser *p, Expr *out, bool lhs)
 {
-    lulu_State *L       = p->L;
-    Token       token   = p->token;
-    Expr        operand = expr_make_none();
-
+    Token token = p->token;
     parser_advance(p);
     switch (token.kind) {
-    case Token_nil:     operand.kind = Expr_nil;   break;
+    case Token_nil:     *out = expr_make_nil(&token); break;
     case Token_false:   // fallthrough
-    case Token_true:    operand = expr_make_bool(L, &token);  break;
+    case Token_true:    *out = expr_make_bool(&token); break;
     case Token_Int: {
         lulu_uint tmp;
         if (!lexer_parse_uint(token.lexeme, &tmp)) {
             const char *info = lexer_error_string(LEXER_INVALID_NUMBER);
             parser_error_at(p, info, &token);
         }
-        operand = expr_make_uint(L, &token, tmp);
+        *out = expr_make_uint(&token, tmp);
         break;
     }
     case Token_Float: {
@@ -141,11 +145,11 @@ parser_operand(Parser *p, bool lhs)
             const char *info = lexer_error_string(LEXER_INVALID_NUMBER);
             parser_error_at(p, info, &token);
         }
-        operand = expr_make_real(L, &token, tmp);
+        *out = expr_make_real(&token, tmp);
         break;
     }
     case Token_Open_Paren:
-        operand = parser_expr(p, lhs);
+        parser_expr(p, out, lhs);
         parser_expect(p, Token_Close_Paren);
         break;
     case Token_Open_Curly:
@@ -163,11 +167,10 @@ parser_operand(Parser *p, bool lhs)
         parser_error_at(p, "Expected an operand", &token);
         break;
     }
-    return operand;
 }
 
 static void
-parser_atom_expr(Parser *p, bool lhs, Expr *operand)
+parser_atom_expr(Parser *p, Expr *operand, bool lhs)
 {
 #if 0
     bool loop = true;
@@ -209,11 +212,10 @@ parser_type(Parser *p)
     return type;
 }
 
-static Expr
-parser_unary_expr(Parser *p, bool lhs)
+static void
+parser_unary_expr(Parser *p, Expr *out, bool lhs)
 {
-    Expr  expr = expr_make_none();
-    Token op   = p->token;
+    Token op = p->token;
     switch (op.kind) {
     case Token_cast: {
         parser_advance(p);
@@ -222,8 +224,8 @@ parser_unary_expr(Parser *p, bool lhs)
         const Type *type = parser_type(p);
         parser_expect(p, Token_Close_Paren);
 
-        expr = parser_expr_prec(p, /*lhs=*/false, Prec_Unary);
-        compiler_cast(p->compiler, type, &expr);
+        parser_expr_prec(p, out, /*lhs=*/false, Prec_Unary);
+        compiler_cast(p->compiler, type, out);
         break;
     }
     case Token_Sub:
@@ -232,16 +234,15 @@ parser_unary_expr(Parser *p, bool lhs)
         // Skip the unary operand so the first token of the argument
         // is our current.
         parser_advance(p);
-        expr = parser_expr_prec(p, lhs, Prec_Unary);
-        compiler_unary(p->compiler, &op, &expr);
+        parser_expr_prec(p, out, lhs, Prec_Unary);
+        compiler_unary(p->compiler, &op, out);
         break;
     }
     default:
-        expr = parser_operand(p, lhs);
-        parser_atom_expr(p, lhs, &expr);
+        parser_operand  (p, out, lhs);
+        parser_atom_expr(p, out, lhs);
         break;
     }
-    return expr;
 }
 
 static void
@@ -259,7 +260,7 @@ parser_recurse_pop(Parser *p)
 }
 
 static Precedence
-parser_prec(Token_Kind k)
+parser_prec(TokenKind k)
 {
     switch (k) {
     case Token_Add:
@@ -281,14 +282,14 @@ parser_prec(Token_Kind k)
     return Prec_None;
 }
 
-static Expr
-parser_expr_prec(Parser *p, bool lhs, Precedence prec_in)
+static void
+parser_expr_prec(Parser *p, Expr *lhs_out, bool lhs, Precedence prec_in)
 {
-    Expr      a, b;
+    Expr      rhs_expr;
     Compiler *c = p->compiler;
 
     parser_recurse_push(p);
-    a = parser_unary_expr(p, lhs);
+    parser_unary_expr(p, lhs_out, lhs);
     for (;;) {
         // This also catches tokens that are not binary operators.
         const Token op       = p->token;
@@ -299,29 +300,29 @@ parser_expr_prec(Parser *p, bool lhs, Precedence prec_in)
 
         parser_advance(p);
 #if PARSER_CONSTANT_FOLDING
-        if (!expr_is_literal(&a)) {
-            compiler_expr_any_reg(c, &a);
+        if (!expr_is_literal(lhs_out)) {
+            compiler_expr_any_reg(c, lhs_out);
         }
 #else
-        compiler_expr_any_reg(c, &a);
+        compiler_expr_any_reg(c, lhs_out);
 #endif
-        b = parser_expr_prec(p, false, prec_out + 1);
-        compiler_binary(c, &op, &a, &b);
+        parser_expr_prec(p, &rhs_expr, false, prec_out + 1);
+        compiler_binary(c, &op, lhs_out, &rhs_expr);
     }
     parser_recurse_pop(p);
-    return a;
 }
 
-static Expr
-parser_expr(Parser *p, bool lhs)
+static void
+parser_expr(Parser *p, Expr *out, bool lhs)
 {
-    return parser_expr_prec(p, lhs, Prec_Expr);
+    parser_expr_prec(p, out, lhs, Prec_Expr);
 }
 
 static void
 parser_assign(Parser *p)
 {
-    Expr lhs = parser_expr(p, /*lhs=*/true);
+    Expr lhs;
+    parser_expr(p, &lhs, /*lhs=*/true);
     compiler_return(p->compiler, &lhs);
 #if 0
     switch (p->token.kind) {
@@ -337,7 +338,8 @@ parser_assign(Parser *p)
 static void
 parser_stmt_expr(Parser *p)
 {
-    Expr e = parser_expr(p, /*lhs=*/false);
+    Expr e;
+    parser_expr(p, &e, /*lhs=*/false);
     compiler_return(p->compiler, &e);
 }
 
@@ -358,7 +360,7 @@ parser_simple_stmt(Parser *p)
 
 
 static Parser
-parser_make(lulu_State *L, Compiler *c, Parser_Data *data)
+parser_make(lulu_State *L, Compiler *c, ParserData *data)
 {
     Parser p = {L, c, lexer_make(data->path, data->input),
         /*token     =*/token_make_none(),
@@ -370,12 +372,12 @@ parser_make(lulu_State *L, Compiler *c, Parser_Data *data)
 }
 
 LULU_INTERNAL_FUNC Chunk *
-parser_parse(lulu_State *L, Parser_Data *data)
+parser_parse(lulu_State *L, ParserData *data)
 {
     Parser   p;
     Compiler c;
-    p     = parser_make(L, &c, data);
-    c     = compiler_make(L, &p, &data->chunk);
+    p = parser_make(L, &c, data);
+    c = compiler_make(L, &p, &data->chunk);
     parser_simple_stmt(&p);
     parser_expect(&p, Token_Eof);
     return c.chunk;

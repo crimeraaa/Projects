@@ -33,15 +33,15 @@ struct Parser {
 };
 
 
-typedef struct Parser_Data Parser_Data;
-struct Parser_Data {
+typedef struct ParserData ParserData;
+struct ParserData {
     String  path, input;
     Chunk   chunk;
     Scratch scratch;
 };
 
 LULU_INTERNAL_FUNC Chunk *
-parser_parse(lulu_State *L, Parser_Data *data);
+parser_parse(lulu_State *L, ParserData *data);
 
 // The most common case is to error at the current token.
 LULU_INTERNAL_FUNC LULU_NORETURN void

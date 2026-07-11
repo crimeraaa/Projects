@@ -2,6 +2,7 @@
 #define LULU_INTERNAL_H
 
 // standard
+#include <inttypes.h> // PRI*
 #include <stdbool.h> // bool
 #include <stddef.h>  // size_t
 #include <stdint.h>  //  u?int\d+_t
@@ -109,5 +110,9 @@ typedef uintptr_t uintptr;
 typedef i64 lulu_int;
 typedef u64 lulu_uint;
 typedef f64 lulu_real;
+
+#define LULU_UINT_MAX   (~(lulu_uint)0)
+#define LULU_INT_MAX    cast(lulu_int)(LULU_UINT_MAX >> 1)
+#define LULU_INT_MIN    (-LULU_INT_MAX)
 
 #endif // !LULU_INTERNAL_H

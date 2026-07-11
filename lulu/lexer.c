@@ -10,13 +10,13 @@ TOKEN_KIND_STRINGS[] = {
 };
 
 static String
-token_kind_string(Token_Kind k)
+token_kind_string(TokenKind k)
 {
     return TOKEN_KIND_STRINGS[k];
 }
 
 LULU_INTERNAL_FUNC const char *
-token_kind_cstring(Token_Kind k)
+token_kind_cstring(TokenKind k)
 {
     return TOKEN_KIND_STRINGS[k].data;
 }
@@ -102,7 +102,7 @@ lexer_get_lexeme(const Lexer *x)
 
 // Wrapper function. Call this manually only for multiline strings.
 static Token
-token_make(Token_Kind k, String s, i32 line, i32 col)
+token_make(TokenKind k, String s, i32 line, i32 col)
 {
     Token t;
     t.kind    = k;
@@ -114,7 +114,7 @@ token_make(Token_Kind k, String s, i32 line, i32 col)
 
 // Initalizes the given token with the current lexeme.
 static void
-lexer_init_token(const Lexer *x, Token *t, Token_Kind k)
+lexer_init_token(const Lexer *x, Token *t, TokenKind k)
 {
     String s;
     i32 line, col;
@@ -230,8 +230,8 @@ lexer_skip_whitespace(Lexer *x)
 
 // Since MSVC is absolutely braindead, they pass 16-byte structs on the stack
 // rather than in registers.
-static Token_Kind
-lexer_get_keyword_kind(String s, Token_Kind kind, usize offset)
+static TokenKind
+lexer_get_keyword(String s, TokenKind kind, usize offset)
 {
     String kw = token_kind_string(kind);
     if (s.len != kw.len) {
@@ -240,58 +240,58 @@ lexer_get_keyword_kind(String s, Token_Kind kind, usize offset)
     return string_eq(s, kw) ? kind : Token_Ident;
 }
 
-static Lexer_Error
+static LexerError
 lexer_scan_keyword_or_ident(Lexer *x, String s, Token *t)
 {
-    Token_Kind k = Token_Ident;
+    TokenKind k = Token_Ident;
     // len("do") <= n <= len("function")
     if (2 <= s.len && s.len <= 8) switch (s.data[0]) {
-    case 'a': k = lexer_get_keyword_kind(s, Token_and,   1); break;
-    case 'b': k = lexer_get_keyword_kind(s, Token_break, 1); break;
-    case 'c': k = lexer_get_keyword_kind(s, Token_cast,  1); break;
-    case 'd': k = lexer_get_keyword_kind(s, Token_do,    1); break;
+    case 'a': k = lexer_get_keyword(s, Token_and,   1); break;
+    case 'b': k = lexer_get_keyword(s, Token_break, 1); break;
+    case 'c': k = lexer_get_keyword(s, Token_cast,  1); break;
+    case 'd': k = lexer_get_keyword(s, Token_do,    1); break;
     case 'e':
         switch (s.len) {
-        case 3: k = lexer_get_keyword_kind(s, Token_end,    1); break;
-        case 4: k = lexer_get_keyword_kind(s, Token_else,   1); break;
-        case 6: k = lexer_get_keyword_kind(s, Token_elseif, 1); break;
+        case 3: k = lexer_get_keyword(s, Token_end,    1); break;
+        case 4: k = lexer_get_keyword(s, Token_else,   1); break;
+        case 6: k = lexer_get_keyword(s, Token_elseif, 1); break;
         }
         break;
     case 'f':
         switch (s.data[1]) {
-        case 'a': k = lexer_get_keyword_kind(s, Token_false,    2); break;
-        case 'o': k = lexer_get_keyword_kind(s, Token_for,      2); break;
-        case 'u': k = lexer_get_keyword_kind(s, Token_function, 2); break;
+        case 'a': k = lexer_get_keyword(s, Token_false,    2); break;
+        case 'o': k = lexer_get_keyword(s, Token_for,      2); break;
+        case 'u': k = lexer_get_keyword(s, Token_function, 2); break;
         }
         break;
     case 'i':
         switch (s.data[1]) {
-        case 'f': k = lexer_get_keyword_kind(s, Token_if, 2); break;
-        case 'n': k = lexer_get_keyword_kind(s, Token_in, 2); break;
+        case 'f': k = lexer_get_keyword(s, Token_if, 2); break;
+        case 'n': k = lexer_get_keyword(s, Token_in, 2); break;
         }
         break;
-    case 'l': k = lexer_get_keyword_kind(s, Token_local, 1); break;
+    case 'l': k = lexer_get_keyword(s, Token_local, 1); break;
     case 'n':
         switch (s.data[1]) {
-        case 'i': k = lexer_get_keyword_kind(s, Token_nil, 2); break;
-        case 'o': k = lexer_get_keyword_kind(s, Token_not, 2); break;
+        case 'i': k = lexer_get_keyword(s, Token_nil, 2); break;
+        case 'o': k = lexer_get_keyword(s, Token_not, 2); break;
         }
         break;
-    case 'o': k = lexer_get_keyword_kind(s, Token_or, 1); break;
+    case 'o': k = lexer_get_keyword(s, Token_or, 1); break;
     case 'r':
         if (s.len == 6 && s.data[1] == 'e') switch (s.data[2]) {
-        case 'p': k = lexer_get_keyword_kind(s, Token_repeat, 2); break;
-        case 't': k = lexer_get_keyword_kind(s, Token_return, 2); break;
+        case 'p': k = lexer_get_keyword(s, Token_repeat, 2); break;
+        case 't': k = lexer_get_keyword(s, Token_return, 2); break;
         }
         break;
     case 't':
         switch (s.data[1]) {
-        case 'h': k = lexer_get_keyword_kind(s, Token_then, 2); break;
-        case 'r': k = lexer_get_keyword_kind(s, Token_true, 2); break;
+        case 'h': k = lexer_get_keyword(s, Token_then, 2); break;
+        case 'r': k = lexer_get_keyword(s, Token_true, 2); break;
         }
         break;
-    case 'u': k = lexer_get_keyword_kind(s, Token_until, 1); break;
-    case 'w': k = lexer_get_keyword_kind(s, Token_while, 1); break;
+    case 'u': k = lexer_get_keyword(s, Token_until, 1); break;
+    case 'w': k = lexer_get_keyword(s, Token_while, 1); break;
     default:
         break;
     }
@@ -390,7 +390,7 @@ lexer_parse_real(String s, lulu_real *v)
     return pend == s.data + s.len;
 }
 
-static Lexer_Error
+static LexerError
 lexer_scan_number(Lexer *x, Token *t)
 {
     bool ok    = true;
@@ -424,7 +424,7 @@ lexer_scan_number(Lexer *x, Token *t)
 #undef FLAG_EXP
 #undef FLAG_FRAC
 
-static Lexer_Error
+static LexerError
 lexer_scan_string(Lexer *x, Token *t, char quote)
 {
     bool ok = false;
@@ -448,11 +448,11 @@ lexer_scan_string(Lexer *x, Token *t, char quote)
     return LEXER_OK;
 }
 
-LULU_INTERNAL_FUNC Lexer_Error
+LULU_INTERNAL_FUNC LexerError
 lexer_scan_token(Lexer *x, Token *t)
 {
-    char c;
-    Token_Kind k;
+    TokenKind k = Token_None;
+    char      c = 0;
     lexer_skip_whitespace(x);
     if (lexer_eof(x)) {
         lexer_init_token(x, t, Token_Eof);
@@ -460,8 +460,7 @@ lexer_scan_token(Lexer *x, Token *t)
     }
 
     x->start = x->cursor;
-    c = lexer_next_char(x);
-    k = Token_None;
+    c        = lexer_next_char(x);
 
     /* TODO(2025-06-29)
         If we're assuming ASCII only (which is a dangerous assumptiuon!) then
@@ -517,11 +516,11 @@ lexer_scan_token(Lexer *x, Token *t)
         break;
     }
     lexer_init_token(x, t, k);
-    return (k == Token_None) ? LEXER_UNEXPECTED_CHARACTER : LEXER_OK;
+    return k ? LEXER_OK : LEXER_UNEXPECTED_CHARACTER;
 }
 
 LULU_INTERNAL_FUNC const char *
-lexer_error_string(Lexer_Error err)
+lexer_error_string(LexerError err)
 {
     switch (err) {
     case LEXER_OK:                   return "No error";

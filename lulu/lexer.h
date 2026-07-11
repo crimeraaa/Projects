@@ -72,16 +72,16 @@
 /**
  * @link https://www.lua.org/manual/5.1/manual.html
  */
-enum Token_Kind {
+enum TokenKind {
 #define X(e, s) e,
     TOKEN_KINDS(X)
 #undef X
 };
 
-typedef enum   Token_Kind Token_Kind;
-typedef struct Token      Token;
+typedef enum   TokenKind TokenKind;
+typedef struct Token     Token;
 struct Token {
-    Token_Kind kind;
+    TokenKind kind;
 
     // String view into the source code.
     String lexeme;
@@ -105,17 +105,17 @@ struct Lexer {
     i32 line, col;
 };
 
-enum Lexer_Error {
+enum LexerError {
     LEXER_OK,
     LEXER_UNEXPECTED_CHARACTER,
     LEXER_INVALID_NUMBER,
     LEXER_UNTERMINATED_STRING,
 };
 
-typedef enum Lexer_Error Lexer_Error;
+typedef enum LexerError LexerError;
 
 LULU_INTERNAL_FUNC const char *
-token_kind_cstring(Token_Kind k);
+token_kind_cstring(TokenKind k);
 
 static inline Token
 token_make_none(void)
@@ -134,9 +134,9 @@ lexer_make(String path, String input)
 }
 
 LULU_INTERNAL_FUNC const char *
-lexer_error_string(Lexer_Error err);
+lexer_error_string(LexerError err);
 
-LULU_INTERNAL_FUNC Lexer_Error
+LULU_INTERNAL_FUNC LexerError
 lexer_scan_token(Lexer *x, Token *t);
 
 LULU_INTERNAL_FUNC bool

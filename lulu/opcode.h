@@ -3,32 +3,46 @@
 
 #include "internal.h"
 
+#define OPCODE_KINDS(X) \
+    X(Op_None, "<none>", ABC)                                                  \
+/* Literals */                                                                 \
+    X(Op_bool,     "bool",     ABC)  /* R(A) := (bool)B       */               \
+    X(Op_uint_imm, "uint.imm", ABx)  /* R(A) := (uint)Bx      */               \
+    X(Op_uint_k,   "uint.k",   ABx)  /* R(A) := K(Bx).(uint)  */               \
+    X(Op_int_imm,  "int.imm",  AsBx) /* R(A) := (int)(Bx - k) */               \
+    X(Op_int_k,    "int.k",    ABx)  /* R(A) := K(Bx).(int)   */               \
+    X(Op_real,     "real",     ABx)  /* R(A) := K(Bx).(real)  */               \
+/* Conversion operations */                                                    \
+    X(Op_not, "not", ABC)                                                      \
+/* Integer Arithmetic (1): Shared signed and unsigned operations */            \
+    X(Op_neg, "neg", ABC) /* R(A) := -R(B)        */                           \
+    X(Op_add, "add", ABC) /* R(A) := R(B) + R(C)  */                           \
+    X(Op_sub, "sub", ABC) /* R(A) := R(B) - R(C)  */                           \
+/* Integer Arithmetic (2): Dedicated signed and unsigned operations */         \
+    X(Op_mul,  "mul",      ABC) /* R(A) := R(B) * R(C)  */                     \
+    X(Op_div,  "div",      ABC) /* R(A) := R(B) / R(C) */                      \
+    X(Op_mod,  "mod",      ABC) /* R(A) := R(B) % R(C) */                      \
+    X(Op_imul, "mul.int",  ABC) /* R(A) := R(B) * R(C)  */                     \
+    X(Op_idiv, "div.int",  ABC) /* R(A) := R(B) / R(C) */                      \
+    X(Op_imod, "mod.int",  ABC) /* R(A) := R(B) % R(C) */                      \
+/* Floating-point arithmetic */                                                \
+    X(Op_fneg, "neg.real", ABC) /* R(A) := -R(B)       */                      \
+    X(Op_fadd, "add.real", ABC) /* R(A) := R(B) + R(C) */                      \
+    X(Op_fsub, "sub.real", ABC) /* R(A) := R(B) + R(C) */                      \
+    X(Op_fmul, "mul.real", ABC) /* R(A) := R(B) + R(C) */                      \
+    X(Op_fdiv, "div.real", ABC) /* R(A) := R(B) + R(C) */                      \
+/* Other */                                                                    \
+    X(Op_return, "return", ABC)
+
 typedef enum OpCode {
-    Op_None,
-
-    // Literals
-    Op_Load_imm,  // R(A) := (uint)Bx
-    Op_Load_int,  // R(A) := K(Bx)
-    Op_Load_real, // R(A) := K(Bx).(real)
-
-    // Conversion operations
-
-    // Integer arithmetic: common operations that apply to uint and int
-    // R(A) := R(B) op R(C)
-    Op_Neg_int, Op_Add_int, Op_Sub_int, Op_Mul_int,
-
-    // Integer arithmetic: discriminated operations
-    // R(A) := R(B) op R(C)
-    Op_Div_uint, Op_Mod_uint,
-    Op_Div_int,  Op_Mod_int,
-
-    // Floating-point arithmetic
-    // R(A) := R(B) op R(C)
-    Op_Neg_real, Op_Add_real, Op_Sub_real, Op_Mul_real, Op_Div_real,
-
-    // return
-    Op_Return,
+#define X(e, s, fmt) e,
+    OPCODE_KINDS(X)
+#undef X
 } OpCode;
+
+typedef enum OpFormat {
+    fABC, fABx, fAsBx,
+} OpFormat;
 
 // Instruction argument bitfield sizes.
 #define ARG_OP_WIDTH        6
@@ -101,35 +115,12 @@ typedef u32 Instruction;
         | (cast(Instruction)A  << ARG_A_OFFSET)                                \
         | (cast(Instruction)Bx << ARG_Bx_OFFSET) )
 
-static inline OpCode
-GET_OPCODE(Instruction i)
-{
-    return cast(OpCode)((i >> ARG_OP_OFFSET) & ARG_OP_MAX);
-}
-
-static inline u8
-GETARG_A(Instruction i)
-{
-    return cast(u8)((i >> ARG_A_OFFSET) & ARG_A_MAX);
-}
-
-static inline u16
-GETARG_B(Instruction i)
-{
-    return cast(u16)((i >> ARG_B_OFFSET) & ARG_B_MAX);
-}
-
-static inline u16
-GETARG_C(Instruction i)
-{
-    return cast(u16)((i >> ARG_C_OFFSET) & ARG_C_MAX);
-}
-
-static inline u32
-GETARG_Bx(Instruction i)
-{
-    return (i >> ARG_Bx_OFFSET) & ARG_Bx_MAX;
-}
+#define GET_OPCODE(i)   cast(OpCode)((i >> ARG_OP_OFFSET) & ARG_OP_MAX)
+#define GETARG_A(i)     cast(u8) ((i >> ARG_A_OFFSET) & ARG_A_MAX)
+#define GETARG_B(i)     cast(u16)((i >> ARG_B_OFFSET) & ARG_B_MAX)
+#define GETARG_C(i)     cast(u16)((i >> ARG_C_OFFSET) & ARG_C_MAX)
+#define GETARG_Bx(i)    ((i >> ARG_Bx_OFFSET) & ARG_Bx_MAX)
+#define GETARG_sBx(i)   cast(i32)(GETARG_Bx(i) - ARG_sBx_MAX)
 
 #define SET_OPCODE(ip, Op) \
     (*(ip) = (*(ip) & ARG_OP_MASK0) | (cast(u32)Op << ARG_OP_OFFSET))

@@ -13,6 +13,9 @@ typedef enum ExprKind {
     Expr_nil,
     Expr_Literal,
 
+    // Constant index is in `constant`.
+    Expr_Constant,
+
     // Expression has been set to a register `reg`.
     Expr_Discharged,
 
@@ -65,33 +68,32 @@ expr_make_nil(const Token *token)
 }
 
 static inline Expr
-expr_make_literal(lulu_State *L, Type_Atom_Kind kind, const Token *token)
+expr_make_literal(AtomKind kind, const Token *token)
 {
-    const Type *type = type_atom_get(L, kind);
-    Expr        expr = expr_make(Expr_Literal, type, token);
-    return expr;
+    const Type *type = atom_type_get(kind);
+    return expr_make(Expr_Literal, type, token);
 }
 
 static inline Expr
-expr_make_bool(lulu_State *L, const Token *token)
+expr_make_bool(const Token *token)
 {
-    Expr expr = expr_make_literal(L, Type_Atom_bool, token);
+    Expr expr = expr_make_literal(Atom_bool, token);
     expr.literal_bool = (token->kind == Token_true);
     return expr;
 }
 
 static inline Expr
-expr_make_uint(lulu_State *L, const Token *token, lulu_uint literal)
+expr_make_uint(const Token *token, lulu_uint literal)
 {
-    Expr expr = expr_make_literal(L, Type_Atom_uint, token);
+    Expr expr = expr_make_literal(Atom_uint, token);
     expr.literal_uint = literal;
     return expr;
 }
 
 static inline Expr
-expr_make_real(lulu_State *L, const Token *token, lulu_real literal)
+expr_make_real(const Token *token, lulu_real literal)
 {
-    Expr expr = expr_make_literal(L, Type_Atom_real, token);
+    Expr expr = expr_make_literal(Atom_real, token);
     expr.literal_real = literal;
     return expr;
 }
@@ -103,9 +105,9 @@ expr_is_numeric(Expr *e)
     switch (e->type->kind) {
     case TypeKind_Atom:
         switch (e->type->atom.kind) {
-        case Type_Atom_uint:
-        case Type_Atom_int:
-        case Type_Atom_real: return true;
+        case Atom_uint:
+        case Atom_int:
+        case Atom_real: return true;
         default:
             break;
         }
@@ -115,6 +117,13 @@ expr_is_numeric(Expr *e)
         break;
     }
     return false;
+}
+
+static inline void
+expr_set_constant(Expr *e, u32 index)
+{
+    e->kind     = Expr_Constant;
+    e->constant = index;
 }
 
 static inline bool
@@ -142,40 +151,49 @@ expr_is_pc(Expr *a)
 }
 
 static inline bool
-expr_has_type_atom(Expr *e)
+expr_has_atom_type(Expr *e)
 {
     return e->type != nullptr && e->type->kind == TypeKind_Atom;
 }
 
-#define expr_get_type_atom(e)   (LULU_ASSERT(expr_has_type_atom(e)), &e->type->atom)
+static inline bool
+expr_has_atom_kind(Expr *e, AtomKind kind)
+{
+    return expr_has_atom_type(e) && e->type->atom.kind == kind;
+}
+
+#define expr_get_atom_kind(e) \
+    (LULU_ASSERT(expr_has_atom_type(e)),\
+     (e)->type->atom.kind)
 
 static inline bool
-expr_is_literal_type(Expr *e, Type_Atom_Kind kind)
+expr_is_literal_type(Expr *e, AtomKind kind)
 {
-    return expr_is_literal(e) && expr_get_type_atom(e)->kind == kind;
+    return expr_is_literal(e) && e->type->atom.kind == kind;
 }
+
 static inline bool
 expr_is_literal_uint(Expr *e)
 {
-    return expr_is_literal_type(e, Type_Atom_uint);
+    return expr_is_literal_type(e, Atom_uint);
 }
 
 static inline bool
 expr_is_literal_bool(Expr *e)
 {
-    return expr_is_literal_type(e, Type_Atom_bool);
+    return expr_is_literal_type(e, Atom_bool);
 }
 
 static inline bool
 expr_is_literal_int(Expr *e)
 {
-    return expr_is_literal_type(e, Type_Atom_int);
+    return expr_is_literal_type(e, Atom_int);
 }
 
 static inline bool
 expr_is_literal_real(Expr *e)
 {
-    return expr_is_literal_type(e, Type_Atom_real);
+    return expr_is_literal_type(e, Atom_real);
 }
 
 #define expr_get_uint(e) (LULU_ASSERT(expr_is_literal_uint(e)), e->literal_uint)
