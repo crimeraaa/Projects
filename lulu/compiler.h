@@ -14,8 +14,8 @@ struct Compiler {
 
     // Compiler state.
     Chunk *chunk;
-    u8     free_reg;
-    u8     active_count;
+    u16    free_reg;
+    u16    active_count;
 };
 
 static inline Compiler
@@ -25,10 +25,10 @@ compiler_make(lulu_State *L, Parser *p, Chunk *chunk)
     return c;
 }
 
-LULU_INTERNAL_FUNC u8
+LULU_INTERNAL_FUNC u16
 compiler_expr_next_reg(Compiler *c, Expr *e);
 
-LULU_INTERNAL_FUNC u8
+LULU_INTERNAL_FUNC u16
 compiler_expr_any_reg(Compiler *c, Expr *e);
 
 LULU_INTERNAL_FUNC void

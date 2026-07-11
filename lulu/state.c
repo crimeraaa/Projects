@@ -7,6 +7,7 @@
 #include "parser.h"
 #include "type.h"
 #include "debug.h"
+#include "vm.h"
 
 struct lulu_Error_Handler {
     lulu_Error_Handler *prev;
@@ -80,9 +81,11 @@ state_throw(lulu_State *L, lulu_Error err)
 static void
 state_parse(lulu_State *L, void *user_data)
 {
-    ParserData *data = cast(ParserData *)user_data;
+    ParserData *data  = cast(ParserData *)user_data;
+    Chunk *     chunk = &data->chunk;
     parser_parse(L, data);
-    debug_disassemble(&data->chunk);
+    debug_disassemble(chunk);
+    vm_execute(L, chunk);
 }
 
 LULU_INTERNAL_FUNC lulu_Error

@@ -1,23 +1,26 @@
 #include "type.h"
 #include "state.h"
 #include "mem.h"
+#include "strings.h"
 
 #define type_size_of(T) offsetof(Type, atom) + sizeof(T)
 #define type_new(L, T)  cast(Type *)mem_arena_alloc(L, type_size_of(T))
 
+// Don't add the type info for 'None'.
 static const Type
 ATOM_TYPES[] = {
-    {TypeKind_None, {Atom_None,   {NULL, 0}}},
-    {TypeKind_Atom, {Atom_bool,   string_literal("bool")}},
-    {TypeKind_Atom, {Atom_uint,   string_literal("uint")}},
-    {TypeKind_Atom, {Atom_int,    string_literal("int")}},
-    {TypeKind_Atom, {Atom_real,   string_literal("real")}},
-    {TypeKind_Atom, {Atom_string, string_literal("string")}},
+    {TypeKind_None, {Value_nil,    string_literal("nil")}},
+    {TypeKind_Atom, {Value_bool,   string_literal("bool")}},
+    {TypeKind_Atom, {Value_uint,   string_literal("uint")}},
+    {TypeKind_Atom, {Value_int,    string_literal("int")}},
+    {TypeKind_Atom, {Value_real,   string_literal("real")}},
+    {TypeKind_Atom, {Value_string, string_literal("string")}},
 };
 
 LULU_INTERNAL_FUNC const Type *
-atom_type_get(AtomKind k)
+atom_type_get(ValueKind k)
 {
+    LULU_ASSERT(k != Value_none);
     return &ATOM_TYPES[k];
 }
 
@@ -29,8 +32,7 @@ type_env_init(lulu_State *L, TypeEnv *env)
     env->used = 0;
     env->cap  = 0;
 
-    // Don't add the type info for 'None'.
-    for (usize i = 1; i < count_of(ATOM_TYPES); i++) {
+    for (usize i = 0; i < count_of(ATOM_TYPES); i++) {
         const Type *t = &ATOM_TYPES[i];
         type_set(L, t->atom.name, t);
     }

@@ -60,30 +60,33 @@ print_real(lulu_real r)
 LULU_INTERNAL_FUNC void
 debug_disassemble(const Chunk *c)
 {
-    printf("=== DISASSEMBLY ===\n"
-           ".values:\n");
-    for (usize i = 0; i < c->values_len; i++) {
-        TValue v = c->values[i];
-        printf("| [%zu]: ", i);
-        switch (v.kind) {
-        case Value_Invalid: LULU_UNREACHABLE();    break;
-        case Value_nil:     fputs("nil", stdout);  break;
-        case Value_bool:    print_bool(v.value.b); break;
-        case Value_uint:    print_uint(v.value.u, /*print_type=*/true); break;
-        case Value_int:     print_int (v.value.i); break;
-        case Value_real:    print_real(v.value.f); break;
-        case Value_string:
-            LULU_PANIC();
-            break;
+    printf("======== DISASSEMBLY ========\n");
+
+    if (c->values_len > 0) {
+        printf(".values:\n");
+        for (usize i = 0; i < c->values_len; i++) {
+            TValue v = c->values[i];
+            printf("| [%zu]: ", i);
+            switch (v.kind) {
+            case Value_none:    LULU_UNREACHABLE();          break;
+            case Value_nil:     fputs("nil", stdout);        break;
+            case Value_bool:    print_bool(v.value.b);       break;
+            case Value_uint:    print_uint(v.value.u, true); break;
+            case Value_int:     print_int (v.value.i);       break;
+            case Value_real:    print_real(v.value.f);       break;
+            case Value_string:
+                LULU_PANIC();
+                break;
+            }
+            putc('\n', stdout);
         }
-        putc('\n', stdout);
     }
 
     printf(".code:\n");
     for (usize i = 0; i < c->code_len; i++) {
         debug_disassemble_at(c, i);
     }
-    printf("===================\n");
+    printf("=============================\n");
 }
 
 typedef struct OpInfo OpInfo;

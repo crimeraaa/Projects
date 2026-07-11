@@ -4,15 +4,7 @@
 #include "lulu.h"
 #include "internal.h"
 #include "strings.h"
-
-typedef enum AtomKind {
-    Atom_None,
-    Atom_bool,
-    Atom_uint,
-    Atom_int,
-    Atom_real,
-    Atom_string,
-} AtomKind;
+#include "value.h"
 
 /*
  Description:
@@ -20,8 +12,8 @@ typedef enum AtomKind {
  */
 typedef struct AtomType AtomType;
 struct AtomType {
-    AtomKind kind;
-    String   name;
+    ValueKind kind;
+    String    name;
 };
 
 typedef enum TypeKind {
@@ -58,7 +50,7 @@ type_is_atom(const Type *t)
 }
 
 LULU_INTERNAL_FUNC const Type *
-atom_type_get(AtomKind k);
+atom_type_get(ValueKind k);
 
 LULU_INTERNAL_FUNC void
 type_env_init(lulu_State *L, TypeEnv *env);

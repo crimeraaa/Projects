@@ -6,31 +6,43 @@
 #define OPCODE_KINDS(X) \
     X(Op_None, "<none>", ABC)                                                  \
 /* Literals */                                                                 \
-    X(Op_bool,     "bool",     ABC)  /* R(A) := (bool)B       */               \
-    X(Op_uint_imm, "uint.imm", ABx)  /* R(A) := (uint)Bx      */               \
-    X(Op_uint_k,   "uint.k",   ABx)  /* R(A) := K(Bx).(uint)  */               \
-    X(Op_int_imm,  "int.imm",  AsBx) /* R(A) := (int)(Bx - k) */               \
-    X(Op_int_k,    "int.k",    ABx)  /* R(A) := K(Bx).(int)   */               \
-    X(Op_real,     "real",     ABx)  /* R(A) := K(Bx).(real)  */               \
+    X(Op_bool,     "bool",     ABC)  /* R(A) := bool(B); if (C) then ip++  */  \
+    X(Op_uint_imm, "uint.imm", ABx)  /* R(A) := uint(Bx)    */                 \
+    X(Op_int_imm,  "int.imm",  AsBx) /* R(A) := int(Bx - k) */                 \
+    X(Op_uint_k,   "uint.k",   ABx)  /* R(A) := K(Bx).uint  */                 \
+    X(Op_int_k,    "int.k",    ABx)  /* R(A) := K(Bx).int   */                 \
+    X(Op_real,     "real",     ABx)  /* R(A) := K(Bx).real  */                 \
 /* Conversion operations */                                                    \
-    X(Op_not, "not", ABC)                                                      \
-/* Integer Arithmetic (1): Shared signed and unsigned operations */            \
-    X(Op_neg, "neg", ABC) /* R(A) := -R(B)        */                           \
-    X(Op_add, "add", ABC) /* R(A) := R(B) + R(C)  */                           \
-    X(Op_sub, "sub", ABC) /* R(A) := R(B) - R(C)  */                           \
-/* Integer Arithmetic (2): Dedicated signed and unsigned operations */         \
-    X(Op_mul,  "mul",      ABC) /* R(A) := R(B) * R(C)  */                     \
-    X(Op_div,  "div",      ABC) /* R(A) := R(B) / R(C) */                      \
-    X(Op_mod,  "mod",      ABC) /* R(A) := R(B) % R(C) */                      \
-    X(Op_imul, "mul.int",  ABC) /* R(A) := R(B) * R(C)  */                     \
-    X(Op_idiv, "div.int",  ABC) /* R(A) := R(B) / R(C) */                      \
-    X(Op_imod, "mod.int",  ABC) /* R(A) := R(B) % R(C) */                      \
-/* Floating-point arithmetic */                                                \
-    X(Op_fneg, "neg.real", ABC) /* R(A) := -R(B)       */                      \
-    X(Op_fadd, "add.real", ABC) /* R(A) := R(B) + R(C) */                      \
-    X(Op_fsub, "sub.real", ABC) /* R(A) := R(B) + R(C) */                      \
-    X(Op_fmul, "mul.real", ABC) /* R(A) := R(B) + R(C) */                      \
-    X(Op_fdiv, "div.real", ABC) /* R(A) := R(B) + R(C) */                      \
+    X(Op_not,  "not",  ABC) /* R(A) := not R(B).bool   */                      \
+    X(Op_cast, "cast", ABC) /* R(A) := cast(B)R(A).(C) */                      \
+/* Arithmetic (1): Shared signed and unsigned operations */                    \
+    X(Op_neg,  "neg", ABC) /* R(A) := -R(B)        */                          \
+    X(Op_add,  "add", ABC) /* R(A) := R(B) +  R(C) */                          \
+    X(Op_sub,  "sub", ABC) /* R(A) := R(B) -  R(C) */                          \
+/* Arithmetic (2): Dedicated signed and unsigned operations */                 \
+    X(Op_mul,  "mul",      ABC) /* R(A).uint := R(B).uint *  R(C).uint */      \
+    X(Op_div,  "div",      ABC) /* R(A).uint := R(B).uint /  R(C).uint */      \
+    X(Op_mod,  "mod",      ABC) /* R(A).uint := R(B).uint %  R(C).uint */      \
+    X(Op_imul, "mul.int",  ABC) /* R(A).int  := R(B).int  *  R(C).int  */      \
+    X(Op_idiv, "div.int",  ABC) /* R(A).int  := R(B).int  /  R(C).int  */      \
+    X(Op_imod, "mod.int",  ABC) /* R(A).int  := R(B).int  %  R(C).int  */      \
+/* Arithmetic (3): Floating-point operations */                                \
+    X(Op_fneg, "neg.real", ABC) /* R(A).real := -R(B).real             */      \
+    X(Op_fadd, "add.real", ABC) /* R(A).real := R(B).real +  R(C).real */      \
+    X(Op_fsub, "sub.real", ABC) /* R(A).real := R(B).real -  R(C).real */      \
+    X(Op_fmul, "mul.real", ABC) /* R(A).real := R(B).real *  R(C).real */      \
+    X(Op_fdiv, "div.real", ABC) /* R(A).real := R(B).real /  R(C).real */      \
+/* Comparison (1): Shared signed and unsigned operations */                    \
+    X(Op_eq,   "eq",       ABC) /* R(A).u?int := R(B).u?int == R(C).u?int */   \
+/* Comparison (2): Dedicated signed and unsigned operations */                 \
+    X(Op_lt,   "lt",       ABC) /* R(A).bool  := R(B).uint  <  R(C).uint  */   \
+    X(Op_leq,  "leq",      ABC) /* R(A).bool  := R(B).uint  <= R(C).uint  */   \
+    X(Op_ilt,  "lt.int",   ABC) /* R(A).bool  := R(B).int   <  R(C).int   */   \
+    X(Op_ileq, "leq.int",  ABC) /* R(A).bool  := R(B).int   <= R(C).int   */   \
+/* Comparison (3): Floating-point operations */ \
+    X(Op_feq,  "eq.real",  ABC) /* R(A).bool := R(B).real == R(C).real */      \
+    X(Op_flt,  "lt.real",  ABC) /* R(A).bool := R(B).real <  R(C).real */      \
+    X(Op_fleq, "leq.real", ABC) /* R(A).bool := R(B).real <= R(C).real */      \
 /* Other */                                                                    \
     X(Op_return, "return", ABC)
 
@@ -38,6 +50,7 @@ typedef enum OpCode {
 #define X(e, s, fmt) e,
     OPCODE_KINDS(X)
 #undef X
+    // OpCode__COUNT,
 } OpCode;
 
 typedef enum OpFormat {
@@ -55,6 +68,7 @@ typedef enum OpFormat {
 #define ARG_A_MAX           ((1 << ARG_A_WIDTH)  - 1)
 #define ARG_B_MAX           ((1 << ARG_B_WIDTH)  - 1)
 #define ARG_C_MAX           ((1 << ARG_C_WIDTH)  - 1)
+#define INVALID_REG         ARG_A_MAX
 
 // Instruction argument bitfield offsets.
 #define ARG_OP_OFFSET       0

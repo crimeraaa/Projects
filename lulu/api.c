@@ -10,6 +10,7 @@
 #include "compiler.c"
 #include "value.c"
 #include "debug.c"
+#include "vm.c"
 
 LULU_API const char *
 lulu_error_string(lulu_Error err)

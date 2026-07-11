@@ -42,7 +42,7 @@ struct Expr {
         i32 pc;
 
         // Absolute stack slot.
-        u8 reg;
+        u16 reg;
     };
 };
 
@@ -68,7 +68,7 @@ expr_make_nil(const Token *token)
 }
 
 static inline Expr
-expr_make_literal(AtomKind kind, const Token *token)
+expr_make_literal(ValueKind kind, const Token *token)
 {
     const Type *type = atom_type_get(kind);
     return expr_make(Expr_Literal, type, token);
@@ -77,7 +77,7 @@ expr_make_literal(AtomKind kind, const Token *token)
 static inline Expr
 expr_make_bool(const Token *token)
 {
-    Expr expr = expr_make_literal(Atom_bool, token);
+    Expr expr = expr_make_literal(Value_bool, token);
     expr.literal_bool = (token->kind == Token_true);
     return expr;
 }
@@ -85,7 +85,7 @@ expr_make_bool(const Token *token)
 static inline Expr
 expr_make_uint(const Token *token, lulu_uint literal)
 {
-    Expr expr = expr_make_literal(Atom_uint, token);
+    Expr expr = expr_make_literal(Value_uint, token);
     expr.literal_uint = literal;
     return expr;
 }
@@ -93,7 +93,7 @@ expr_make_uint(const Token *token, lulu_uint literal)
 static inline Expr
 expr_make_real(const Token *token, lulu_real literal)
 {
-    Expr expr = expr_make_literal(Atom_real, token);
+    Expr expr = expr_make_literal(Value_real, token);
     expr.literal_real = literal;
     return expr;
 }
@@ -105,9 +105,9 @@ expr_is_numeric(Expr *e)
     switch (e->type->kind) {
     case TypeKind_Atom:
         switch (e->type->atom.kind) {
-        case Atom_uint:
-        case Atom_int:
-        case Atom_real: return true;
+        case Value_uint:
+        case Value_int:
+        case Value_real: return true;
         default:
             break;
         }
@@ -157,17 +157,15 @@ expr_has_atom_type(Expr *e)
 }
 
 static inline bool
-expr_has_atom_kind(Expr *e, AtomKind kind)
+expr_has_atom_kind(Expr *e, ValueKind kind)
 {
     return expr_has_atom_type(e) && e->type->atom.kind == kind;
 }
 
-#define expr_get_atom_kind(e) \
-    (LULU_ASSERT(expr_has_atom_type(e)),\
-     (e)->type->atom.kind)
+#define expr_get_atom_kind(e) (LULU_ASSERT(expr_has_atom_type(e)), (e)->type->atom.kind)
 
 static inline bool
-expr_is_literal_type(Expr *e, AtomKind kind)
+expr_is_literal_type(Expr *e, ValueKind kind)
 {
     return expr_is_literal(e) && e->type->atom.kind == kind;
 }
@@ -175,25 +173,25 @@ expr_is_literal_type(Expr *e, AtomKind kind)
 static inline bool
 expr_is_literal_uint(Expr *e)
 {
-    return expr_is_literal_type(e, Atom_uint);
+    return expr_is_literal_type(e, Value_uint);
 }
 
 static inline bool
 expr_is_literal_bool(Expr *e)
 {
-    return expr_is_literal_type(e, Atom_bool);
+    return expr_is_literal_type(e, Value_bool);
 }
 
 static inline bool
 expr_is_literal_int(Expr *e)
 {
-    return expr_is_literal_type(e, Atom_int);
+    return expr_is_literal_type(e, Value_int);
 }
 
 static inline bool
 expr_is_literal_real(Expr *e)
 {
-    return expr_is_literal_type(e, Atom_real);
+    return expr_is_literal_type(e, Value_real);
 }
 
 #define expr_get_uint(e) (LULU_ASSERT(expr_is_literal_uint(e)), e->literal_uint)
