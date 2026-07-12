@@ -55,7 +55,7 @@ parser_clamp_string(char *buf, usize buf_len, String s)
     return buf;
 }
 
-LULU_INTERNAL_FUNC void
+static void
 parser_error(Parser *p, char const *info)
 {
     parser_error_at(p, info, &p->token);
@@ -404,15 +404,17 @@ parser_simple_stmt(Parser *p)
         parser_primary_expr(p, &lhs, /*lhs=*/true);
         switch (p->token.kind) {
         case Token_Colon: {
-            if (lhs.kind != Expr_Variable) goto nodice;
+            if (lhs.kind != Expr_Variable) {
+                parser_error_at(p, "Cannot assign the expression", &lhs.token);
+            }
             parser_advance(p);
             parser_decl(p, &lhs);
             break;
         }
         case Token_Assign:
         default:
-            if (lhs.kind != Expr_Call) nodice: {
-                parser_error_at(p, "Unassignable expression", &lhs.token);
+            if (lhs.kind != Expr_Call) {
+                parser_error_at(p, "Expected a declaration, assignment, or function call", &lhs.token);
             }
             break;
         }
@@ -446,7 +448,9 @@ parser_parse(lulu_State *L, ParserData *data)
     Compiler c;
     p = parser_make(L, &c, data);
     c = compiler_make(L, &p, &data->chunk);
-    parser_simple_stmt(&p);
+    while (!parser_check(&p, Token_Eof)) {
+        parser_simple_stmt(&p);
+    }
     compiler_return(&c, nullptr);
     parser_expect(&p, Token_Eof);
     return c.chunk;

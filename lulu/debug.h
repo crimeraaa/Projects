@@ -5,9 +5,9 @@
 #include "chunk.h"
 
 LULU_INTERNAL_FUNC void
-debug_disassemble(const Chunk *c);
+debug_disassemble(Chunk const *c);
 
 LULU_INTERNAL_FUNC void
-debug_disassemble_at(const Chunk *c, usize offset);
+debug_disassemble_at(Chunk const *c, usize offset);
 
 #endif // !LULU_DEBUG_H

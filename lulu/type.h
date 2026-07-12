@@ -8,10 +8,10 @@
 
 /*
  Description:
-    "atom" refers to any of the fundamental types we support.
+    "basic" refers to any of the fundamental types we support.
  */
-typedef struct AtomType AtomType;
-struct AtomType {
+typedef struct BasicType BasicType;
+struct BasicType {
     ValueKind kind;
     u32       len;
     char      name[8];
@@ -19,14 +19,14 @@ struct AtomType {
 
 typedef enum TypeKind {
     TypeKind_None,
-    TypeKind_Atom,
+    TypeKind_Basic,
 } TypeKind;
 
 typedef struct Type Type;
 struct Type {
     TypeKind kind;
     union {
-        AtomType atom;
+        BasicType basic;
     };
 };
 
@@ -45,13 +45,13 @@ struct TypeEnv {
 };
 
 static inline bool
-type_is_atom(Type const *t)
+type_is_basic(Type const *t)
 {
-    return t->kind == TypeKind_Atom;
+    return t->kind == TypeKind_Basic;
 }
 
 LULU_INTERNAL_FUNC Type const *
-atom_type_get(ValueKind k);
+basic_type_get(ValueKind k);
 
 LULU_INTERNAL_FUNC void
 type_env_init(lulu_State *L, TypeEnv *env);

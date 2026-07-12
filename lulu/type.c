@@ -3,24 +3,24 @@
 #include "mem.h"
 #include "strings.h"
 
-#define type_size_of(T) offsetof(Type, atom) + sizeof(T)
+#define type_size_of(T) offsetof(Type, basic) + sizeof(T)
 #define type_new(L, T)  cast(Type *)mem_arena_alloc(L, type_size_of(T))
 
 // Map ValueKind to Type. Don't add the type info for 'None'.
 static Type const
 ATOM_TYPES[] = {
-#define atom_type_make(T)    {Value_##T, cast(u32)sizeof(#T) - 1, #T}
-    {TypeKind_Atom, {/*atom=*/atom_type_make(nil)}},
-    {TypeKind_Atom, {/*atom=*/atom_type_make(bool)}},
-    {TypeKind_Atom, {/*atom=*/atom_type_make(uint)}},
-    {TypeKind_Atom, {/*atom=*/atom_type_make(int)}},
-    {TypeKind_Atom, {/*atom=*/atom_type_make(real)}},
-    {TypeKind_Atom, {/*atom=*/atom_type_make(string)}},
-#undef atom_type_make
+#define basic_type_make(T)    {Value_##T, cast(u32)sizeof(#T) - 1, #T}
+    {TypeKind_Basic, {basic_type_make(nil)}},
+    {TypeKind_Basic, {basic_type_make(bool)}},
+    {TypeKind_Basic, {basic_type_make(uint)}},
+    {TypeKind_Basic, {basic_type_make(int)}},
+    {TypeKind_Basic, {basic_type_make(real)}},
+    {TypeKind_Basic, {basic_type_make(string)}},
+#undef basic_type_make
 };
 
 LULU_INTERNAL_FUNC Type const *
-atom_type_get(ValueKind k)
+basic_type_get(ValueKind k)
 {
     LULU_ASSERT(k != Value_none);
     return &ATOM_TYPES[k];
@@ -36,7 +36,7 @@ type_env_init(lulu_State *L, TypeEnv *env)
 
     for (usize i = 0; i < count_of(ATOM_TYPES); i++) {
         Type const *type = &ATOM_TYPES[i];
-        String      key  = string_make(type->atom.name, type->atom.len);
+        String      key  = string_make(type->basic.name, type->basic.len);
         type_set(L, key, type);
     }
 
@@ -60,7 +60,7 @@ type_eq(Type const *a, Type const *b)
 {
     if (a->kind == b->kind) switch (a->kind) {
     case TypeKind_None: LULU_UNREACHABLE(); break;
-    case TypeKind_Atom: return a->atom.kind == b->atom.kind;
+    case TypeKind_Basic: return a->basic.kind == b->basic.kind;
     }
     return false;
 }

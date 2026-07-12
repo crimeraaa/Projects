@@ -13,6 +13,7 @@ struct Variable {
     String      name;
     Type const *type;
     int         scope; // 0 indicates global scope.
+    bool        is_constant;
 };
 
 struct Compiler {

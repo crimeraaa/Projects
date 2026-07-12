@@ -10,28 +10,31 @@ print_bool(bool b)
 }
 
 static void
-print_uint(lulu_uint u, bool print_type)
+print_uint(lulu_uint value, lulu_uint base, bool print_type)
 {
-    static const char DIGITS[] = "0123456789";
+    // base-2 up to and including base-36.
+    static char const
+    DIGITS[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
     if (print_type) {
         fputs("uint = ", stdout);
     }
 
-    if (u == 0) {
-        fputc(DIGITS[u], stdout);
+    if (value == 0) {
+        fputc(DIGITS[value], stdout);
     } else {
-        lulu_uint base = 10;
-        char      buf[sizeof(u) * CHAR_BIT];
-        char *    p = buf + (sizeof(buf) - 1);
+        // Should be enough for the largest unsigned binary string.
+        char  buf[sizeof(value) * CHAR_BIT + 1];
+        char *p = buf + (sizeof(buf) - 1);
 
         // Ensure nul-termination.
         *p-- = 0;
 
         // Write digits, from LSD to MSD, in reverse order.
-        while (u > 0) {
-            lulu_uint d = u % base;
-            *p-- = DIGITS[d];
-            u   /= base;
+        while (value > 0) {
+            lulu_uint digit = value % base;
+            *p-- = DIGITS[digit];
+            value   /= base;
         }
         fputs(p, stdout);
     }
@@ -40,15 +43,15 @@ print_uint(lulu_uint u, bool print_type)
 static void
 print_int(lulu_int i)
 {
+    lulu_uint u = cast(lulu_uint)i;
     fputs("int = ", stdout);
-    if (i >= 0) {
-        print_uint(cast(lulu_uint)i, /*print_type=*/false);
-    } else {
+    if (i < 0) {
         // Well-defined absolute value which works for min(T).
-        lulu_uint u = 0 - cast(lulu_uint)i;
+        // Don't negate directly to avoid warnings with MSVC.
+        u = 0 - u;
         putc('-', stdout);
-        print_uint(u, /*print_type=*/false);
     }
+    print_uint(u, 10, false);
 }
 
 static void
@@ -57,27 +60,31 @@ print_real(lulu_real r)
     printf("real = %.14g", r);
 }
 
+static void
+print_tvalue(TValue v)
+{
+    switch (v.kind) {
+    case Value_nil:  fputs("nil", stdout);            break;
+    case Value_bool: print_bool(v.value.b);           break;
+    case Value_uint: print_uint(v.value.u, 10, true); break;
+    case Value_int:  print_int (v.value.i);           break;
+    case Value_real: print_real(v.value.f);           break;
+    default:
+        LULU_PANICF("Unprintable ValueKind(%i)", v.kind);
+        break;
+    }
+}
+
 LULU_INTERNAL_FUNC void
-debug_disassemble(const Chunk *c)
+debug_disassemble(Chunk const *c)
 {
     printf("======== DISASSEMBLY ========\n");
 
     if (c->values_len > 0) {
         printf(".values:\n");
         for (usize i = 0; i < c->values_len; i++) {
-            TValue v = c->values[i];
             printf("| [%zu]: ", i);
-            switch (v.kind) {
-            case Value_none:    LULU_UNREACHABLE();          break;
-            case Value_nil:     fputs("nil", stdout);        break;
-            case Value_bool:    print_bool(v.value.b);       break;
-            case Value_uint:    print_uint(v.value.u, true); break;
-            case Value_int:     print_int (v.value.i);       break;
-            case Value_real:    print_real(v.value.f);       break;
-            case Value_string:
-                LULU_PANIC();
-                break;
-            }
+            print_tvalue(c->values[i]);
             putc('\n', stdout);
         }
     }
@@ -89,31 +96,34 @@ debug_disassemble(const Chunk *c)
     printf("=============================\n");
 }
 
-typedef struct OpInfo OpInfo;
-struct OpInfo {
-    OpFormat    format;
-    const char *name;
-};
-
-static const OpInfo OPCODE_INFO[] = {
-#define X(e, s, fmt) {f##fmt, s},
+static char const *OPCODE_NAMES[] = {
+#define X(e, s, fmt) s,
     OPCODE_KINDS(X)
 #undef X
 };
 
 LULU_INTERNAL_FUNC void
-debug_disassemble_at(const Chunk *c, usize offset)
+debug_disassemble_at(Chunk const *c, usize offset)
 {
-    Instruction  i    = c->code[offset];
-    const OpCode Op   = GET_OPCODE(i);
-    const OpInfo info = OPCODE_INFO[Op];
-    const u8     A    = GETARG_A(i);
+    Instruction   i      = c->code[offset];
+    OpCode const  opcode = GET_OPCODE(i);
+    char   const *opname = OPCODE_NAMES[opcode];
+    u8     const  A      = GETARG_A(i);
 
-    printf("| %-9s %-3u ", info.name, A);
-    switch (info.format) {
-    case fABC:  printf("%-3u %-3u", GETARG_B(i), GETARG_C(i)); break;
-    case fABx:  printf("%-7u",      GETARG_Bx(i));             break;
-    case fAsBx: printf("%-7i",      GETARG_sBx(i));            break;
+    printf("| %-16s %-3u ", opname, A);
+    switch (opform_get(opcode)) {
+    case OpForm_ABC:
+        printf("%-3u %-5u", GETARG_B(i), GETARG_C(i));
+        break;
+    case OpForm_vABC:
+        printf("%-3u %-3u %u", GETARG_B(i), GETARG_vC(i), GETARG_k(i));
+        break;
+    case OpForm_ABx:
+        printf("%-9u", GETARG_Bx(i));
+        break;
+    case OpForm_AsBx:
+        printf("%-9i", GETARG_sBx(i));
+        break;
     }
     printf("\n");
 }

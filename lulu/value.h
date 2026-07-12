@@ -63,32 +63,43 @@ tvalue_is_kind(TValue tv, ValueKind kind)
 #define tvalue_int(tv)          tvalue_get(tv, tvalue_is_int,  value_int)
 #define tvalue_real(tv)         tvalue_get(tv, tvalue_is_real, value_real)
 
-static inline void
-tvalue_set_bool(TValue *tv, lulu_bool b)
+static inline TValue
+tvalue_make_nil(void)
 {
-     tv->kind = Value_bool;
-     value_set_bool(&tv->value, b); 
+    TValue tv = {Value_nil, {0}};
+    return tv;
 }
 
-static inline void
-tvalue_set_uint(TValue *tv, lulu_uint u)
+static inline TValue
+tvalue_make_bool(lulu_bool b)
 {
-    tv->kind = Value_uint;
-    value_set_uint(&tv->value, u);
+    TValue tv = {Value_bool, {0}};
+    value_set_bool(&tv.value, b); 
+    return tv;
 }
 
-static inline void
-tvalue_set_int(TValue *tv, lulu_int i)
+static inline TValue
+tvalue_make_uint(lulu_uint u)
 {
-    tv->kind = Value_int;
-    value_set_int(&tv->value, i);
+    TValue tv = {Value_uint, {0}};
+    value_set_uint(&tv.value, u);
+    return tv;
 }
 
-static inline void
-tvalue_set_real(TValue *tv, lulu_real r)
+static inline TValue
+tvalue_make_int(lulu_int i)
 {
-    tv->kind = Value_real;
-    value_set_real(&tv->value, r);
+    TValue tv = {Value_int, {0}};
+    value_set_int(&tv.value, i);
+    return tv;
+}
+
+static inline TValue
+tvalue_make_real(lulu_real r)
+{
+    TValue tv = {Value_real, {0}};
+    value_set_real(&tv.value, r);
+    return tv;
 }
 
 LULU_INTERNAL_FUNC bool

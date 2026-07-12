@@ -1,6 +1,7 @@
 #include "lulu.h"
 #include "strings.h"
 
+#include "opcode.c"
 #include "mem.c"
 #include "state.c"
 #include "type.c"

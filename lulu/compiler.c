@@ -22,94 +22,101 @@ compiler_code(Compiler *c, Instruction i)
     return pc;
 }
 
-#define compiler_code_ABC(c, Op, A, B, C)   compiler_code(c, MAKE_ABC(Op, A, B, C))
-#define compiler_code_ABx(c, Op, A, Bx)     compiler_code(c, MAKE_ABx(Op, A, Bx));
-
-static void
-expr_set_bool_literal(Expr *e, lulu_bool b)
+static i32
+compiler_code_ABC(Compiler *c, OpCode Op, u16 A, u16 B, u16 C)
 {
-    e->kind         = Expr_Literal;
-    e->type         = atom_type_get(Value_bool);
-    e->literal_bool = b;
+    LULU_ASSERT(opcode_is_ABC(Op));
+    LULU_ASSERT(A <= ARG_A_MAX);
+    LULU_ASSERT(B <= ARG_B_MAX);
+    LULU_ASSERT(C <= ARG_C_MAX);
+    return compiler_code(c, MAKE_ABC(Op, A, B, C));
 }
 
-static void
-expr_set_uint_literal(Expr *e, lulu_uint u)
+static i32
+compiler_code_vABC(Compiler *c, OpCode Op, u16 A, u16 B, u16 vC, bool k)
 {
-    e->kind         = Expr_Literal;
-    e->type         = atom_type_get(Value_uint);
-    e->literal_uint = u;
+    LULU_ASSERT(opcode_is_vABC(Op));
+    LULU_ASSERT(A <= ARG_A_MAX);
+    LULU_ASSERT(B  <= ARG_B_MAX);
+    LULU_ASSERT(vC <= ARG_vC_MAX);
+    return compiler_code(c, MAKE_vABC(Op, A, B, vC, k));
 }
 
-static void
-expr_set_int_literal(Expr *e, lulu_int i)
+static i32
+compiler_code_ABx(Compiler *c, OpCode Op, u16 A, u32 Bx)
 {
-    e->kind        = Expr_Literal;
-    e->type        = atom_type_get(Value_int);
-    e->literal_int = i;
+    LULU_ASSERT(opcode_is_ABx(Op));
+    LULU_ASSERT(A <= ARG_A_MAX);
+    LULU_ASSERT(Bx <= ARG_Bx_MAX);
+    return compiler_code(c, MAKE_ABx(Op, A, Bx));
 }
 
-static void
-expr_set_real_literal(Expr *e, lulu_real r)
+static i32
+compiler_code_AsBx(Compiler *c, OpCode Op, u16 A, i32 sBx)
 {
-    e->kind         = Expr_Literal;
-    e->type         = atom_type_get(Value_real);
-    e->literal_real = r;
+    LULU_ASSERT(opcode_is_AsBx(Op));
+    LULU_ASSERT(A <= ARG_A_MAX);
+    LULU_ASSERT(ARG_sBx_MIN <= sBx && sBx <= ARG_sBx_MAX);
+    return compiler_code(c, MAKE_AsBx(Op, A, sBx));
 }
+
+#define expr_set_literal(e, T, v)                                              \
+do {                                                                           \
+    (e)->kind         = Expr_Literal;                                          \
+    (e)->type         = basic_type_get(Value_##T);                             \
+    (e)->literal_kind = Value_##T;                                             \
+    (e)->literal_##T  = v;                                                     \
+} while (0)
+
+static void expr_set_bool_literal(Expr *e, lulu_bool b) { expr_set_literal(e, bool, b); }
+static void expr_set_uint_literal(Expr *e, lulu_uint u) { expr_set_literal(e, uint, u); }
+static void expr_set_int_literal (Expr *e, lulu_int  i) { expr_set_literal(e, int,  i); }
+static void expr_set_real_literal(Expr *e, lulu_real r) { expr_set_literal(e, real, r); }
+
+#undef expr_set_literal
 
 // I'm not even going to pretend this is remotely sane
 // Marginal waste of time when the type matches its literals, but that's
 // not common behavior anyway.
-#define compiler_cast_type(fn, T)                                              \
-    ValueKind vk = expr_atom_kind(e);                                          \
+#define compiler_cast_type(c, e, T)                                            \
+    ValueKind vk = expr_basic_kind(e);                                         \
     switch (e->kind) {                                                         \
     case Expr_Literal:                                                         \
         switch (vk) {                                                          \
-        case Value_bool: fn(e, cast(lulu_##T)e->literal_bool); return;         \
-        case Value_uint: fn(e, cast(lulu_##T)e->literal_uint); return;         \
-        case Value_int:  fn(e, cast(lulu_##T)e->literal_int);  return;         \
-        case Value_real: fn(e, cast(lulu_##T)e->literal_real); return;         \
+        case Value_bool:                                                       \
+            expr_set_##T##_literal(e, cast(lulu_##T)e->literal_bool);          \
+            return;                                                            \
+        case Value_uint:                                                       \
+            expr_set_##T##_literal(e, cast(lulu_##T)e->literal_uint);          \
+            return;                                                            \
+        case Value_int:                                                        \
+            expr_set_##T##_literal(e, cast(lulu_##T)e->literal_int);           \
+            return;                                                            \
+        case Value_real:                                                       \
+            expr_set_##T##_literal(e, cast(lulu_##T)e->literal_real);          \
+            return;                                                            \
         default:                                                               \
             break;                                                             \
         }                                                                      \
         break;                                                                 \
-    case Expr_Pending:                                                         \
-        compiler_expr_any_reg(c, e);                                           \
-        /* fallthrough */                                                      \
+    case Expr_Pending: compiler_expr_any_reg(c, e); /* fallthrough */          \
     case Expr_Discharged: {                                                    \
         ValueKind tag = Value_##T;                                             \
         compiler_code_ABC(c, Op_cast, e->reg, cast(u16)tag, cast(u16)vk);      \
-        e->type = atom_type_get(tag);                                          \
+        e->type = basic_type_get(tag);                                         \
         return;                                                                \
     }                                                                          \
     default:                                                                   \
         break;                                                                 \
     }                                                                          \
-    compiler_error(c, "Cannot cast to '" #T "'", e);                           \
+    compiler_error(c, "Cannot cast to '" #T "'", e);
 
-static void
-compiler_cast_bool(Compiler *c, Expr *e)
-{
-    compiler_cast_type(expr_set_bool_literal, bool);
-}
 
-static void
-compiler_cast_uint(Compiler *c, Expr *e)
-{
-    compiler_cast_type(expr_set_uint_literal, uint);
-}
-
-static void
-compiler_cast_int(Compiler *c, Expr *e)
-{
-    compiler_cast_type(expr_set_int_literal, int);
-}
-
-static void
-compiler_cast_real(Compiler *c, Expr *e)
-{
-    compiler_cast_type(expr_set_real_literal, real);
-}
+// Wrapper functions.
+static void compiler_cast_bool(Compiler *c, Expr *e) { compiler_cast_type(c, e, bool); }
+static void compiler_cast_uint(Compiler *c, Expr *e) { compiler_cast_type(c, e, uint); }
+static void compiler_cast_int (Compiler *c, Expr *e) { compiler_cast_type(c, e, int);  }
+static void compiler_cast_real(Compiler *c, Expr *e) { compiler_cast_type(c, e, real); }
 
 #undef compiler_cast_type
 
@@ -122,8 +129,8 @@ compiler_cast(Compiler *c, Type const *t, Expr *e)
     }
 
     switch (t->kind) {
-    case TypeKind_Atom:
-        switch (t->atom.kind) {
+    case TypeKind_Basic:
+        switch (t->basic.kind) {
         case Value_bool: compiler_cast_bool(c, e); return;
         case Value_int:  compiler_cast_int (c, e); return;
         case Value_uint: compiler_cast_uint(c, e); return;
@@ -153,9 +160,7 @@ reg_pop(Compiler *c, u16 reg)
 {
     if (reg >= c->active_count) {
         c->free_reg--;
-        LULU_ASSERTF(reg == c->free_reg,
-            "Expected free_reg = %u but got %u",
-            reg, c->free_reg);
+        LULU_ASSERTF(reg == c->free_reg, "Expected free_reg = %u but got %u", reg, c->free_reg);
     }
 }
 
@@ -180,14 +185,20 @@ expr_pop(Compiler *c, Expr *e)
 static void
 expr_discharge_vars(Compiler *c, Expr *e)
 {
-    unused(c);
-    unused(e);
+    // TODO(2026-07-13): Differentiate globals and locals?
+    switch (e->kind) {
+    case Expr_Variable:
+        e->kind = Expr_Discharged;
+        break;
+    default:
+        break;
+    }
 }
 
 static void
-compiler_load_bool(Compiler *c, u16 reg, bool b)
+compiler_load_bool(Compiler *c, u16 reg, bool b, bool skip)
 {
-    compiler_code_ABC(c, Op_bool, reg, cast(u16)b, 0);
+    compiler_code_vABC(c, Op_bool, reg, cast(u16)b, 0, skip);
 }
 
 static void
@@ -196,11 +207,8 @@ compiler_load_uint(Compiler *c, u16 reg, lulu_uint u)
     if (u <= ARG_Bx_MAX) {
         compiler_code_ABx(c, Op_uint_imm, reg, cast(u32)u);
     } else {
-        TValue tv;
-        u32    k;
-        tv.kind    = Value_uint;
-        tv.value.u = u;
-        k          = chunk_add_constant(c->L, c->chunk, tv);
+        TValue tv = tvalue_make_uint(u);
+        u32    k  = chunk_add_constant(c->L, c->chunk, tv);
         compiler_code_ABx(c, Op_uint_k, reg, k);
     }
 }
@@ -209,13 +217,10 @@ static void
 compiler_load_int(Compiler *c, u16 reg, lulu_int i)
 {
     if (ARG_sBx_MIN <= i && i <= ARG_sBx_MAX) {
-        compiler_code_ABx(c, Op_int_imm, reg, cast(u32)(i + ARG_sBx_MAX));
+        compiler_code_AsBx(c, Op_int_imm, reg, cast(i32)i);
     } else {
-        TValue tv;
-        u32    k;
-        tv.kind    = Value_int;
-        tv.value.i = i;
-        k          = chunk_add_constant(c->L, c->chunk, tv);
+        TValue tv = tvalue_make_int(i);
+        u32    k  = chunk_add_constant(c->L, c->chunk, tv);
         compiler_code_ABx(c, Op_int_k, reg, k);
     }
 }
@@ -223,11 +228,8 @@ compiler_load_int(Compiler *c, u16 reg, lulu_int i)
 static void
 compiler_load_real(Compiler *c, u16 reg, lulu_real r)
 {
-    TValue tv;
-    u32    k;
-    tv.kind    = Value_real;
-    tv.value.f = r;
-    k = chunk_add_constant(c->L, c->chunk, tv);
+    TValue tv = tvalue_make_real(r);
+    u32    k  = chunk_add_constant(c->L, c->chunk, tv);
     compiler_code_ABx(c, Op_real, reg, k);
 }
 
@@ -246,8 +248,8 @@ expr_discharge_reg(Compiler *c, Expr *e, u16 reg)
     expr_discharge_vars(c, e);
     switch (e->kind) {
     case Expr_Literal: 
-        switch (expr_atom_kind(e)) {
-        case Value_bool: compiler_load_bool(c, reg, e->literal_bool); break;
+        switch (expr_literal_kind(e)) {
+        case Value_bool: compiler_load_bool(c, reg, e->literal_bool, /*skip=*/false); break;
         case Value_uint: compiler_load_uint(c, reg, e->literal_uint); break;
         case Value_int:  compiler_load_int (c, reg, e->literal_int);  break;
         case Value_real: compiler_load_real(c, reg, e->literal_real); break;
@@ -258,8 +260,12 @@ expr_discharge_reg(Compiler *c, Expr *e, u16 reg)
         break;
     case Expr_Discharged:
         if (reg != e->reg) {
-            compiler_error(c, "Op_move not yet implemented", e);
+            compiler_code_ABC(c, Op_move, reg, e->reg, 0);
         }
+        break;
+    case Expr_Compare:
+        compiler_load_bool(c, reg, true,  /*skip=*/true);
+        compiler_load_bool(c, reg, false, /*skip=*/false);
         break;
     case Expr_Pending: {
         Instruction *ip = &c->chunk->code[expr_pc(e)];
@@ -300,91 +306,94 @@ compiler_expr_any_reg(Compiler *c, Expr *e)
     expr_discharge_vars(c, e);
     // Already have a register?
     if (e->kind == Expr_Discharged) {
-        // Register does not refer to an active local variable slot?
-        if (e->reg >= c->active_count) {
-            return expr_to_reg(c, e, e->reg);
-        }
+        // TODO(2026-07-13): Handle jumps
+        return expr_reg(e);
     }
     return compiler_expr_next_reg(c, e);
 }
 
-static OpCode
-compiler_unary_op(Token const *op, Expr *e)
+static bool
+compiler_unary_neg(Compiler *c, Expr *e)
 {
-    switch (op->kind) {
-    case Token_Len:
-        if (type_is_atom(e->type)) switch (e->type->atom.kind) {
-        case Value_uint:
-        case Value_int:  return Op_neg;
-        case Value_real: return Op_fneg;
-        default:        break;
-        }
-        break;
-    case Token_Sub:
-        // Unary negation only applies to arithmetic types.
-        if (type_is_atom(e->type)) switch (e->type->atom.kind) {
-        case Value_uint:
-        case Value_int:  return Op_sub;
-        case Value_real: return Op_fsub;
-        default:        break;
-        }
-        break;
-    case Token_not:
-        if (expr_has_atom_kind(e, Value_bool)) {
-            return Op_not;
-        }
+    if (expr_is_literal(e)) switch (expr_literal_kind(e)) {
+    case Value_uint:
+        // TODO(2026-07-11): Do we want to check for overflow?
+        e->type        = basic_type_get(Value_int);
+        e->literal_int = -cast(lulu_int)e->literal_uint;
+        return true;
+    case Value_int:  e->literal_int  = -e->literal_int;  return true;
+    case Value_real: e->literal_real = -e->literal_real; return true;
     default:
-        break;
+        return false;
     }
-    return Op_None;
+
+    compiler_expr_any_reg(c, e);
+    if (expr_has_basic_type(e)) {
+        u16 reg = expr_reg(e);
+        switch (expr_basic_kind(e)) {
+        case Value_uint:
+        case Value_int:
+            e->pc   = compiler_code_ABC(c, Op_neg, INVALID_REG, reg, 0);
+            e->kind = Expr_Pending;
+            return true;
+        case Value_real:
+            e->pc   = compiler_code_ABC(c, Op_fneg, INVALID_REG, reg, 0);
+            e->kind = Expr_Pending;
+            return true;
+        default: break;
+        }
+    }
+    return false;
 }
 
 static bool
-compiler_unary_folded(Compiler *c, Token const *op, Expr *e)
+compiler_unary_not(Compiler *c, Expr *e)
 {
-    if (expr_is_literal(e)) switch (op->kind) {
-    case Token_Sub:
-        switch (e->type->atom.kind) {
-        case Value_uint:
-            // TODO(2026-07-11): Do we want to check for overflow?
-            e->type        = atom_type_get(Value_int);
-            e->literal_int = -cast(lulu_int)e->literal_uint;
-            return true;
-        case Value_int:  e->literal_int  = -e->literal_int;  return true;
-        case Value_real: e->literal_real = -e->literal_real; return true;
-        default:
-            break;
-        }
-        break;
-    case Token_not:
-        if (expr_has_atom_kind(e, Value_bool)) {
+    switch (e->kind) {
+    case Expr_Literal:
+        if (expr_has_basic_kind(e, Value_bool)) {
             e->literal_bool = !e->literal_bool;
             return true;
         }
         break;
+    case Expr_Compare: {
+        Instruction *ip = &c->chunk->code[expr_compare(e)];
+        bool const   k  = GETARG_k(*ip);
+        SETARG_k(ip, !k);
+        return true;
+    }
+    default:
+        compiler_expr_any_reg(c, e);
+        if (expr_has_basic_kind(e, Value_bool)) {
+            u16 reg = expr_reg(e);
+            e->pc   = compiler_code_ABC(c, Op_not, INVALID_REG, reg, 0);
+            e->kind = Expr_Pending;
+            return true;
+        }
+        break;
+    }
+    return false;
+}
+
+static bool
+compiler_unary_op(Compiler *c, Token const *op, Expr *e)
+{
+    switch (op->kind) {
+    case Token_Sub: return compiler_unary_neg(c, e);
+    case Token_not: return compiler_unary_not(c, e);
     default:
         break;
     }
+    LULU_UNREACHABLE();
     return false;
 }
 
 LULU_INTERNAL_FUNC void
 compiler_unary(Compiler *c, Token const *op, Expr *e)
 {
-#if PARSER_CONSTANT_FOLDING
-    if (compiler_unary_folded(c, op, e)) {
-        return;
-    }
-#endif
-    OpCode opcode = compiler_unary_op(op, e);
-    if (!opcode) {
+    if (!compiler_unary_op(c, op, e)) {
         compiler_error(c, "Invalid unary operand", e);
-        return;
     }
-
-    u16 r1  = compiler_expr_any_reg(c, e);
-    e->kind = Expr_Pending;
-    e->pc   = compiler_code_ABC(c, opcode, INVALID_REG, cast(u16)r1, 0);
 }
 
 static bool
@@ -415,13 +424,14 @@ compiler_coerce_signs(Compiler *c, Expr *u, Expr *i)
      (i)->type         = (r)->type,                      \
      true)
 
+// TODO(2026-07-13): Make work with variables paired with literals!
 static bool
 compiler_implicit_cast_numeric(Compiler *c, Expr *lhs, Expr *rhs)
 {
     ValueKind lhs_kind, rhs_kind;
 
-    lhs_kind = expr_atom_kind(lhs);
-    rhs_kind = expr_atom_kind(rhs);
+    lhs_kind = expr_literal_kind(lhs);
+    rhs_kind = expr_literal_kind(rhs);
     switch (lhs_kind) {
     case Value_uint:
         switch (rhs_kind) {
@@ -457,6 +467,8 @@ compiler_implicit_cast_numeric(Compiler *c, Expr *lhs, Expr *rhs)
     return false;
 }
 
+#undef compiler_coerce_real
+
 // I'm not even going to pretend any of this is remotely sane
 #define arg(e, T)      (e)->literal_##T
 #define arith(T, op)   arg(lhs, T) op arg(rhs, T)
@@ -482,9 +494,18 @@ compiler_implicit_cast_numeric(Compiler *c, Expr *lhs, Expr *rhs)
     }
 
 static bool
+compiler_implicit_cast_rhs(Compiler *c, Type const *type, Expr *rhs);
+
+static bool
 compiler_binary_folded(Compiler *c, Token const *op, Expr *lhs, Expr *rhs)
 {
     if (!expr2_both_literal(lhs, rhs)) {
+        if (expr_is_literal(lhs)) {
+            Expr *tmp = lhs;
+            lhs = rhs;
+            rhs = tmp;
+        }
+        compiler_implicit_cast_rhs(c, lhs->type, rhs);
         return false;
     } else if (lhs->type != rhs->type) {
         if (!compiler_implicit_cast_numeric(c, lhs, rhs)) {
@@ -496,7 +517,7 @@ compiler_binary_folded(Compiler *c, Token const *op, Expr *lhs, Expr *rhs)
     return false;
 #endif
 
-    switch (expr_atom_kind(lhs)) {
+    switch (expr_literal_kind(lhs)) {
     case Value_bool: {
         bool lhs_bool = lhs->literal_bool;
         bool rhs_bool = rhs->literal_bool;
@@ -527,8 +548,9 @@ compiler_binary_folded(Compiler *c, Token const *op, Expr *lhs, Expr *rhs)
 #undef arith
 #undef arg
 
-#define FLAG_SWITCH     (1 << 0)
-#define FLAG_NOT        (1 << 1)
+#define FLAG_COMPARE    (1 << 0)
+#define FLAG_SWITCH     (1 << 1)
+#define FLAG_NOT        (1 << 2)
 
 /*
 Description:
@@ -546,7 +568,8 @@ compiler_binary_op(Compiler *c, Token const *op, Expr *lhs, Expr const *rhs, u8 
         compiler_error(c, "Inconsistent right hand side type", rhs);
     }
 
-    if (type_is_atom(lhs->type)) switch (expr_atom_kind(lhs)) {
+    // Neither lhs nor rhs are necessarily a literal by this point!
+    if (type_is_basic(lhs->type)) switch (expr_basic_kind(lhs)) {
     case Value_bool:
         break;
     case Value_uint:
@@ -557,11 +580,14 @@ compiler_binary_op(Compiler *c, Token const *op, Expr *lhs, Expr const *rhs, u8 
         case Token_Div: return Op_div;
         case Token_Mod: return Op_mod;
         case Token_Neq: *flags |= FLAG_NOT;
-        case Token_Eq:  return Op_eq;
+        case Token_Eq:  *flags |= FLAG_COMPARE;
+                        return Op_eq;
         case Token_Gt:  *flags |= FLAG_SWITCH;
-        case Token_Lt:  return Op_lt;
+        case Token_Lt:  *flags |= FLAG_COMPARE;
+                        return Op_lt;
         case Token_Geq: *flags |= FLAG_SWITCH;
-        case Token_Leq: return Op_leq;
+        case Token_Leq: *flags |= FLAG_COMPARE;
+                        return Op_leq;
         default:
             break;
         }
@@ -573,11 +599,14 @@ compiler_binary_op(Compiler *c, Token const *op, Expr *lhs, Expr const *rhs, u8 
         case Token_Div: return Op_idiv;
         case Token_Mod: return Op_imod;
         case Token_Neq: *flags |= FLAG_NOT;
-        case Token_Eq:  return Op_eq;
+        case Token_Eq:  *flags |= FLAG_COMPARE;
+                        return Op_eq;
         case Token_Gt:  *flags |= FLAG_SWITCH;
-        case Token_Lt:  return Op_ilt;
+        case Token_Lt:  *flags |= FLAG_COMPARE;
+                        return Op_ilt;
         case Token_Geq: *flags |= FLAG_SWITCH;
-        case Token_Leq: return Op_ileq;
+        case Token_Leq: *flags |= FLAG_COMPARE;
+                        return Op_ileq;
         default:
             break;
         }
@@ -591,11 +620,14 @@ compiler_binary_op(Compiler *c, Token const *op, Expr *lhs, Expr const *rhs, u8 
             compiler_error(c, "Modulo disallowed for reals- use 'fmod()'.", lhs);
             break;
         case Token_Neq: *flags |= FLAG_NOT;
-        case Token_Eq:  return Op_feq;
+        case Token_Eq:  *flags |= FLAG_COMPARE;
+                        return Op_feq;
         case Token_Gt:  *flags |= FLAG_SWITCH;
-        case Token_Lt:  return Op_flt;
+        case Token_Lt:  *flags |= FLAG_COMPARE;
+                        return Op_flt;
         case Token_Geq: *flags |= FLAG_SWITCH;
-        case Token_Leq: return Op_fleq;
+        case Token_Leq: *flags |= FLAG_COMPARE;
+                        return Op_fleq;
         default:
             break;
         }
@@ -627,25 +659,28 @@ compiler_binary(Compiler *c, Token const *op, Expr *lhs, Expr *rhs)
     }
 
     if (flags & FLAG_SWITCH) {
+        LULU_ASSERT(flags & FLAG_COMPARE);
         u16 tmp = r1;
         r1 = r2;
         r2 = tmp;
     }
 
-    lhs->kind  = Expr_Pending;
-    lhs->token = rhs->token;
-    lhs->pc    = compiler_code_ABC(c, opcode, INVALID_REG, r1, r2);
-    if (flags & FLAG_NOT) {
-        u16 rself = compiler_expr_next_reg(c, lhs);
-        expr_pop(c, lhs);
-
-        lhs->kind = Expr_Pending;
-        lhs->pc   = compiler_code_ABC(c, Op_not, INVALID_REG, rself, 0);
+    if (flags & FLAG_COMPARE) {
+        bool k     = (flags & FLAG_NOT) == 0;
+        lhs->type  = basic_type_get(Value_bool);
+        lhs->token = rhs->token;
+        lhs->pc    = compiler_code_vABC(c, opcode, 0, r1, r2, k);
+        lhs->kind  = Expr_Compare;
+    } else {
+        lhs->token = rhs->token;
+        lhs->pc    = compiler_code_ABC(c, opcode, INVALID_REG, r1, r2);
+        lhs->kind  = Expr_Pending;
     }
 }
 
 #undef FLAG_NOT
 #undef FLAG_SWITCH
+#undef FLAG_COMPARE
 
 LULU_INTERNAL_FUNC void
 compiler_return(Compiler *c, Expr *e)
@@ -730,43 +765,41 @@ compiler_implicit_real_from_int(Expr *rhs)
     return true;
 }
 
+#define compiler_unreachable_bool(rhs)      (LULU_UNREACHABLE(), false)
+#define compiler_implicit_uint_from_uint    compiler_unreachable_bool
+#define compiler_implicit_int_from_int      compiler_unreachable_bool
+#define compiler_implicit_real_from_real    compiler_unreachable_bool
+#define compiler_implicit_cast(rhs, T)                                         \
+    switch ((rhs)->type->basic.kind) {                                         \
+    case Value_uint: return compiler_implicit_##T##_from_uint(rhs);            \
+    case Value_int:  return compiler_implicit_##T##_from_int (rhs);            \
+    case Value_real: return compiler_implicit_##T##_from_real(rhs);            \
+    default:         break;                                                    \
+    }
+
 static bool
 compiler_implicit_cast_rhs(Compiler *c, Type const *type, Expr *rhs)
 {
     // If rhs isn't a literal and it's of the wrong type, then we don't
     // allow it to assign to lhs as implicit casts are error-prone.
-    if (!type_is_atom(type) || !expr_is_literal(rhs)) {
+    if (!type_is_basic(type) || !expr_is_literal(rhs)) {
         return false;
     }
 
-    Type const *rtype = rhs->type;
-    switch (type->atom.kind) {
-    case Value_uint:
-        switch (rtype->atom.kind) {
-        case Value_int:  return compiler_implicit_uint_from_int (rhs);
-        case Value_real: return compiler_implicit_uint_from_real(rhs);
-        default:         break;
-        }
-        break;
-    case Value_int:
-        switch (rtype->atom.kind) {
-        // <ident> : 'int' = <uint-literal>
-        case Value_uint: return compiler_implicit_int_from_uint(rhs);
-        case Value_real: return compiler_implicit_int_from_real(rhs);
-        default:         break;
-        }
-        break;
-    case Value_real:
-        switch (rtype->atom.kind) {
-        case Value_uint: return compiler_implicit_real_from_uint(rhs);
-        case Value_int:  return compiler_implicit_real_from_int (rhs);
-        default:         break;
-        }
-        break;
-    default: break;
+    switch (type->basic.kind) {
+    case Value_uint: compiler_implicit_cast(rhs, uint); break;
+    case Value_int:  compiler_implicit_cast(rhs, int);  break;
+    case Value_real: compiler_implicit_cast(rhs, real); break;
+    default:         break;
     }
     return false;
 }
+
+#undef compiler_implicit_cast
+#undef compiler_implicit_real_from_real
+#undef compiler_implicit_int_from_int
+#undef compiler_implicit_uint_from_uint
+#undef compiler_unreachable_bool
 
 LULU_INTERNAL_FUNC void
 compiler_declare(Compiler *c, Expr *lhs, Expr *rhs)
@@ -774,8 +807,8 @@ compiler_declare(Compiler *c, Expr *lhs, Expr *rhs)
     // No assigning expression given, so use the zero value.
     if (!rhs->kind) {
         switch (lhs->type->kind) {
-        case TypeKind_Atom:
-            switch (lhs->type->atom.kind) {
+        case TypeKind_Basic:
+            switch (lhs->type->basic.kind) {
             case Value_bool: expr_set_bool_literal(rhs, false); break;
             case Value_uint: expr_set_uint_literal(rhs, 0);     break;
             case Value_int:  expr_set_int_literal (rhs, 0);     break;
@@ -797,14 +830,16 @@ compiler_declare(Compiler *c, Expr *lhs, Expr *rhs)
         }
     }
 
-    u16 const reg = compiler_expr_next_reg(c, rhs);
-    Variable *v   = &c->variables[c->active_count++];
-    LULU_ASSERT(reg == c->active_count - 1);
+    // Ensure register allocation is correct- locals variables are just
+    // registers, after all.
+    u16 const reg = compiler_expr_any_reg(c, rhs);
+    LULU_ASSERTF(reg == c->active_count, "Expected active_count = %u but got %u", c->active_count, reg);
 
-    v->type   = lhs->type;
-    v->name   = lhs->token.lexeme;
-    v->scope  = 1;
-    lhs->reg  = reg;
+    Variable *v = &c->variables[c->active_count++];
+    v->type     = lhs->type;
+    v->name     = lhs->token.lexeme;
+    v->scope    = 1;
+    lhs->reg    = reg;
 }
 
 #undef compiler_code_ABx

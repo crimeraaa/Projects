@@ -43,10 +43,6 @@ struct ParserData {
 LULU_INTERNAL_FUNC Chunk *
 parser_parse(lulu_State *L, ParserData *data);
 
-// The most common case is to error at the current token.
-LULU_INTERNAL_FUNC LULU_NORETURN void
-parser_error(Parser *p, const char *info);
-
 LULU_INTERNAL_FUNC LULU_NORETURN void
 parser_error_at(Parser *p, const char *info, const Token *t);
 
