@@ -12,7 +12,7 @@
 #include "debug.c"
 #include "vm.c"
 
-LULU_API const char *
+LULU_API char const *
 lulu_error_string(lulu_Error err)
 {
     switch (err) {
@@ -26,7 +26,7 @@ lulu_error_string(lulu_Error err)
 }
 
 LULU_API lulu_Error
-lulu_compile(lulu_State *L, const char *path, const char *input, size_t len)
+lulu_compile(lulu_State *L, char const *path, char const *input, size_t len)
 {
     String path2  = string_make_cstring(path);
     String input2 = string_make(input, len);

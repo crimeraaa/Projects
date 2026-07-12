@@ -13,24 +13,21 @@
  */
 typedef struct String String;
 struct String {
-    const char *data;
+    char const *data;
     usize       len;
 };
 
 #define string_literal(s)   {s, sizeof(s) - 1}
 
 static inline String
-string_make(const char *data, usize len);
-
-static inline String
-string_make(const char *data, usize len)
+string_make(char const *data, usize len)
 {
     String s = {data, len};
     return s;
 }
 
 static inline String
-string_make_cstring(const char *s)
+string_make_cstring(char const *s)
 {
     usize n = 0;
     while (s[n] != 0) {
@@ -64,12 +61,12 @@ string_eq(String a, String b)
 static inline u32
 string_hash(String s)
 {
-    const char *const p = s.data;
-    const usize       n = s.len;
+    char const *      p   = s.data;
+    char const *const end = p + s.len;
 
     u32 hash = FNV32A_OFFSET;
-    for (usize i = 0; i < n; i++) {
-        hash = (hash ^ cast(u32)p[i]) * FNV32A_PRIME;
+    while (p < end) {
+        hash = (hash ^ cast(u32)*p++) * FNV32A_PRIME;
     }
     return hash;
 }

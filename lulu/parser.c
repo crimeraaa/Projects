@@ -35,7 +35,7 @@ parser_expr_prec(Parser *p, Expr *out, bool lhs, Precedence prec);
 static void
 parser_expr(Parser *p, Expr *out, bool lhs);
 
-static const char *
+static char const *
 parser_clamp_string(char *buf, usize buf_len, String s)
 {
     usize it = 0, stop;
@@ -56,13 +56,13 @@ parser_clamp_string(char *buf, usize buf_len, String s)
 }
 
 LULU_INTERNAL_FUNC void
-parser_error(Parser *p, const char *info)
+parser_error(Parser *p, char const *info)
 {
     parser_error_at(p, info, &p->token);
 }
 
 LULU_INTERNAL_FUNC void
-parser_error_at(Parser *p, const char *info, const Token *t)
+parser_error_at(Parser *p, char const *info, Token const *t)
 {
     char name[80];
     char loc[80];
@@ -87,7 +87,7 @@ parser_advance(Parser *p)
 }
 
 static bool
-parser_check(const Parser *p, TokenKind k)
+parser_check(Parser const *p, TokenKind k)
 {
     return p->token.kind == k;
 }
@@ -112,6 +112,21 @@ parser_expect(Parser *p, TokenKind k)
     }
 }
 
+static Variable *
+parser_find_variable(Parser *p, String name, u16 *out)
+{
+    Compiler *c = p->compiler;
+    for (u16 i = c->active_count; i-- > 0;) {
+        Variable *v = &c->variables[i];
+        if (string_eq(v->name, name)) {
+            if (out) *out = i;
+            return v;
+        }
+    }
+    if (out) *out = cast(u16)-1;
+    return nullptr;
+}
+
 
 /*
 NOTE(2026-07-03):
@@ -133,7 +148,7 @@ parser_operand(Parser *p, Expr *out, bool lhs)
     case Token_Int: {
         lulu_uint tmp;
         if (!lexer_parse_uint(token.lexeme, &tmp)) {
-            const char *info = lexer_error_string(LEXER_INVALID_NUMBER);
+            char const *info = lexer_error_string(LEXER_INVALID_NUMBER);
             parser_error_at(p, info, &token);
         }
         *out = expr_make_uint(&token, tmp);
@@ -142,7 +157,7 @@ parser_operand(Parser *p, Expr *out, bool lhs)
     case Token_Float: {
         lulu_real tmp;
         if (!lexer_parse_real(token.lexeme, &tmp)) {
-            const char *info = lexer_error_string(LEXER_INVALID_NUMBER);
+            char const *info = lexer_error_string(LEXER_INVALID_NUMBER);
             parser_error_at(p, info, &token);
         }
         *out = expr_make_real(&token, tmp);
@@ -159,10 +174,23 @@ parser_operand(Parser *p, Expr *out, bool lhs)
             parser_error_at(p, "Table constructors not yet supported", &token);
         }
         break;
-    case Token_Ident:
-        parser_error_at(p, "Variables not yet supported", &token);
-        // operand = expr_make_ident(token.lexeme);
+    case Token_Ident: {
+        String      ident = token.lexeme;
+        Type const *type  = type_get(p->L, ident);
+        if (type) {
+            *out = expr_make_type(&token, type);
+        } else {
+            u16       i;
+            Variable *v = parser_find_variable(p, ident, &i);
+            // If we're in a declaration or assignment, allow this temporarily.
+            // We'll have to check if it anyway.
+            if (!v && !lhs) {
+                parser_error_at(p, "Unknown identifier", &token);
+            }
+            *out = expr_make_variable(&token, (v) ? v->type : nullptr, i);
+        }
         break;
+    }
     default:
         parser_error_at(p, "Expected an operand", &token);
         break;
@@ -170,14 +198,26 @@ parser_operand(Parser *p, Expr *out, bool lhs)
 }
 
 static void
-parser_atom_expr(Parser *p, Expr *operand, bool lhs)
+parser_call(Parser *p, Expr *func)
 {
-#if 0
+    Expr arg = expr_make_none();
+    if (!parser_check(p, Token_Close_Paren)) {
+        parser_expr(p, &arg, /*lhs=*/false);
+    }
+    parser_expect(p, Token_Close_Paren);
+    compiler_call(p->compiler, func, &arg);
+}
+
+static void
+parser_primary_expr(Parser *p, Expr *out, bool lhs)
+{
     bool loop = true;
+    parser_operand(p, out, lhs);
     while (loop) {
         switch (p->token.kind) {
         case Token_Open_Paren:
-            parser_call(p, operand);
+            parser_advance(p);
+            parser_call(p, out);
             break;
         default:
             loop = false;
@@ -186,7 +226,6 @@ parser_atom_expr(Parser *p, Expr *operand, bool lhs)
         // After the first atom, we are no longer assignable.
         lhs = false;
     }
-#endif
 }
 
 static String
@@ -201,11 +240,11 @@ parser_ident(Parser *p)
  Assumptions:
  1) We are about to consume an identifier.
  */
-static const Type *
+static Type const *
 parser_type(Parser *p)
 {
     String      ident = parser_ident(p);
-    const Type *type  = type_get(p->L, ident);
+    Type const *type  = type_get(p->L, ident);
     if (!type) {
         parser_error(p, "Unknown type name");
     }
@@ -221,7 +260,7 @@ parser_unary_expr(Parser *p, Expr *out, bool lhs)
         parser_advance(p);
         parser_expect(p, Token_Open_Paren);
 
-        const Type *type = parser_type(p);
+        Type const *type = parser_type(p);
         parser_expect(p, Token_Close_Paren);
 
         parser_expr_prec(p, out, /*lhs=*/false, Prec_Unary);
@@ -239,8 +278,7 @@ parser_unary_expr(Parser *p, Expr *out, bool lhs)
         break;
     }
     default:
-        parser_operand  (p, out, lhs);
-        parser_atom_expr(p, out, lhs);
+        parser_primary_expr(p, out, lhs);
         break;
     }
 }
@@ -283,16 +321,16 @@ parser_prec(TokenKind k)
 }
 
 static void
-parser_expr_prec(Parser *p, Expr *lhs_out, bool lhs, Precedence prec_in)
+parser_expr_prec(Parser *p, Expr *out, bool lhs, Precedence prec_in)
 {
-    Expr      rhs_expr;
+    Expr      rhs;
     Compiler *c = p->compiler;
 
     parser_recurse_push(p);
-    parser_unary_expr(p, lhs_out, lhs);
+    parser_unary_expr(p, out, lhs);
     for (;;) {
         // This also catches tokens that are not binary operators.
-        const Token op       = p->token;
+        Token const op       = p->token;
         Precedence  prec_out = parser_prec(op.kind);
         if (prec_out < prec_in) {
             break;
@@ -300,14 +338,19 @@ parser_expr_prec(Parser *p, Expr *lhs_out, bool lhs, Precedence prec_in)
 
         parser_advance(p);
 #if PARSER_CONSTANT_FOLDING
-        if (!expr_is_literal(lhs_out)) {
-            compiler_expr_any_reg(c, lhs_out);
+        if (!expr_is_literal(out)) {
+            compiler_expr_any_reg(c, out);
         }
 #else
-        compiler_expr_any_reg(c, lhs_out);
+        compiler_expr_any_reg(c, out);
 #endif
-        parser_expr_prec(p, &rhs_expr, false, prec_out + 1);
-        compiler_binary(c, &op, lhs_out, &rhs_expr);
+        /*
+         Assumptions:
+         1) All binary operators are left-associative. We don't have
+            exponentiation.
+         */
+        parser_expr_prec(p, &rhs, false, prec_out + 1);
+        compiler_binary(c, &op, out, &rhs);
     }
     parser_recurse_pop(p);
 }
@@ -319,37 +362,62 @@ parser_expr(Parser *p, Expr *out, bool lhs)
 }
 
 static void
-parser_assign(Parser *p)
-{
-    Expr lhs;
-    parser_expr(p, &lhs, /*lhs=*/true);
-    compiler_return(p->compiler, &lhs);
-#if 0
-    switch (p->token.kind) {
-    case Token_Colon:
-    case Token_Assign:
-    default:
-        parser_error(p, "Unassignable expression");
-        break;
-    }
-#endif
-}
-
-static void
 parser_stmt_expr(Parser *p)
 {
     Expr e;
     parser_expr(p, &e, /*lhs=*/false);
-    compiler_return(p->compiler, &e);
+}
+
+static void
+parser_decl(Parser *p, Expr *lhs)
+{
+    // If none provided, then infer from rhs type.
+    Type const *type = lhs->type;
+    if (lhs->type != nullptr) {
+        parser_error_at(p, "Shadowing of variable", &lhs->token);
+    }
+
+    if (!parser_check(p, Token_Assign)) {
+        type = parser_type(p);
+    }
+
+    Expr rhs = expr_make_none();
+    if (parser_match(p, Token_Assign)) {
+        parser_expr(p, &rhs, /*lhs=*/false);
+        if (!type) {
+            type = rhs.type;
+        }
+    } else if (!type) {
+        parser_error_at(p, "Expected type or '=' after ':'", &lhs->token);
+    }
+
+    lhs->type = type;
+    compiler_declare(p->compiler, lhs, &rhs);
 }
 
 static void
 parser_simple_stmt(Parser *p)
 {
     switch (p->token.kind) {
-    case Token_Ident:
-        parser_assign(p);
+    case Token_Ident: {
+        Expr lhs;
+        parser_primary_expr(p, &lhs, /*lhs=*/true);
+        switch (p->token.kind) {
+        case Token_Colon: {
+            if (lhs.kind != Expr_Variable) goto nodice;
+            parser_advance(p);
+            parser_decl(p, &lhs);
+            break;
+        }
+        case Token_Assign:
+        default:
+            if (lhs.kind != Expr_Call) nodice: {
+                parser_error_at(p, "Unassignable expression", &lhs.token);
+            }
+            break;
+        }
         break;
+    }
     default:
         parser_stmt_expr(p);
         break;
@@ -379,6 +447,7 @@ parser_parse(lulu_State *L, ParserData *data)
     p = parser_make(L, &c, data);
     c = compiler_make(L, &p, &data->chunk);
     parser_simple_stmt(&p);
+    compiler_return(&c, nullptr);
     parser_expect(&p, Token_Eof);
     return c.chunk;
 }

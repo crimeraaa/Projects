@@ -42,14 +42,13 @@
  */
 #define LULU_DEFAULT_ALIGN  sizeof(void *)
 
-enum lulu_Error {
+typedef enum lulu_Error {
     LULU_OK, /* No error occured. */
     LULU_SYNTAX_ERROR,
     LULU_RUNTIME_ERROR,
     LULU_MEMORY_ERROR
-};
+} lulu_Error;
 
-typedef enum   lulu_Error lulu_Error;
 typedef struct lulu_State lulu_State;
 
 LULU_API lulu_State *
@@ -62,7 +61,7 @@ LULU_API const char *
 lulu_error_string(lulu_Error err);
 
 LULU_API lulu_Error
-lulu_compile(lulu_State *L, const char *path, const char *input, size_t len);
+lulu_compile(lulu_State *L, char const *path, char const *input, size_t len);
 
 #endif // !LULU_H
 

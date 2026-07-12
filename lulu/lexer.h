@@ -114,7 +114,7 @@ enum LexerError {
 
 typedef enum LexerError LexerError;
 
-LULU_INTERNAL_FUNC const char *
+LULU_INTERNAL_FUNC char const *
 token_kind_cstring(TokenKind k);
 
 static inline Token
@@ -133,7 +133,7 @@ lexer_make(String path, String input)
     return x;
 }
 
-LULU_INTERNAL_FUNC const char *
+LULU_INTERNAL_FUNC char const *
 lexer_error_string(LexerError err);
 
 LULU_INTERNAL_FUNC LexerError

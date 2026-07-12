@@ -13,7 +13,8 @@
 typedef struct AtomType AtomType;
 struct AtomType {
     ValueKind kind;
-    String    name;
+    u32       len;
+    char      name[8];
 };
 
 typedef enum TypeKind {
@@ -33,7 +34,7 @@ typedef struct TypeEnv_Entry TypeEnv_Entry;
 struct TypeEnv_Entry {
     String      key;
     u32         hash;
-    const Type *type;
+    Type const *type;
 };
 
 typedef struct TypeEnv TypeEnv;
@@ -44,12 +45,12 @@ struct TypeEnv {
 };
 
 static inline bool
-type_is_atom(const Type *t)
+type_is_atom(Type const *t)
 {
     return t->kind == TypeKind_Atom;
 }
 
-LULU_INTERNAL_FUNC const Type *
+LULU_INTERNAL_FUNC Type const *
 atom_type_get(ValueKind k);
 
 LULU_INTERNAL_FUNC void
@@ -59,12 +60,12 @@ LULU_INTERNAL_FUNC void
 type_env_destroy(lulu_State *L, TypeEnv *env);
 
 LULU_INTERNAL_FUNC bool
-type_eq(const Type *a, const Type *b);
+type_eq(Type const *a, Type const *b);
 
-LULU_INTERNAL_FUNC const Type *
+LULU_INTERNAL_FUNC Type const *
 type_get(lulu_State *L, String key);
 
 LULU_INTERNAL_FUNC void
-type_set(lulu_State *L, String key, const Type *type);
+type_set(lulu_State *L, String key, Type const *type);
 
 #endif  // LULU_TYPE_H

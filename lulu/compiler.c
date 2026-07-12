@@ -9,7 +9,7 @@
 #include "value.h"
 
 LULU_NORETURN static void
-compiler_error(Compiler *c, const char *info, const Expr *e)
+compiler_error(Compiler *c, char const *info, Expr const *e)
 {
     parser_error_at(c->parser, info, &e->token);
 }
@@ -26,7 +26,7 @@ compiler_code(Compiler *c, Instruction i)
 #define compiler_code_ABx(c, Op, A, Bx)     compiler_code(c, MAKE_ABx(Op, A, Bx));
 
 static void
-expr_set_bool_literal(Expr *e, bool b)
+expr_set_bool_literal(Expr *e, lulu_bool b)
 {
     e->kind         = Expr_Literal;
     e->type         = atom_type_get(Value_bool);
@@ -60,15 +60,15 @@ expr_set_real_literal(Expr *e, lulu_real r)
 // I'm not even going to pretend this is remotely sane
 // Marginal waste of time when the type matches its literals, but that's
 // not common behavior anyway.
-#define compiler_cast_type(fn, T, tag)                                         \
-    ValueKind vk = expr_get_atom_kind(e); \
+#define compiler_cast_type(fn, T)                                              \
+    ValueKind vk = expr_atom_kind(e);                                          \
     switch (e->kind) {                                                         \
     case Expr_Literal:                                                         \
         switch (vk) {                                                          \
-        case Value_bool: fn(e, cast(T)e->literal_bool); return;                \
-        case Value_uint: fn(e, cast(T)e->literal_uint); return;                \
-        case Value_int:  fn(e, cast(T)e->literal_int);  return;                \
-        case Value_real: fn(e, cast(T)e->literal_real); return;                \
+        case Value_bool: fn(e, cast(lulu_##T)e->literal_bool); return;         \
+        case Value_uint: fn(e, cast(lulu_##T)e->literal_uint); return;         \
+        case Value_int:  fn(e, cast(lulu_##T)e->literal_int);  return;         \
+        case Value_real: fn(e, cast(lulu_##T)e->literal_real); return;         \
         default:                                                               \
             break;                                                             \
         }                                                                      \
@@ -76,10 +76,12 @@ expr_set_real_literal(Expr *e, lulu_real r)
     case Expr_Pending:                                                         \
         compiler_expr_any_reg(c, e);                                           \
         /* fallthrough */                                                      \
-    case Expr_Discharged:                                                      \
+    case Expr_Discharged: {                                                    \
+        ValueKind tag = Value_##T;                                             \
         compiler_code_ABC(c, Op_cast, e->reg, cast(u16)tag, cast(u16)vk);      \
         e->type = atom_type_get(tag);                                          \
         return;                                                                \
+    }                                                                          \
     default:                                                                   \
         break;                                                                 \
     }                                                                          \
@@ -88,31 +90,31 @@ expr_set_real_literal(Expr *e, lulu_real r)
 static void
 compiler_cast_bool(Compiler *c, Expr *e)
 {
-    compiler_cast_type(expr_set_bool_literal, bool, Value_bool);
+    compiler_cast_type(expr_set_bool_literal, bool);
 }
 
 static void
 compiler_cast_uint(Compiler *c, Expr *e)
 {
-    compiler_cast_type(expr_set_uint_literal, lulu_uint, Value_uint);
+    compiler_cast_type(expr_set_uint_literal, uint);
 }
 
 static void
 compiler_cast_int(Compiler *c, Expr *e)
 {
-    compiler_cast_type(expr_set_int_literal, lulu_int, Value_int);
+    compiler_cast_type(expr_set_int_literal, int);
 }
 
 static void
 compiler_cast_real(Compiler *c, Expr *e)
 {
-    compiler_cast_type(expr_set_real_literal, lulu_real, Value_real);
+    compiler_cast_type(expr_set_real_literal, real);
 }
 
 #undef compiler_cast_type
 
 LULU_INTERNAL_FUNC void
-compiler_cast(Compiler *c, const Type *t, Expr *e)
+compiler_cast(Compiler *c, Type const *t, Expr *e)
 {   
     // Nothing to do?
     if (e->type == t) {
@@ -135,6 +137,15 @@ compiler_cast(Compiler *c, const Type *t, Expr *e)
         break;
     }
     compiler_error(c, "Cannot cast to type", e);
+}
+
+LULU_INTERNAL_FUNC void
+compiler_call(Compiler *c, Expr *func, Expr *arg)
+{
+    if (func->kind != Expr_Type) {
+        compiler_error(c, "Function calls not yet supported", func);
+    }
+    compiler_cast(c, func->type, arg);
 }
 
 static void
@@ -182,7 +193,6 @@ compiler_load_bool(Compiler *c, u16 reg, bool b)
 static void
 compiler_load_uint(Compiler *c, u16 reg, lulu_uint u)
 {
-    LULU_LOGF("Loading uint(%llu)", u);
     if (u <= ARG_Bx_MAX) {
         compiler_code_ABx(c, Op_uint_imm, reg, cast(u32)u);
     } else {
@@ -236,7 +246,7 @@ expr_discharge_reg(Compiler *c, Expr *e, u16 reg)
     expr_discharge_vars(c, e);
     switch (e->kind) {
     case Expr_Literal: 
-        switch (expr_get_atom_kind(e)) {
+        switch (expr_atom_kind(e)) {
         case Value_bool: compiler_load_bool(c, reg, e->literal_bool); break;
         case Value_uint: compiler_load_uint(c, reg, e->literal_uint); break;
         case Value_int:  compiler_load_int (c, reg, e->literal_int);  break;
@@ -252,7 +262,7 @@ expr_discharge_reg(Compiler *c, Expr *e, u16 reg)
         }
         break;
     case Expr_Pending: {
-        Instruction *ip = &c->chunk->code[expr_get_pc(e)];
+        Instruction *ip = &c->chunk->code[expr_pc(e)];
         SETARG_A(ip, reg);
         break;
     }
@@ -299,7 +309,7 @@ compiler_expr_any_reg(Compiler *c, Expr *e)
 }
 
 static OpCode
-compiler_unary_op(const Token *op, Expr *e)
+compiler_unary_op(Token const *op, Expr *e)
 {
     switch (op->kind) {
     case Token_Len:
@@ -330,7 +340,7 @@ compiler_unary_op(const Token *op, Expr *e)
 }
 
 static bool
-compiler_unary_folded(Compiler *c, const Token *op, Expr *e)
+compiler_unary_folded(Compiler *c, Token const *op, Expr *e)
 {
     if (expr_is_literal(e)) switch (op->kind) {
     case Token_Sub:
@@ -359,7 +369,7 @@ compiler_unary_folded(Compiler *c, const Token *op, Expr *e)
 }
 
 LULU_INTERNAL_FUNC void
-compiler_unary(Compiler *c, const Token *op, Expr *e)
+compiler_unary(Compiler *c, Token const *op, Expr *e)
 {
 #if PARSER_CONSTANT_FOLDING
     if (compiler_unary_folded(c, op, e)) {
@@ -381,14 +391,14 @@ static bool
 compiler_coerce_signs(Compiler *c, Expr *u, Expr *i)
 {
     // All positive signed integers can be coerced to unsigned integers.
-    lulu_int i_imm = expr_get_int(i);
+    lulu_int i_imm = expr_int(i);
     if (i_imm >= 0) {
         i->literal_uint = cast(lulu_uint)i_imm;
         i->type         = u->type;
     }
     // Otherwise, try to coerce the unsigned integer to a signed one.
     else {
-        lulu_uint u_imm = expr_get_uint(u);
+        lulu_uint u_imm = expr_uint(u);
         // Can't possibly be represented as a signed integer.
         if (u_imm > LULU_INT_MAX) {
             compiler_error(c, "Implicit cast to signed would overflow", u);
@@ -400,37 +410,24 @@ compiler_coerce_signs(Compiler *c, Expr *u, Expr *i)
     return true;
 }
 
-static bool
-compiler_coerce_uint_real(Compiler *c, Expr *u, const Expr *r)
-{
-    lulu_uint uimm  = expr_get_uint(u);
-    u->literal_real = cast(lulu_real)uimm;
-    u->type         = r->type;
-    return true;
-}
-
-static bool
-compiler_coerce_int_real(Compiler *c, Expr *i, const Expr *r)
-{
-    lulu_int imm    = expr_get_int(i);
-    i->literal_real = cast(lulu_real)imm;
-    i->type         = r->type;
-    return true;
-}
+#define compiler_coerce_real(T, i, r) \
+    ((i)->literal_real = cast(lulu_real)expr_##T(i), \
+     (i)->type         = (r)->type,                      \
+     true)
 
 static bool
 compiler_implicit_cast_numeric(Compiler *c, Expr *lhs, Expr *rhs)
 {
     ValueKind lhs_kind, rhs_kind;
 
-    lhs_kind = expr_get_atom_kind(lhs);
-    rhs_kind = expr_get_atom_kind(rhs);
+    lhs_kind = expr_atom_kind(lhs);
+    rhs_kind = expr_atom_kind(rhs);
     switch (lhs_kind) {
     case Value_uint:
         switch (rhs_kind) {
         case Value_uint: LULU_UNREACHABLE(); break;
-        case Value_int:  return compiler_coerce_signs    (c, lhs, rhs);
-        case Value_real: return compiler_coerce_uint_real(c, lhs, rhs);
+        case Value_int:  return compiler_coerce_signs(c, lhs, rhs);
+        case Value_real: return compiler_coerce_real (uint, lhs, rhs);
         default:
             break;
         }
@@ -439,7 +436,7 @@ compiler_implicit_cast_numeric(Compiler *c, Expr *lhs, Expr *rhs)
         switch (rhs_kind) {
         case Value_uint: return compiler_coerce_signs(c, rhs, lhs);
         case Value_int:  LULU_UNREACHABLE(); break;
-        case Value_real: return compiler_coerce_int_real(c, lhs, rhs);
+        case Value_real: return compiler_coerce_real(int, lhs, rhs);
         default:
             break;
         }
@@ -447,8 +444,8 @@ compiler_implicit_cast_numeric(Compiler *c, Expr *lhs, Expr *rhs)
     case Value_real:
         // TODO(2026-07-08): Do we really want propagation?
         switch (rhs_kind) {
-        case Value_uint: return compiler_coerce_uint_real(c, rhs, lhs);
-        case Value_int:  return compiler_coerce_int_real (c, rhs, lhs);
+        case Value_uint: return compiler_coerce_real(uint, rhs, lhs);
+        case Value_int:  return compiler_coerce_real(int,  rhs, lhs);
         case Value_real: LULU_UNREACHABLE(); break;
         default:
             break;
@@ -485,7 +482,7 @@ compiler_implicit_cast_numeric(Compiler *c, Expr *lhs, Expr *rhs)
     }
 
 static bool
-compiler_binary_folded(Compiler *c, const Token *op, Expr *lhs, Expr *rhs)
+compiler_binary_folded(Compiler *c, Token const *op, Expr *lhs, Expr *rhs)
 {
     if (!expr2_both_literal(lhs, rhs)) {
         return false;
@@ -495,7 +492,11 @@ compiler_binary_folded(Compiler *c, const Token *op, Expr *lhs, Expr *rhs)
         }
     }
 
-    switch (expr_get_atom_kind(lhs)) {
+#if !PARSER_CONSTANT_FOLDING
+    return false;
+#endif
+
+    switch (expr_atom_kind(lhs)) {
     case Value_bool: {
         bool lhs_bool = lhs->literal_bool;
         bool rhs_bool = rhs->literal_bool;
@@ -539,13 +540,13 @@ Notes
     constant folder.
 */
 static OpCode
-compiler_binary_op(Compiler *c, const Token *op, Expr *lhs, const Expr *rhs, u8 *flags)
+compiler_binary_op(Compiler *c, Token const *op, Expr *lhs, Expr const *rhs, u8 *flags)
 {
     if (lhs->type != rhs->type) {
         compiler_error(c, "Inconsistent right hand side type", rhs);
     }
 
-    if (type_is_atom(lhs->type)) switch (expr_get_atom_kind(lhs)) {
+    if (type_is_atom(lhs->type)) switch (expr_atom_kind(lhs)) {
     case Value_bool:
         break;
     case Value_uint:
@@ -607,17 +608,15 @@ compiler_binary_op(Compiler *c, const Token *op, Expr *lhs, const Expr *rhs, u8 
 }
 
 LULU_INTERNAL_FUNC void
-compiler_binary(Compiler *c, const Token *op, Expr *lhs, Expr *rhs)
+compiler_binary(Compiler *c, Token const *op, Expr *lhs, Expr *rhs)
 {
-#if PARSER_CONSTANT_FOLDING
     if (compiler_binary_folded(c, op, lhs, rhs)) {
         return;
     }
-#endif
 
     u8     flags  = 0;
     OpCode opcode = compiler_binary_op(c, op, lhs, rhs, &flags);
-    u16    r1     = expr_get_reg(lhs);
+    u16    r1     = expr_reg(lhs);
     u16    r2     = compiler_expr_any_reg(c, rhs);
     if (r1 > r2) {
         expr_pop(c, lhs);
@@ -651,8 +650,161 @@ compiler_binary(Compiler *c, const Token *op, Expr *lhs, Expr *rhs)
 LULU_INTERNAL_FUNC void
 compiler_return(Compiler *c, Expr *e)
 {
-    u16 reg = compiler_expr_any_reg(c, e);
+    u16 reg = (e) ? compiler_expr_any_reg(c, e) : 0;
     compiler_code_ABC(c, Op_return, reg, 1, 1);
+}
+
+static bool
+compiler_implicit_uint_from_int(Expr *rhs)
+{
+    lulu_int i = expr_int(rhs);
+    // Can't implicitly cast negatives to unsigned.
+    if (i < 0) {
+        return false;
+    }
+    expr_set_uint_literal(rhs, cast(lulu_uint)i);
+    return true;
+}
+
+static bool
+compiler_implicit_uint_from_real(Expr *rhs)
+{
+    lulu_real r = expr_real(rhs);
+    lulu_uint u = cast(lulu_uint)r;
+    if (r < 0.0 || cast(lulu_real)u != r) {
+        return false;
+    }
+    expr_set_uint_literal(rhs, u);
+    return true;
+}
+
+static bool
+compiler_implicit_int_from_uint(Expr *rhs)
+{
+    lulu_uint u = expr_uint(rhs);
+    if (u > LULU_INT_MAX) {
+        return false;
+    }
+    expr_set_int_literal(rhs, cast(lulu_int)u);
+    return true;
+}
+
+static bool
+compiler_implicit_int_from_real(Expr *rhs)
+{
+    lulu_real r = expr_real(rhs);
+    lulu_int  i = cast(lulu_int)r;
+    if (cast(lulu_real)i != r) {
+        return false;
+    }
+    expr_set_int_literal(rhs, i);
+    return true;
+}
+
+static bool
+compiler_implicit_real_from_uint(Expr *rhs)
+{
+    lulu_uint u = expr_uint(rhs);
+    lulu_real r = cast(lulu_real)u;
+
+    // Conversion results in data loss?
+    if (cast(lulu_uint)r != u) {
+        return false;
+    }
+    expr_set_real_literal(rhs, r);
+    return true;
+}
+
+static bool
+compiler_implicit_real_from_int(Expr *rhs)
+{
+    lulu_int  i = expr_int(rhs);
+    lulu_real r = cast(lulu_real)i;
+
+    // Conversion results in data loss?
+    if (cast(lulu_int)r != i) {
+        return false;
+    }
+
+    expr_set_real_literal(rhs, r);
+    return true;
+}
+
+static bool
+compiler_implicit_cast_rhs(Compiler *c, Type const *type, Expr *rhs)
+{
+    // If rhs isn't a literal and it's of the wrong type, then we don't
+    // allow it to assign to lhs as implicit casts are error-prone.
+    if (!type_is_atom(type) || !expr_is_literal(rhs)) {
+        return false;
+    }
+
+    Type const *rtype = rhs->type;
+    switch (type->atom.kind) {
+    case Value_uint:
+        switch (rtype->atom.kind) {
+        case Value_int:  return compiler_implicit_uint_from_int (rhs);
+        case Value_real: return compiler_implicit_uint_from_real(rhs);
+        default:         break;
+        }
+        break;
+    case Value_int:
+        switch (rtype->atom.kind) {
+        // <ident> : 'int' = <uint-literal>
+        case Value_uint: return compiler_implicit_int_from_uint(rhs);
+        case Value_real: return compiler_implicit_int_from_real(rhs);
+        default:         break;
+        }
+        break;
+    case Value_real:
+        switch (rtype->atom.kind) {
+        case Value_uint: return compiler_implicit_real_from_uint(rhs);
+        case Value_int:  return compiler_implicit_real_from_int (rhs);
+        default:         break;
+        }
+        break;
+    default: break;
+    }
+    return false;
+}
+
+LULU_INTERNAL_FUNC void
+compiler_declare(Compiler *c, Expr *lhs, Expr *rhs)
+{
+    // No assigning expression given, so use the zero value.
+    if (!rhs->kind) {
+        switch (lhs->type->kind) {
+        case TypeKind_Atom:
+            switch (lhs->type->atom.kind) {
+            case Value_bool: expr_set_bool_literal(rhs, false); break;
+            case Value_uint: expr_set_uint_literal(rhs, 0);     break;
+            case Value_int:  expr_set_int_literal (rhs, 0);     break;
+            case Value_real: expr_set_real_literal(rhs, 0.0);   break;
+            default:
+                goto nodice;
+            }
+            break;
+        default: nodice:
+            compiler_error(c, "Unsupported zero value", rhs);
+        }
+    }
+    // Otherwise, we have an assigning expression but it's of the wrong type.
+    else if (lhs->type != rhs->type) {
+        // Only literals that can be implicitly converted to the destination
+        // type without any loss of data will pass this check.
+        if (!compiler_implicit_cast_rhs(c, lhs->type, rhs)) {
+            compiler_error(c, "Invalid implicit cast", rhs);
+        }
+    }
+
+    u16 const reg = compiler_expr_next_reg(c, rhs);
+    Variable *v   = &c->variables[c->active_count++];
+    LULU_ASSERT(reg == c->active_count - 1);
+
+    v->type   = lhs->type;
+    v->name   = lhs->token.lexeme;
+    v->scope  = 1;
+    lhs->reg  = reg;
 }
 
 #undef compiler_code_ABx

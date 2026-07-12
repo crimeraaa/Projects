@@ -2,7 +2,7 @@
 
 #include "lexer.h"
 
-static const String
+static String const
 TOKEN_KIND_STRINGS[] = {
 #define X(e, s) string_literal(s),
     TOKEN_KINDS(X)
@@ -15,39 +15,39 @@ token_kind_string(TokenKind k)
     return TOKEN_KIND_STRINGS[k];
 }
 
-LULU_INTERNAL_FUNC const char *
+LULU_INTERNAL_FUNC char const *
 token_kind_cstring(TokenKind k)
 {
     return TOKEN_KIND_STRINGS[k].data;
 }
 
-static const char *
-lexer_get_ptr(const Lexer *x, usize i)
+static char const *
+lexer_get_ptr(Lexer const *x, usize i)
 {
     return x->input.data + i;
 }
 
 // Must be of the same type as the cursor.
 static usize
-lexer_end(const Lexer *x)
+lexer_end(Lexer const *x)
 {
     return x->input.len;
 }
 
 static bool
-lexer_eof(const Lexer *x)
+lexer_eof(Lexer const *x)
 {
     return x->cursor >= lexer_end(x);
 }
 
 static char
-lexer_get(const Lexer *x, usize i)
+lexer_get(Lexer const *x, usize i)
 {
     return *lexer_get_ptr(x, i);
 }
 
 static char
-lexer_peek_char(const Lexer *x)
+lexer_peek_char(Lexer const *x)
 {
     return lexer_get(x, x->cursor);
 }
@@ -70,7 +70,7 @@ lexer_next_char(Lexer *x)
 }
 
 static bool
-lexer_check_char(const Lexer *x, char c)
+lexer_check_char(Lexer const *x, char c)
 {
     return lexer_peek_char(x) == c;
 }
@@ -92,7 +92,7 @@ lexer_match_either_char(Lexer *x, char c1, char c2)
 }
 
 static String
-lexer_get_lexeme(const Lexer *x)
+lexer_get_lexeme(Lexer const *x)
 {
     String s;
     s.data = lexer_get_ptr(x, x->start);
@@ -114,7 +114,7 @@ token_make(TokenKind k, String s, i32 line, i32 col)
 
 // Initalizes the given token with the current lexeme.
 static void
-lexer_init_token(const Lexer *x, Token *t, TokenKind k)
+lexer_init_token(Lexer const *x, Token *t, TokenKind k)
 {
     String s;
     i32 line, col;
@@ -519,7 +519,7 @@ lexer_scan_token(Lexer *x, Token *t)
     return k ? LEXER_OK : LEXER_UNEXPECTED_CHARACTER;
 }
 
-LULU_INTERNAL_FUNC const char *
+LULU_INTERNAL_FUNC char const *
 lexer_error_string(LexerError err)
 {
     switch (err) {

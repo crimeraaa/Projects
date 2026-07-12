@@ -6,18 +6,20 @@
 #define type_size_of(T) offsetof(Type, atom) + sizeof(T)
 #define type_new(L, T)  cast(Type *)mem_arena_alloc(L, type_size_of(T))
 
-// Don't add the type info for 'None'.
-static const Type
+// Map ValueKind to Type. Don't add the type info for 'None'.
+static Type const
 ATOM_TYPES[] = {
-    {TypeKind_None, {Value_nil,    string_literal("nil")}},
-    {TypeKind_Atom, {Value_bool,   string_literal("bool")}},
-    {TypeKind_Atom, {Value_uint,   string_literal("uint")}},
-    {TypeKind_Atom, {Value_int,    string_literal("int")}},
-    {TypeKind_Atom, {Value_real,   string_literal("real")}},
-    {TypeKind_Atom, {Value_string, string_literal("string")}},
+#define atom_type_make(T)    {Value_##T, cast(u32)sizeof(#T) - 1, #T}
+    {TypeKind_Atom, {/*atom=*/atom_type_make(nil)}},
+    {TypeKind_Atom, {/*atom=*/atom_type_make(bool)}},
+    {TypeKind_Atom, {/*atom=*/atom_type_make(uint)}},
+    {TypeKind_Atom, {/*atom=*/atom_type_make(int)}},
+    {TypeKind_Atom, {/*atom=*/atom_type_make(real)}},
+    {TypeKind_Atom, {/*atom=*/atom_type_make(string)}},
+#undef atom_type_make
 };
 
-LULU_INTERNAL_FUNC const Type *
+LULU_INTERNAL_FUNC Type const *
 atom_type_get(ValueKind k)
 {
     LULU_ASSERT(k != Value_none);
@@ -33,8 +35,9 @@ type_env_init(lulu_State *L, TypeEnv *env)
     env->cap  = 0;
 
     for (usize i = 0; i < count_of(ATOM_TYPES); i++) {
-        const Type *t = &ATOM_TYPES[i];
-        type_set(L, t->atom.name, t);
+        Type const *type = &ATOM_TYPES[i];
+        String      key  = string_make(type->atom.name, type->atom.len);
+        type_set(L, key, type);
     }
 
     for (usize i = 0; i < env->cap; i++) {
@@ -53,7 +56,7 @@ type_env_destroy(lulu_State *L, TypeEnv *env)
 }
 
 LULU_INTERNAL_FUNC bool
-type_eq(const Type *a, const Type *b)
+type_eq(Type const *a, Type const *b)
 {
     if (a->kind == b->kind) switch (a->kind) {
     case TypeKind_None: LULU_UNREACHABLE(); break;
@@ -65,10 +68,16 @@ type_eq(const Type *a, const Type *b)
 static TypeEnv_Entry *
 type_find_entry(TypeEnv_Entry *data, usize cap, String key, u32 hash)
 {
-    for (usize i = cast(usize)hash & (cap - 1);; i = (i + 1) & (cap - 1)) {
+    TypeEnv_Entry *tomb = nullptr;
+    usize const    wrap = cap - 1;
+    for (usize i = cast(usize)hash & wrap; /* empty */; i = (i + 1) & wrap) {
         TypeEnv_Entry *e = &data[i];
         if (!e->type) {
-            return e;
+            if (!tomb) {
+                tomb = e;
+            } else {
+                return (!tomb) ? e : tomb;
+            }
         } else if (e->hash == hash && string_eq(e->key, key)) {
             return e;
         }
@@ -117,7 +126,7 @@ type_rehash(lulu_State *L, TypeEnv *env, usize cap)
     env->cap  = cap;
 }
 
-LULU_INTERNAL_FUNC const Type *
+LULU_INTERNAL_FUNC Type const *
 type_get(lulu_State *L, String key)
 {
     TypeEnv *env  = &L->types;
@@ -127,20 +136,26 @@ type_get(lulu_State *L, String key)
 }
 
 LULU_INTERNAL_FUNC void
-type_set(lulu_State *L, String key, const Type *type)
+type_set(lulu_State *L, String key, Type const *type)
 {
-    TypeEnv_Entry *p;
+    TypeEnv_Entry *p    = nullptr;
     TypeEnv *const env  = &L->types;
-    const u32       hash = string_hash(key);
+    u32      const hash = string_hash(key);
 
-    // We require at least 1 empty slot in order for the search to work.
-    if (env->used + 1 >= env->cap) {
+    // We require at least 2 empty slots in order for the search to work.
+    if (env->used + 2 >= env->cap) {
         type_rehash(L, env, (env->cap > 8) ? env->cap * 2 : 8);
     }
 
     p = type_find_entry(env->data, env->cap, key, hash);
     if (!p->type) {
         env->used++;
+    } else {
+        // Removing a type?
+        if (!type) {
+            LULU_ASSERT(env->used > 0);
+            env->used--;
+        }
     }
     p->key  = key;
     p->hash = hash;

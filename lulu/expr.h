@@ -8,48 +8,41 @@
 
 typedef enum ExprKind {
     Expr_None,
-
-    // Literal expressions
     Expr_nil,
     Expr_Literal,
-
-    // Constant index is in `constant`.
-    Expr_Constant,
-
-    // Expression has been set to a register `reg`.
-    Expr_Discharged,
-
-    // Expression has an instruction in `pc` but needs the destination
-    // register to be finalized.
-    Expr_Pending,
+    Expr_Type,       // Type name. No data.
+    Expr_Variable,   // Variable index is in `variable`.
+    Expr_Constant,   // Constant index is in `constant`.
+    Expr_Pending,    // Instruction index in `pc`- need destination register.
+    Expr_Call,       // Call instruction index in `pc`.
+    Expr_Discharged, // Set to register `reg`.
 } ExprKind;
 
 typedef struct Expr Expr;
 struct Expr {
     ExprKind    kind;
-    const Type *type;
+    ValueKind   literal_kind;
+    Type const *type;
     Token       token;
     union {
         lulu_uint literal_uint;
         lulu_int  literal_int;
         lulu_real literal_real;
-        bool      literal_bool;
+        lulu_bool literal_bool;
 
-        // Absolute index of a value in the chunk's constants array.
-        u32 constant;
-
-        // Absolute index of an instruction in the chunk's bytecode array.
-        i32 pc;
-
-        // Absolute stack slot.
-        u16 reg;
+        u32 constant; // Index of value in chunk constants array.
+        i32 pc;       // Index of instruction in chunk bytecode array.
+        u16 reg;      // Index of stack slot and/or active variable info.
     };
 };
 
 static inline Expr
-expr_make(ExprKind kind, const Type *type, const Token *token)
+expr_make(ExprKind kind,
+    ValueKind      literal_kind,
+    Type  const *  type,
+    Token const *  token)
 {
-    Expr expr = {kind, type, *token, {0}};
+    Expr expr = {kind, literal_kind, type, *token, {0}};
     return expr;
 }
 
@@ -57,25 +50,25 @@ expr_make(ExprKind kind, const Type *type, const Token *token)
 static inline Expr
 expr_make_none(void)
 {
-    const Token token = token_make_none();
-    return expr_make(Expr_None, nullptr, &token);
+    Token token = token_make_none();
+    return expr_make(Expr_None, Value_nil, nullptr, &token);
 }
 
 static inline Expr
-expr_make_nil(const Token *token)
+expr_make_nil(Token const *token)
 {
-    return expr_make(Expr_nil, nullptr, token);
+    return expr_make(Expr_nil, Value_nil, nullptr, token);
 }
 
 static inline Expr
-expr_make_literal(ValueKind kind, const Token *token)
+expr_make_literal(ValueKind kind, Token const *token)
 {
-    const Type *type = atom_type_get(kind);
-    return expr_make(Expr_Literal, type, token);
+    Type const *type = atom_type_get(kind);
+    return expr_make(Expr_Literal, kind, type, token);
 }
 
 static inline Expr
-expr_make_bool(const Token *token)
+expr_make_bool(Token const *token)
 {
     Expr expr = expr_make_literal(Value_bool, token);
     expr.literal_bool = (token->kind == Token_true);
@@ -83,7 +76,7 @@ expr_make_bool(const Token *token)
 }
 
 static inline Expr
-expr_make_uint(const Token *token, lulu_uint literal)
+expr_make_uint(Token const *token, lulu_uint literal)
 {
     Expr expr = expr_make_literal(Value_uint, token);
     expr.literal_uint = literal;
@@ -91,17 +84,30 @@ expr_make_uint(const Token *token, lulu_uint literal)
 }
 
 static inline Expr
-expr_make_real(const Token *token, lulu_real literal)
+expr_make_real(Token const *token, lulu_real literal)
 {
     Expr expr = expr_make_literal(Value_real, token);
     expr.literal_real = literal;
     return expr;
 }
 
+static inline Expr
+expr_make_type(Token const *token, Type const *type)
+{
+    return expr_make(Expr_Type, Value_nil, type, token);
+}
+
+static inline Expr
+expr_make_variable(Token const *token, Type const *type, u16 reg)
+{
+    Expr e = expr_make(Expr_Variable, Value_nil, type, token);
+    e.reg = reg;
+    return e;
+}
+
 static inline bool
 expr_is_numeric(Expr *e)
 {
-    LULU_ASSERT(e->type != nullptr);
     switch (e->type->kind) {
     case TypeKind_Atom:
         switch (e->type->atom.kind) {
@@ -162,7 +168,7 @@ expr_has_atom_kind(Expr *e, ValueKind kind)
     return expr_has_atom_type(e) && e->type->atom.kind == kind;
 }
 
-#define expr_get_atom_kind(e) (LULU_ASSERT(expr_has_atom_type(e)), (e)->type->atom.kind)
+#define expr_atom_kind(e) (LULU_ASSERT(expr_has_atom_type(e)), (e)->type->atom.kind)
 
 static inline bool
 expr_is_literal_type(Expr *e, ValueKind kind)
@@ -194,10 +200,11 @@ expr_is_literal_real(Expr *e)
     return expr_is_literal_type(e, Value_real);
 }
 
-#define expr_get_uint(e) (LULU_ASSERT(expr_is_literal_uint(e)), e->literal_uint)
-#define expr_get_int(e)  (LULU_ASSERT(expr_is_literal_int(e)),  e->literal_int)
-#define expr_get_real(e) (LULU_ASSERT(expr_is_literal_real(e)), e->literal_real)
-#define expr_get_reg(e)  (LULU_ASSERT(expr_is_reg(e)), e->reg)
-#define expr_get_pc(e)   (LULU_ASSERT(expr_is_pc(e)), e->pc)
+#define expr_literal_kind(e)    (LULU_ASSERT(expr_is_literal(e), e->literal_kind)
+#define expr_uint(e)            (LULU_ASSERT(expr_is_literal_uint(e)), e->literal_uint)
+#define expr_int(e)             (LULU_ASSERT(expr_is_literal_int(e)),  e->literal_int)
+#define expr_real(e)            (LULU_ASSERT(expr_is_literal_real(e)), e->literal_real)
+#define expr_reg(e)             (LULU_ASSERT(expr_is_reg(e)), e->reg)
+#define expr_pc(e)              (LULU_ASSERT(expr_is_pc(e)), e->pc)
 
 #endif // !LULU_EXPR_H

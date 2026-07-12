@@ -3,9 +3,8 @@
 
 // standard
 #include <inttypes.h> // PRI*
-#include <stdbool.h> // bool
-#include <stddef.h>  // size_t
-#include <stdint.h>  //  u?int\d+_t
+#include <stddef.h>   // size_t
+#include <stdint.h>   //  u?int\d+_t
 
 // local
 #include "lulu.h"
@@ -83,8 +82,15 @@
 #define LULU_PANIC()            LULU_PANICLN ("Runtime panic")
 
 #ifndef __cplusplus
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ < 202301L)
+//  Allow `bool` to be used in preprocessor tokens as-is.
+#   include <stdbool.h>
+#   undef  bool
+    typedef _Bool bool;
+#endif // !C23
+
 #define nullptr NULL
-#endif
+#endif // !__cplusplus
 
 // Fixed-size unsigned integer types.
 typedef uint8_t   u8;
@@ -107,9 +113,10 @@ typedef size_t    usize;
 typedef uintptr_t uintptr;
 
 // TODO(2026-07-08): Make configurable?
-typedef i64 lulu_int;
-typedef u64 lulu_uint;
-typedef f64 lulu_real;
+typedef bool lulu_bool;
+typedef i64  lulu_int;
+typedef u64  lulu_uint;
+typedef f64  lulu_real;
 
 #define LULU_UINT_MAX   (~(lulu_uint)0)
 #define LULU_INT_MAX    cast(lulu_int)(LULU_UINT_MAX >> 1)
