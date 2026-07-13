@@ -1,12 +1,9 @@
-#ifndef LULU_PARSER_H
-#define LULU_PARSER_H
+#pragma once
 
 #include "lulu.h"
-#include "lexer.h"
-#include "chunk.h"
-#include "mem.h"
-#include "value.h"
-#include "type.h"
+#include "lexer.hpp"
+#include "chunk.hpp"
+#include "mem.hpp"
 
 #define PARSER_CONSTANT_FOLDING 1
 
@@ -14,8 +11,7 @@
 #define PARSER_MAX_RECURSIONS   250
 
 // Defined in `compiler.h`.
-typedef struct Compiler Compiler;
-typedef struct Parser   Parser;
+struct Compiler;
 struct Parser {
     // Shared state.
     lulu_State *L;
@@ -44,6 +40,5 @@ LULU_INTERNAL_FUNC Chunk *
 parser_parse(lulu_State *L, ParserData *data);
 
 LULU_INTERNAL_FUNC LULU_NORETURN void
-parser_error_at(Parser *p, const char *info, const Token *t);
+parser_error_at(Parser *p, char const *info, Token const &t);
 
-#endif // !LULU_PARSER_H

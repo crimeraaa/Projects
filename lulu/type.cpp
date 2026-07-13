@@ -1,7 +1,7 @@
-#include "type.h"
-#include "state.h"
-#include "mem.h"
-#include "strings.h"
+#include "type.hpp"
+#include "state.hpp"
+#include "mem.hpp"
+#include "strings.hpp"
 
 #define type_size_of(T) offsetof(Type, basic) + sizeof(T)
 #define type_new(L, T)  cast(Type *)mem_arena_alloc(L, type_size_of(T))
@@ -12,7 +12,6 @@ ATOM_TYPES[] = {
 #define basic_type_make(T)    {Value_##T, cast(u32)sizeof(#T) - 1, #T}
     {TypeKind_Basic, {basic_type_make(nil)}},
     {TypeKind_Basic, {basic_type_make(bool)}},
-    {TypeKind_Basic, {basic_type_make(uint)}},
     {TypeKind_Basic, {basic_type_make(int)}},
     {TypeKind_Basic, {basic_type_make(real)}},
     {TypeKind_Basic, {basic_type_make(string)}},
@@ -22,7 +21,6 @@ ATOM_TYPES[] = {
 LULU_INTERNAL_FUNC Type const *
 basic_type_get(ValueKind k)
 {
-    LULU_ASSERT(k != Value_none);
     return &ATOM_TYPES[k];
 }
 
@@ -30,18 +28,17 @@ LULU_INTERNAL_FUNC void
 type_env_init(lulu_State *L, TypeEnv *env)
 {
     // Necessary as we read these for rehashing.
-    env->data = nullptr;
-    env->used = 0;
-    env->cap  = 0;
+    env->entries = {nullptr, 0};
+    env->used    = 0;
 
     for (usize i = 0; i < count_of(ATOM_TYPES); i++) {
         Type const *type = &ATOM_TYPES[i];
-        String      key  = string_make(type->basic.name, type->basic.len);
+        String      key  = {type->basic.name, type->basic.len};
         type_set(L, key, type);
     }
 
-    for (usize i = 0; i < env->cap; i++) {
-        TypeEnv_Entry e = env->data[i];
+    for (usize i = 0; i < len(env->entries); i++) {
+        TypeEnv_Entry e = env->entries[i];
         if (e.type) {
             LULU_LOGF("env[%zu]: type = %s", i, e.key.data);
         }
@@ -66,19 +63,19 @@ type_eq(Type const *a, Type const *b)
 }
 
 static TypeEnv_Entry *
-type_find_entry(TypeEnv_Entry *data, usize cap, String key, u32 hash)
+type_find_entry(Slice<TypeEnv_Entry> entries, String key, u32 hash)
 {
     TypeEnv_Entry *tomb = nullptr;
-    usize const    wrap = cap - 1;
+    usize const    wrap = len(entries) - 1;
     for (usize i = cast(usize)hash & wrap; /* empty */; i = (i + 1) & wrap) {
-        TypeEnv_Entry *e = &data[i];
+        TypeEnv_Entry *e = &entries[i];
         if (!e->type) {
             if (!tomb) {
                 tomb = e;
             } else {
                 return (!tomb) ? e : tomb;
             }
-        } else if (e->hash == hash && string_eq(e->key, key)) {
+        } else if (e->hash == hash && e->key == key) {
             return e;
         }
     }
@@ -89,8 +86,6 @@ type_find_entry(TypeEnv_Entry *data, usize cap, String key, u32 hash)
 static void
 type_rehash(lulu_State *L, TypeEnv *env, usize cap)
 {
-    TypeEnv_Entry *data;
-
     /*
     NOTE(2026-07-06):
         This is a dangerous assumption! For now, we don't allow users to
@@ -101,29 +96,32 @@ type_rehash(lulu_State *L, TypeEnv *env, usize cap)
         However, if we decide the allow user types, we'll need to move
         to a heap-like permanent allocator of some kind.
      */
-    data = mem_arena_alloc_array(L, TypeEnv_Entry, cap);
+    auto new_hash = mem_alloc_slice<TypeEnv_Entry>(L, cap);
+    auto old_hash = env->entries;
 
     // Zero-initialize the new block so we can safely read it later.
     for (usize i = 0; i < cap; i++) {
-        data[i].key  = string_make(nullptr, 0);
-        data[i].type = nullptr;
+        new_hash[i].key  = {nullptr, 0};
+        new_hash[i].type = nullptr;
     }
 
     // Rehash old data into our new backing array.
-    for (usize i = 0; i < env->cap; i++) {
+    usize new_used = 0;
+    for (usize i = 0; i < len(old_hash); i++) {
         TypeEnv_Entry *dst;
-        TypeEnv_Entry  src = env->data[i];
+        TypeEnv_Entry  src = old_hash[i];
         if (!src.type) {
             continue;
         }
 
-        dst  = type_find_entry(data, cap, src.key, src.hash);
+        dst  = type_find_entry(new_hash, src.key, src.hash);
         *dst = src;
+        new_used++;
     }
 
-    // TODO(2026-07-06): Free old data when heap-allocated
-    env->data = data;
-    env->cap  = cap;
+    mem_free_slice(L, old_hash);
+    env->entries = new_hash;
+    env->used    = new_used;
 }
 
 LULU_INTERNAL_FUNC Type const *
@@ -131,8 +129,8 @@ type_get(lulu_State *L, String key)
 {
     TypeEnv *env  = &L->types;
     u32      hash = string_hash(key);
-    LULU_ASSERT(env->cap > 0);
-    return type_find_entry(env->data, env->cap, key, hash)->type;
+    LULU_ASSERT(len(env->entries) > 0);
+    return type_find_entry(env->entries, key, hash)->type;
 }
 
 LULU_INTERNAL_FUNC void
@@ -143,11 +141,13 @@ type_set(lulu_State *L, String key, Type const *type)
     u32      const hash = string_hash(key);
 
     // We require at least 2 empty slots in order for the search to work.
-    if (env->used + 2 >= env->cap) {
-        type_rehash(L, env, (env->cap > 8) ? env->cap * 2 : 8);
+    if (env->used + 2 >= len(env->entries)) {
+        usize old_cap = len(env->entries);
+        usize new_cap = (old_cap > 0) ? old_cap * 2 : 8;
+        type_rehash(L, env, new_cap);
     }
 
-    p = type_find_entry(env->data, env->cap, key, hash);
+    p = type_find_entry(env->entries, key, hash);
     if (!p->type) {
         env->used++;
     } else {

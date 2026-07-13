@@ -2,7 +2,7 @@
 #include <stdio.h>   // fputc, fputs, printf, fgets
 #include <string.h>  // strcspn
 
-#include "api.c"
+#include "api.cpp"
 
 #define PROMPT ">>> "
 
@@ -26,9 +26,7 @@ get_string_fixed(size_t *n)
 extern int
 main(void)
 {
-    lulu_State *L;
-
-    L = lulu_open();
+    lulu_State *L = lulu_open();
     if (!L) {
         fprintf(stderr, "Failed to create main Lulu state\n");
         return 1;

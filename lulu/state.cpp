@@ -3,11 +3,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "state.h"
-#include "parser.h"
-#include "type.h"
-#include "debug.h"
-#include "vm.h"
+#include "state.hpp"
+#include "parser.hpp"
+#include "type.hpp"
+#include "debug.hpp"
+#include "vm.hpp"
 
 struct lulu_Error_Handler {
     lulu_Error_Handler *prev;
@@ -72,7 +72,7 @@ state_throw(lulu_State *L, lulu_Error err)
         L->handler->err = err;
         longjmp(L->handler->env, 1);
     } else {
-        const char *msg = lulu_error_string(err);
+        char const *msg = lulu_error_string(err);
         fprintf(stderr, "[FATAL] Unprotected call to Lulu API (%s)\n", msg);
         exit(1);
     }

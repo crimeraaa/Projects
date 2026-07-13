@@ -1,8 +1,8 @@
-#ifndef LULU_LEXER_H
-#define LULU_LEXER_H
+#pragma once
 
-#include "internal.h"
-#include "strings.h"
+#include "lulu.h"
+#include "internal.hpp"
+#include "strings.hpp"
 
 // Although we wish to implement a typed version of Lua, the base types
 // themsleves are not keywords and can be re-assigned. This is similar to how
@@ -72,14 +72,12 @@
 /**
  * @link https://www.lua.org/manual/5.1/manual.html
  */
-enum TokenKind {
+enum TokenKind : u8 {
 #define X(e, s) e,
     TOKEN_KINDS(X)
 #undef X
 };
 
-typedef enum   TokenKind TokenKind;
-typedef struct Token     Token;
 struct Token {
     TokenKind kind;
 
@@ -90,7 +88,6 @@ struct Token {
     i32 line, col;
 };
 
-typedef struct Lexer Lexer;
 struct Lexer {
     // File name and contents.
     String path, input;
@@ -105,14 +102,12 @@ struct Lexer {
     i32 line, col;
 };
 
-enum LexerError {
+enum LexerError : u8 {
     LEXER_OK,
     LEXER_UNEXPECTED_CHARACTER,
     LEXER_INVALID_NUMBER,
     LEXER_UNTERMINATED_STRING,
 };
-
-typedef enum LexerError LexerError;
 
 LULU_INTERNAL_FUNC char const *
 token_kind_cstring(TokenKind k);
@@ -140,10 +135,8 @@ LULU_INTERNAL_FUNC LexerError
 lexer_scan_token(Lexer *x, Token *t);
 
 LULU_INTERNAL_FUNC bool
-lexer_parse_uint(String s, lulu_uint *v);
+lexer_parse_int(String s, lulu_int *v);
 
 LULU_INTERNAL_FUNC bool
 lexer_parse_real(String s, lulu_real *v);
-
-#endif // !LULU_LEXER_H
 

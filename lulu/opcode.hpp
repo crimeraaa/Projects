@@ -1,62 +1,53 @@
-#ifndef LULU_OPCODE_H
-#define LULU_OPCODE_H
+#pragma once
 
-#include "internal.h"
+#include "lulu.h"
+#include "internal.hpp"
 
 #define OPCODE_KINDS(X)                                                        \
     X(Op_None, "<none>", ABC)                                                  \
     X(Op_move, "move",   ABC) /* R(A) := R(B) */                               \
 /* Literals                                                                 */ \
-    X(Op_bool,     "bool",     vABC) /* R(A) := bool(B); if (k) then ip++   */ \
-    X(Op_uint_imm, "uint.imm", ABx)  /* R(A) := uint(Bx)                    */ \
-    X(Op_int_imm,  "int.imm",  AsBx) /* R(A) := int(Bx - offset)            */ \
-    X(Op_uint_k,   "uint.k",   ABx)  /* R(A) := K(Bx).uint                  */ \
-    X(Op_int_k,    "int.k",    ABx)  /* R(A) := K(Bx).int                   */ \
-    X(Op_real,     "real",     ABx)  /* R(A) := K(Bx).real                  */ \
+    X(Op_bool,    "bool",    vABC) /* R(A).bool := B; if (k) then ip++      */ \
+    X(Op_int_imm, "int.imm", AsBx) /* R(A) := int(Bx - offset)              */ \
+    X(Op_int_k,   "int.k",   ABx)  /* R(A) := K(Bx).int                     */ \
+    X(Op_real,    "real",    ABx)  /* R(A) := K(Bx).real                    */ \
 /* Conversion operations                                                    */ \
     X(Op_not,  "not",  ABC) /* R(A) := not R(B).bool                        */ \
     X(Op_cast, "cast", ABC) /* R(A) := cast(B)R(A).(C)                      */ \
-/* Arithmetic (1): Shared signed and unsigned operations                    */ \
-    X(Op_neg,  "neg", ABC) /* R(A) := -R(B)                                 */ \
-    X(Op_add,  "add", ABC) /* R(A) := R(B) +  R(C)                          */ \
-    X(Op_sub,  "sub", ABC) /* R(A) := R(B) -  R(C)                          */ \
-/* Arithmetic (2): Dedicated signed and unsigned operations                 */ \
-    X(Op_mul,  "mul",      ABC) /* R(A).uint := R(B).uint *  R(C).uint      */ \
-    X(Op_div,  "div",      ABC) /* R(A).uint := R(B).uint /  R(C).uint      */ \
-    X(Op_mod,  "mod",      ABC) /* R(A).uint := R(B).uint %  R(C).uint      */ \
-    X(Op_imul, "mul.int",  ABC) /* R(A).int  := R(B).int  *  R(C).int       */ \
-    X(Op_idiv, "div.int",  ABC) /* R(A).int  := R(B).int  /  R(C).int       */ \
-    X(Op_imod, "mod.int",  ABC) /* R(A).int  := R(B).int  %  R(C).int       */ \
-/* Arithmetic (3): Floating-point operations                                */ \
+/* Arithmetic (1): Integral operations                                      */ \
+    X(Op_neg,  "neg", ABC) /* R(A).int := -R(B).int                         */ \
+    X(Op_add,  "add", ABC) /* R(A).int := R(B).int +  R(C).int              */ \
+    X(Op_sub,  "sub", ABC) /* R(A).int := R(B).int -  R(C).int              */ \
+    X(Op_mul,  "mul", ABC) /* R(A).int := R(B).int *  R(C).int              */ \
+    X(Op_div,  "div", ABC) /* R(A).int := R(B).int /  R(C).int              */ \
+    X(Op_mod,  "mod", ABC) /* R(A).int := R(B).int %  R(C).int              */ \
+/* Arithmetic (2): Floating-point operations                                */ \
     X(Op_fneg, "neg.real", ABC)  /* R(A).real := -R(B).real                 */ \
     X(Op_fadd, "add.real", ABC)  /* R(A).real := R(B).real +  R(C).real     */ \
     X(Op_fsub, "sub.real", ABC)  /* R(A).real := R(B).real -  R(C).real     */ \
     X(Op_fmul, "mul.real", ABC)  /* R(A).real := R(B).real *  R(C).real     */ \
     X(Op_fdiv, "div.real", ABC)  /* R(A).real := R(B).real /  R(C).real     */ \
-/* Comparison (1): Shared signed and unsigned operations                    */ \
-    X(Op_eq,   "eq",       vABC) /* if (R(B).u?int == R(C).u?int) == k ip++ */ \
-/* Comparison (2): Dedicated signed and unsigned operations                 */ \
-    X(Op_lt,   "lt",       vABC) /* if (R(B).uint <  R(C).uint) != k ip++   */ \
-    X(Op_leq,  "leq",      vABC) /* if (R(B).uint <= R(C).uint) != k ip++   */ \
-    X(Op_ilt,  "lt.int",   vABC) /* if (R(B).int  <  R(C).int ) != k ip++   */ \
-    X(Op_ileq, "leq.int",  vABC) /* if (R(B).int  <= R(C).int ) != k ip++   */ \
-/* Comparison (3): Floating-point operations                                */ \
-    X(Op_feq,  "eq.real",  vABC) /* if (R(B).real == R(C).real) != k ip++   */ \
-    X(Op_flt,  "lt.real",  vABC) /* if (R(B).real <  R(C).real) != k ip++   */ \
-    X(Op_fleq, "leq.real", vABC) /* if (R(B).real <= R(C).real) != k ip++   */ \
+/* Comparison (1): Integral operations                                      */ \
+    X(Op_eq,   "eq",       vABC) /* if (R(A).int == R(B).int) == k ip++     */ \
+    X(Op_lt,   "lt",       vABC) /* if (R(A).int <  R(B).int) != k ip++     */ \
+    X(Op_leq,  "leq",      vABC) /* if (R(A).int <= R(B).int) != k ip++     */ \
+/* Comparison (2): Floating-point operations                                */ \
+    X(Op_feq,  "eq.real",  vABC) /* if (R(A).real == R(B).real) != k ip++   */ \
+    X(Op_flt,  "lt.real",  vABC) /* if (R(A).real <  R(B).real) != k ip++   */ \
+    X(Op_fleq, "leq.real", vABC) /* if (R(A).real <= R(B).real) != k ip++   */ \
 /* Other */                                                                    \
     X(Op_return, "return", ABC)
 
-typedef enum OpCode {
+enum OpCode : u8 {
 #define X(e, s, fmt) e,
     OPCODE_KINDS(X)
 #undef X
     // OpCode__COUNT,
-} OpCode;
+};
 
-typedef enum OpForm {
+enum OpForm : u8 {
     OpForm_ABC, OpForm_vABC, OpForm_ABx, OpForm_AsBx,
-} OpForm;
+};
 
 // Instruction argument bitfield sizes.
 #define ARG_OP_WIDTH        6
@@ -127,46 +118,118 @@ typedef enum OpForm {
  | AsBx |Op....|A.......|sBx................|
  +------------------------------------------+
  */
-typedef u32 Instruction;
+using Instruction = u32;
 
 LULU_INTERNAL_FUNC OpForm
 opform_get(OpCode op);
 
 #define opcode_is_(op, f) opform_get(op) == (OpForm_##f)
-static inline bool opcode_is_ABC (OpCode op) { return opcode_is_(op, ABC);  }
-static inline bool opcode_is_vABC(OpCode op) { return opcode_is_(op, vABC); }
-static inline bool opcode_is_ABx (OpCode op) { return opcode_is_(op, ABx);  }
-static inline bool opcode_is_AsBx(OpCode op) { return opcode_is_(op, AsBx); }
+static inline bool
+opcode_is_ABC(OpCode op)
+{
+    return opcode_is_(op, ABC);
+}
+
+static inline bool
+opcode_is_vABC(OpCode op)
+{
+    return opcode_is_(op, vABC);
+}
+
+static inline bool
+opcode_is_ABx(OpCode op)
+{
+    return opcode_is_(op, ABx);
+}
+
+static inline bool
+opcode_is_AsBx(OpCode op)
+{
+    return opcode_is_(op, AsBx);
+}
 #undef opcode_is_
 
-#define MAKE_ABC(Op, A, B, C)                                                  \
-    ( (cast(Instruction)(Op) << ARG_OP_OFFSET)                                 \
-        | (cast(Instruction)(A) << ARG_A_OFFSET)                               \
-        | (cast(Instruction)(C) << ARG_C_OFFSET)                               \
-        | (cast(Instruction)(B) << ARG_B_OFFSET) )
 
-#define MAKE_vABC(Op, A, B, vC, k)                                             \
-    ( (cast(Instruction)(Op) << ARG_OP_OFFSET)                                 \
-        | (cast(Instruction)(A)  << ARG_A_OFFSET)                              \
-        | (cast(Instruction)(vC) << ARG_vC_OFFSET)                             \
-        | (cast(Instruction)(k)  << ARG_k_OFFSET)                              \
-        | (cast(Instruction)(B)  << ARG_B_OFFSET) )
+static inline Instruction
+MAKE_ABC(OpCode Op, u8 A, u8 B, u8 C)
+{
+    return (cast(Instruction)Op << ARG_OP_OFFSET)
+        |  (cast(Instruction)A  << ARG_A_OFFSET)
+        |  (cast(Instruction)C  << ARG_C_OFFSET)
+        |  (cast(Instruction)B  << ARG_B_OFFSET);
+}
 
-#define MAKE_ABx(Op, A, Bx)                                                    \
-    ( (cast(Instruction)(Op) << ARG_OP_OFFSET)                                 \
-        | (cast(Instruction)(A)  << ARG_A_OFFSET)                              \
-        | (cast(Instruction)(Bx) << ARG_Bx_OFFSET) )
+static inline Instruction
+MAKE_vABC(OpCode Op, u8 A, u16 B, u16 vC, bool k)
+{
+    return (cast(Instruction)Op << ARG_OP_OFFSET)
+        |  (cast(Instruction)A  << ARG_A_OFFSET)
+        |  (cast(Instruction)vC << ARG_vC_OFFSET)
+        |  (cast(Instruction)k  << ARG_k_OFFSET)
+        |  (cast(Instruction)B  << ARG_B_OFFSET);
+}
 
-#define MAKE_AsBx(Op, A, sBx) MAKE_ABx(Op, A, cast(u32)((sBx) + ARG_sBx_MAX))
+static inline Instruction
+MAKE_ABx(OpCode Op, u8 A, u32 Bx)
+{
+    return (cast(Instruction)Op << ARG_OP_OFFSET)
+        |  (cast(Instruction)A  << ARG_A_OFFSET)
+        |  (cast(Instruction)Bx << ARG_Bx_OFFSET);
+}
 
-#define GET_OPCODE(i)   cast(OpCode)( ((i) >> ARG_OP_OFFSET) & ARG_OP_MAX)
-#define GETARG_A(i)     cast(u8)    ( ((i) >> ARG_A_OFFSET)  & ARG_A_MAX)
-#define GETARG_B(i)     cast(u16)   ( ((i) >> ARG_B_OFFSET)  & ARG_B_MAX)
-#define GETARG_C(i)     cast(u16)   ( ((i) >> ARG_C_OFFSET)  & ARG_C_MAX)
-#define GETARG_Bx(i)    ((i >> ARG_Bx_OFFSET) & ARG_Bx_MAX)
-#define GETARG_sBx(i)   cast(i32)(GETARG_Bx(i) - ARG_sBx_MAX)
-#define GETARG_vC(i)    cast(u32)   ( ((i) >> ARG_vC_OFFSET) & ARG_vC_MAX)
-#define GETARG_k(i)     cast(bool)  ( ((i) >> ARG_k_OFFSET)  & ARG_k_MAX)
+static inline Instruction
+MAKE_AsBx(OpCode Op, u8 A, i32 sBx)
+{
+    return MAKE_ABx(Op, A, cast(u32)(sBx + ARG_sBx_MAX));
+}
+
+static inline OpCode
+GET_OPCODE(Instruction i)
+{
+    return cast(OpCode)((i >> ARG_OP_OFFSET) & ARG_OP_MAX);
+}
+
+static inline u8
+GETARG_A(Instruction i)
+{
+    return cast(u8)((i >> ARG_A_OFFSET) & ARG_A_MAX);
+}
+
+static inline u16
+GETARG_B(Instruction i)
+{
+    return cast(u16)((i >> ARG_B_OFFSET) & ARG_B_MAX);
+}
+
+static inline u16
+GETARG_C(Instruction i)
+{
+    return cast(u16)((i >> ARG_C_OFFSET) & ARG_C_MAX);
+}
+
+static inline u32
+GETARG_Bx(Instruction i)
+{
+    return (i >> ARG_Bx_OFFSET) & ARG_Bx_MAX;
+}
+
+static inline i32
+GETARG_sBx(Instruction i)
+{
+    return cast(i32)(GETARG_Bx(i) - ARG_sBx_MAX);
+}
+
+static inline u16
+GETARG_vC(Instruction i)
+{
+    return cast(u32)((i >> ARG_vC_OFFSET) & ARG_vC_MAX);
+}
+
+static inline bool
+GETARG_k(Instruction i)
+{
+    return cast(bool)((i >> ARG_k_OFFSET)  & ARG_k_MAX);
+}
 
 #define SET_OPCODE(ip, Op) \
     (*(ip) = (*(ip) & ARG_OP_MASK0) | (cast(u32)Op << ARG_OP_OFFSET))
@@ -195,8 +258,6 @@ static inline bool opcode_is_AsBx(OpCode op) { return opcode_is_(op, AsBx); }
           | ((Bx) << ARG_Bx_OFFSET) )
 
 #define SETARG_k(ip, k)                                                        \
-    ( LULU_ASSERT((k) <= ARG_k_MAX),                                           \
-    *(ip) = (*(ip) & ARG_k_MASK0)                                              \
+    ( *(ip) = (*(ip) & ARG_k_MASK0)                                            \
           | (cast(Instruction)(k) << ARG_k_OFFSET) )
 
-#endif // !LULU_OPCODE_H

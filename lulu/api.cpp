@@ -1,17 +1,17 @@
 #include "lulu.h"
-#include "strings.h"
+#include "strings.hpp"
 
-#include "opcode.c"
-#include "mem.c"
-#include "state.c"
-#include "type.c"
-#include "lexer.c"
-#include "chunk.c"
-#include "parser.c"
-#include "compiler.c"
-#include "value.c"
-#include "debug.c"
-#include "vm.c"
+#include "opcode.cpp"
+#include "mem.cpp"
+#include "state.cpp"
+#include "type.cpp"
+#include "lexer.cpp"
+#include "chunk.cpp"
+#include "parser.cpp"
+#include "compiler.cpp"
+#include "value.cpp"
+#include "debug.cpp"
+#include "vm.cpp"
 
 LULU_API char const *
 lulu_error_string(lulu_Error err)
@@ -29,7 +29,5 @@ lulu_error_string(lulu_Error err)
 LULU_API lulu_Error
 lulu_compile(lulu_State *L, char const *path, char const *input, size_t len)
 {
-    String path2  = string_make_cstring(path);
-    String input2 = string_make(input, len);
-    return state_parse_protected(L, path2, input2);
+    return state_parse_protected(L, string_make_cstring(path), {input, len});
 }

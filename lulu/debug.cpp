@@ -1,7 +1,10 @@
 #include <limits.h> // CHAR_BIT
 #include <stdio.h>
 
-#include "debug.h"
+#include "debug.hpp"
+#include "opcode.hpp"
+#include "chunk.hpp"
+
 
 static void
 print_bool(bool b)
@@ -10,7 +13,7 @@ print_bool(bool b)
 }
 
 static void
-print_uint(lulu_uint value, lulu_uint base, bool print_type)
+print_uint(u64 value, u64 base, bool print_type)
 {
     // base-2 up to and including base-36.
     static char const
@@ -32,7 +35,7 @@ print_uint(lulu_uint value, lulu_uint base, bool print_type)
 
         // Write digits, from LSD to MSD, in reverse order.
         while (value > 0) {
-            lulu_uint digit = value % base;
+            u64 digit = value % base;
             *p-- = DIGITS[digit];
             value   /= base;
         }
@@ -43,7 +46,7 @@ print_uint(lulu_uint value, lulu_uint base, bool print_type)
 static void
 print_int(lulu_int i)
 {
-    lulu_uint u = cast(lulu_uint)i;
+    auto u = cast(u64)i;
     fputs("int = ", stdout);
     if (i < 0) {
         // Well-defined absolute value which works for min(T).
@@ -64,11 +67,10 @@ static void
 print_tvalue(TValue v)
 {
     switch (v.kind) {
-    case Value_nil:  fputs("nil", stdout);            break;
-    case Value_bool: print_bool(v.value.b);           break;
-    case Value_uint: print_uint(v.value.u, 10, true); break;
-    case Value_int:  print_int (v.value.i);           break;
-    case Value_real: print_real(v.value.f);           break;
+    case Value_nil:  fputs("nil", stdout);       break;
+    case Value_bool: print_bool(tvalue_bool(v)); break;
+    case Value_int:  print_int (tvalue_int(v));  break;
+    case Value_real: print_real(tvalue_real(v)); break;
     default:
         LULU_PANICF("Unprintable ValueKind(%i)", v.kind);
         break;

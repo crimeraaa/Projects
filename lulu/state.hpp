@@ -1,13 +1,12 @@
-#ifndef LULU_STATE_H
-#define LULU_STATE_H
+#pragma once
 
 #include "lulu.h"
-#include "internal.h"
-#include "strings.h"
-#include "mem.h"
-#include "type.h"
+#include "internal.hpp"
+#include "strings.hpp"
+#include "mem.hpp"
+#include "type.hpp"
 
-typedef struct lulu_Error_Handler lulu_Error_Handler;
+struct lulu_Error_Handler;
 struct lulu_State {
     TypeEnv types;
 
@@ -18,7 +17,7 @@ struct lulu_State {
     lulu_Error_Handler *handler;
 };
 
-typedef void (*Protected_Fn)(lulu_State *L, void *user_data);
+using Protected_Fn = void (*)(lulu_State *L, void *user_data);
 
 LULU_INTERNAL_FUNC lulu_Error
 state_try(lulu_State *L, Protected_Fn fn, void *user_data);
@@ -29,4 +28,3 @@ state_throw(lulu_State *L, lulu_Error err);
 LULU_INTERNAL_FUNC lulu_Error
 state_parse_protected(lulu_State *L, String path, String input);
 
-#endif // !LULU_STATE_H

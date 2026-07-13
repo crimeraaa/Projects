@@ -1,4 +1,4 @@
-#include "opcode.h"
+#include "opcode.hpp"
 
 static OpForm const
 OPCODE_FORMATS[] = {

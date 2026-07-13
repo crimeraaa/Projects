@@ -1,10 +1,10 @@
-#include <stdlib.h> // strtod
+#include <cstdlib> // strtod
 
-#include "lexer.h"
+#include "lexer.hpp"
 
 static String const
 TOKEN_KIND_STRINGS[] = {
-#define X(e, s) string_literal(s),
+#define X(e, s) s##_s,
     TOKEN_KINDS(X)
 #undef X
 };
@@ -237,7 +237,7 @@ lexer_get_keyword(String s, TokenKind kind, usize offset)
     if (s.len != kw.len) {
         return Token_Ident;
     }
-    return string_eq(s, kw) ? kind : Token_Ident;
+    return s == kw ? kind : Token_Ident;
 }
 
 static LexerError
@@ -329,7 +329,7 @@ char_to_digit(char c, int base)
     (if we even have that!).
  */
 LULU_INTERNAL_FUNC bool
-lexer_parse_uint(String s, lulu_uint *v)
+lexer_parse_int(String s, lulu_int *v)
 {
     int base = 0;
     if (s.len > 2 && s.data[0] == '0') switch (s.data[1]) {
@@ -345,7 +345,7 @@ lexer_parse_uint(String s, lulu_uint *v)
     } else {
         // Trim the integer prefix. We know the length is >2, so we
         // have something to parse.
-        s = string_slice_from(s, 2);
+        s = slice_from(s, 2);
     }
 
     // Avoid reading from and writing to garbage values.
@@ -357,8 +357,8 @@ lexer_parse_uint(String s, lulu_uint *v)
         if (digit < 0) {
             return false;
         }
-        *v *= cast(lulu_uint)base;
-        *v += cast(lulu_uint)digit;
+        *v *= cast(lulu_int)base;
+        *v += cast(lulu_int)digit;
     }
 
     /*
@@ -386,7 +386,7 @@ lexer_parse_real(String s, lulu_real *v)
      TODO(2026-06-30):
         Implement our own `strtod` that doesn't assume nul-termination!
      */
-    *v = strtod(s.data, &pend);
+    *v = std::strtod(s.data, &pend);
     return pend == s.data + s.len;
 }
 
@@ -444,7 +444,7 @@ lexer_scan_string(Lexer *x, Token *t, char quote)
     }
 
     // Skip the quotes.
-    t->lexeme = string_slice(t->lexeme, 1, t->lexeme.len - 1);
+    t->lexeme = slice(t->lexeme, 1, t->lexeme.len - 1);
     return LEXER_OK;
 }
 

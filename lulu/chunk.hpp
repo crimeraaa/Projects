@@ -1,19 +1,17 @@
-#ifndef LULU_CHUNK_H
-#define LULU_CHUNK_H
+#pragma once
 
 #include "lulu.h"
-#include "internal.h"
-#include "opcode.h"
-#include "value.h"
+#include "internal.hpp"
+#include "opcode.hpp"
+#include "value.hpp"
 
 #define CHUNK_MAX_CONSTANTS     ARG_MAX_Bx
 
-typedef struct Chunk Chunk;
 struct Chunk {
     // Bytecode array.
     Instruction *code;
-    usize        code_len;
-    usize        code_cap;
+    i32        code_len;
+    i32        code_cap;
 
     // Constants dynamic array.
     TValue *values;
@@ -42,4 +40,3 @@ chunk_add_instruction(lulu_State *L, Chunk *c, Instruction i);
 LULU_INTERNAL_FUNC u32
 chunk_add_constant(lulu_State *L, Chunk *c, TValue v);
 
-#endif // !LULU_CHUNK_H

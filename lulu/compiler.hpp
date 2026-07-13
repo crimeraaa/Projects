@@ -1,14 +1,12 @@
-#ifndef LULU_COMPILER_H
-#define LULU_COMPILER_H
+#pragma once
 
 #include "lulu.h"
-#include "internal.h"
-#include "chunk.h"
-#include "parser.h"
-#include "expr.h"
+#include "internal.hpp"
+#include "chunk.hpp"
+#include "parser.hpp"
+#include "expr.hpp"
 
 #define VARIABLES_MAX_COUNT 0x10
-typedef struct Variable Variable;
 struct Variable {
     String      name;
     Type const *type;
@@ -48,15 +46,17 @@ LULU_INTERNAL_FUNC void
 compiler_call(Compiler *c, Expr *func, Expr *a);
 
 LULU_INTERNAL_FUNC void
-compiler_unary(Compiler *c, Token const *op, Expr *e);
+compiler_unary(Compiler *c, Token const &op, Expr *e);
 
 LULU_INTERNAL_FUNC void
-compiler_binary(Compiler *c, Token const *op, Expr *lhs, Expr *rhs);
+compiler_binary(Compiler *c,
+    Token const &  op,
+    Expr *restrict lhs,
+    Expr *restrict rhs);
 
 LULU_INTERNAL_FUNC void
 compiler_return(Compiler *c, Expr *e);
 
 LULU_INTERNAL_FUNC void
-compiler_declare(Compiler *c, Expr *lhs, Expr *rhs);
+compiler_declare(Compiler *c, Expr *restrict lhs, Expr *restrict rhs);
 
-#endif // !LULU_COMPILER_H

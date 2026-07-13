@@ -1,8 +1,8 @@
 #include <stdlib.h> // realloc, free
 #include <string.h> // memcpy
 
-#include "mem.h"
-#include "state.h"
+#include "mem.hpp"
+#include "state.hpp"
 
 // 4 kilobyte page.
 #define PAGE_SIZE   (1024 * 4)
@@ -26,7 +26,7 @@ struct Page {
 };
 
 #if 1
-#define page_log(p, s, f, ...)  LULU_LOGF("["s"] "#p" = "f, __VA_ARGS__)
+#define page_log(p, s, f, ...)  LULU_LOGF("[" s "] " #p " = " f, __VA_ARGS__)
 #else
 #define page_log(...)           cast(void)0
 #endif
@@ -76,8 +76,8 @@ page_new(lulu_State *L, Page *prev)
 
     // Must be pointer-aligned.
     static union {
-        void *        dummy_align;
-        unsigned char data[PAGE_SIZE];
+        void *dummy_align;
+        u8    data[PAGE_SIZE];
     } buf;
 
     Page *p = cast(Page *)&buf.data;
@@ -217,7 +217,7 @@ LULU_INTERNAL_FUNC void
 mem_scratch_end(Scratch *x)
 {
     Arena *a = x->backing;
-    Page * p;
+    Page * p = nullptr;
     // Free all pages the scratch itself allocated.
     for (p = a->tail; p != x->saved_page; p = p->prev_page) {
         page_free(p);
@@ -231,7 +231,7 @@ mem_scratch_end(Scratch *x)
 }
 
 LULU_INTERNAL_FUNC void *
-mem_heap_resize(lulu_State *L, void *old_ptr, usize old_size, usize new_size)
+mem_heap_resize_bytes(lulu_State *L, void *old_ptr, usize old_size, usize new_size)
 {
     unused(old_size);
     if (new_size == 0) {

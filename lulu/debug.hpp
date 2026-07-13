@@ -1,8 +1,7 @@
-#ifndef LULU_DEBUG_H
-#define LULU_DEBUG_H
+#pragma once
 
-#include "internal.h"
-#include "chunk.h"
+#include "internal.hpp"
+#include "chunk.hpp"
 
 LULU_INTERNAL_FUNC void
 debug_disassemble(Chunk const *c);
@@ -10,4 +9,3 @@ debug_disassemble(Chunk const *c);
 LULU_INTERNAL_FUNC void
 debug_disassemble_at(Chunk const *c, usize offset);
 
-#endif // !LULU_DEBUG_H

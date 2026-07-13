@@ -10,7 +10,11 @@
 
     Note that Lulu declares no externally visible variables.
  */
-#define LULU_API            extern
+#ifdef __cplusplus
+#define LULU_API    extern "C"
+#else
+#define LULU_API    extern
+#endif
 
 /*
  Description:
@@ -20,7 +24,11 @@
 
     Note that we do unity builds by default.
  */
+#ifdef __cplusplus
+#define LULU_INTERNAL_FUNC  extern "C"
+#else
 #define LULU_INTERNAL_FUNC  extern
+#endif
 
 /*
  Description:
