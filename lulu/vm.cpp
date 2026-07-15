@@ -21,8 +21,7 @@ vm_cast(Value *a, Instruction i)
     }
 }
 
-template<class T>
-static inline void
+template<class T> static inline void
 vm_arith1(T (*op)(T a), Value *RA, Value RB)
 {
     auto arg = value_get<T>(RB);
@@ -69,15 +68,15 @@ vm_execute(lulu_State *L, Chunk *c)
                 ip++;
             }
             break;
-        case Op_int_imm:  value_set_int (RA, GETARG_sBx(i));     break;
+        case Op_int_imm:  value_set_int (RA, GETARG_sBx(i)); break;
         // TODO(2026-07-13): Can we just copy the union directly?
-        case Op_int_k:    value_set_int( RA, tvalue_int (KBx(i)) );   break;
-        case Op_real:     value_set_real(RA, tvalue_real(KBx(i)) );   break;
-        case Op_not:      value_set_bool(RA, !value_bool(RB(i))); break;
+        case Op_int_k:    value_set_int( RA, tvalue_int (KBx(i)) ); break;
+        case Op_real:     value_set_real(RA, tvalue_real(KBx(i)) ); break;
+        case Op_not:      value_set_bool(RA, !value_bool(RB(i)));   break;
 
         case Op_cast: {
             switch (cast(ValueKind)GETARG_B(i)) {
-            case Value_bool: vm_cast<lulu_bool>(RA, i); break;
+            case Value_bool: vm_cast<bool>     (RA, i); break;
             case Value_int:  vm_cast<lulu_int> (RA, i); break;
             case Value_real: vm_cast<lulu_real>(RA, i); break;
             default:
@@ -87,22 +86,24 @@ vm_execute(lulu_State *L, Chunk *c)
             break;
         }
 
-// Arithmetic (1)
+// Arithmetic
 #define vm_arith1(T, f) vm_arith1<T>(f<T>, RA, RB(i))
 #define vm_arith2(T, f) vm_arith2<T>(f<T>, RA, RB(i), RC(i))
+        // Integer arithmetic
         case Op_neg:  vm_arith1(lulu_int,  num_neg); break;
         case Op_add:  vm_arith2(lulu_int,  num_add); break;
         case Op_sub:  vm_arith2(lulu_int,  num_sub); break;
-
-        // Arithmetic (2)
         case Op_mul:  vm_arith2(lulu_int,  num_mul); break;
         case Op_div:  vm_arith2(lulu_int,  num_div); break;
         case Op_mod:  vm_arith2(lulu_int,  num_mod); break;
+        
+        // Floating-point arithmetic
         case Op_fneg: vm_arith1(lulu_real, num_neg); break;
         case Op_fadd: vm_arith2(lulu_real, num_add); break;
         case Op_fsub: vm_arith2(lulu_real, num_sub); break;
         case Op_fmul: vm_arith2(lulu_real, num_mul); break;
         case Op_fdiv: vm_arith2(lulu_real, num_div); break;
+        case Op_fmod: vm_arith2(lulu_real, num_mod); break;
 #undef vm_arith2
 #undef vm_arith1
 

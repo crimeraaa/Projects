@@ -22,13 +22,14 @@
     X(Op_div,  "div", ABC) /* R(A).int := R(B).int /  R(C).int              */ \
     X(Op_mod,  "mod", ABC) /* R(A).int := R(B).int %  R(C).int              */ \
 /* Arithmetic (2): Floating-point operations                                */ \
-    X(Op_fneg, "neg.real", ABC)  /* R(A).real := -R(B).real                 */ \
-    X(Op_fadd, "add.real", ABC)  /* R(A).real := R(B).real +  R(C).real     */ \
-    X(Op_fsub, "sub.real", ABC)  /* R(A).real := R(B).real -  R(C).real     */ \
-    X(Op_fmul, "mul.real", ABC)  /* R(A).real := R(B).real *  R(C).real     */ \
-    X(Op_fdiv, "div.real", ABC)  /* R(A).real := R(B).real /  R(C).real     */ \
+    X(Op_fneg, "neg.real", ABC) /* R(A).real := -R(B).real                  */ \
+    X(Op_fadd, "add.real", ABC) /* R(A).real := R(B).real +  R(C).real      */ \
+    X(Op_fsub, "sub.real", ABC) /* R(A).real := R(B).real -  R(C).real      */ \
+    X(Op_fmul, "mul.real", ABC) /* R(A).real := R(B).real *  R(C).real      */ \
+    X(Op_fdiv, "div.real", ABC) /* R(A).real := R(B).real /  R(C).real      */ \
+    X(Op_fmod, "mod.real", ABC) /* R(A).real := R(B).real % R(C).real       */ \
 /* Comparison (1): Integral operations                                      */ \
-    X(Op_eq,   "eq",       vABC) /* if (R(A).int == R(B).int) == k ip++     */ \
+    X(Op_eq,   "eq",       vABC) /* if (R(A).int == R(B).int) != k ip++     */ \
     X(Op_lt,   "lt",       vABC) /* if (R(A).int <  R(B).int) != k ip++     */ \
     X(Op_leq,  "leq",      vABC) /* if (R(A).int <= R(B).int) != k ip++     */ \
 /* Comparison (2): Floating-point operations                                */ \
@@ -123,30 +124,11 @@ using Instruction = u32;
 LULU_INTERNAL_FUNC OpForm
 opform_get(OpCode op);
 
-#define opcode_is_(op, f) opform_get(op) == (OpForm_##f)
-static inline bool
-opcode_is_ABC(OpCode op)
-{
-    return opcode_is_(op, ABC);
-}
-
-static inline bool
-opcode_is_vABC(OpCode op)
-{
-    return opcode_is_(op, vABC);
-}
-
-static inline bool
-opcode_is_ABx(OpCode op)
-{
-    return opcode_is_(op, ABx);
-}
-
-static inline bool
-opcode_is_AsBx(OpCode op)
-{
-    return opcode_is_(op, AsBx);
-}
+#define opcode_is_(op, f) (opform_get(op) == (OpForm_##f))
+static inline bool opcode_is_ABC (OpCode op) { return opcode_is_(op, ABC);  }
+static inline bool opcode_is_vABC(OpCode op) { return opcode_is_(op, vABC); }
+static inline bool opcode_is_ABx (OpCode op) { return opcode_is_(op, ABx);  }
+static inline bool opcode_is_AsBx(OpCode op) { return opcode_is_(op, AsBx); }
 #undef opcode_is_
 
 
@@ -183,53 +165,14 @@ MAKE_AsBx(OpCode Op, u8 A, i32 sBx)
     return MAKE_ABx(Op, A, cast(u32)(sBx + ARG_sBx_MAX));
 }
 
-static inline OpCode
-GET_OPCODE(Instruction i)
-{
-    return cast(OpCode)((i >> ARG_OP_OFFSET) & ARG_OP_MAX);
-}
-
-static inline u8
-GETARG_A(Instruction i)
-{
-    return cast(u8)((i >> ARG_A_OFFSET) & ARG_A_MAX);
-}
-
-static inline u16
-GETARG_B(Instruction i)
-{
-    return cast(u16)((i >> ARG_B_OFFSET) & ARG_B_MAX);
-}
-
-static inline u16
-GETARG_C(Instruction i)
-{
-    return cast(u16)((i >> ARG_C_OFFSET) & ARG_C_MAX);
-}
-
-static inline u32
-GETARG_Bx(Instruction i)
-{
-    return (i >> ARG_Bx_OFFSET) & ARG_Bx_MAX;
-}
-
-static inline i32
-GETARG_sBx(Instruction i)
-{
-    return cast(i32)(GETARG_Bx(i) - ARG_sBx_MAX);
-}
-
-static inline u16
-GETARG_vC(Instruction i)
-{
-    return cast(u32)((i >> ARG_vC_OFFSET) & ARG_vC_MAX);
-}
-
-static inline bool
-GETARG_k(Instruction i)
-{
-    return cast(bool)((i >> ARG_k_OFFSET)  & ARG_k_MAX);
-}
+static inline OpCode GET_OPCODE(Instruction i) { return cast(OpCode)((i >> ARG_OP_OFFSET) & ARG_OP_MAX); }
+static inline u8     GETARG_A  (Instruction i) { return cast(u8)    ((i >> ARG_A_OFFSET)  & ARG_A_MAX);  }
+static inline u16    GETARG_B  (Instruction i) { return cast(u16)   ((i >> ARG_B_OFFSET)  & ARG_B_MAX);  }
+static inline u16    GETARG_C  (Instruction i) { return cast(u16)   ((i >> ARG_C_OFFSET)  & ARG_C_MAX);  }
+static inline u32    GETARG_Bx (Instruction i) { return (i >> ARG_Bx_OFFSET) & ARG_Bx_MAX; }
+static inline i32    GETARG_sBx(Instruction i) { return cast(i32)   (GETARG_Bx(i) - ARG_sBx_MAX); }
+static inline u16    GETARG_vC (Instruction i) { return cast(u32)   ((i >> ARG_vC_OFFSET) & ARG_vC_MAX); }
+static inline bool   GETARG_k  (Instruction i) { return cast(bool)  ((i >> ARG_k_OFFSET)  & ARG_k_MAX);  }
 
 #define SET_OPCODE(ip, Op) \
     (*(ip) = (*(ip) & ARG_OP_MASK0) | (cast(u32)Op << ARG_OP_OFFSET))

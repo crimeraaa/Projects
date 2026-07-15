@@ -136,7 +136,7 @@ parser_operand(Parser *p, Expr *out, bool lhs)
     parser_advance(p);
     switch (token.kind) {
     case Token_nil:     *out = expr_make_nil(token); break;
-    case Token_false:   // fallthrough
+    case Token_false:   [[fallthrough]];
     case Token_true:    *out = expr_make_bool(token); break;
     case Token_Int: {
         lulu_int tmp;
@@ -144,7 +144,6 @@ parser_operand(Parser *p, Expr *out, bool lhs)
             char const *info = lexer_error_string(LEXER_INVALID_NUMBER);
             parser_error_at(p, info, token);
         }
-
         *out = expr_make_int(token, tmp);
         break;
     }
@@ -177,7 +176,7 @@ parser_operand(Parser *p, Expr *out, bool lhs)
             u16       i;
             Variable *v = parser_find_variable(p, ident, &i);
             // If we're in a declaration or assignment, allow this temporarily.
-            // We'll have to check if it anyway.
+            // We'll have to check if it exists anyway.
             if (!v && !lhs) {
                 parser_error_at(p, "Unknown identifier", token);
             }
@@ -245,6 +244,11 @@ parser_type(Parser *p)
     return type;
 }
 
+/*
+ Assumptions:
+ 1) All unary operators are right-associative. I.e. `cast(bool)cast(int)x` is
+    parsed as `cast(bool)(cast(int)x)` which is the same as `bool(int(x))`.
+ */
 static void
 parser_unary_expr(Parser *p, Expr *out, bool lhs)
 {
@@ -256,7 +260,6 @@ parser_unary_expr(Parser *p, Expr *out, bool lhs)
 
         Type const *type = parser_type(p);
         parser_expect(p, Token_Close_Paren);
-
         parser_expr(p, out, /*lhs=*/false, Prec_Unary);
         compiler_cast(p->compiler, type, out);
         break;
@@ -366,7 +369,7 @@ parser_decl(Parser *p, Expr *lhs)
 {
     // If none provided, then infer from rhs type.
     Type const *type = lhs->type;
-    if (lhs->type != nullptr) {
+    if (type != nullptr) {
         parser_error_at(p, "Shadowing of variable", lhs->token);
     }
 
@@ -377,14 +380,16 @@ parser_decl(Parser *p, Expr *lhs)
     Expr rhs = expr_make_none();
     if (parser_match(p, Token_Assign)) {
         parser_expr(p, &rhs, /*lhs=*/false);
+        // Need to infer the type to assign with?
         if (!type) {
             LULU_ASSERT(rhs.type != nullptr);
             type = rhs.type;
         }
-    }
-
-    if (!type) {
-        parser_error_at(p, "Expected type or '=' after ':'", lhs->token);
+    } else {
+        // E.g. `x:`
+        if (!type) {
+            parser_error_at(p, "Expected type or '=' after ':'", lhs->token);
+        }
     }
 
     lhs->type = type;

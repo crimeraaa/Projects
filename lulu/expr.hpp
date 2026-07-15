@@ -37,8 +37,7 @@ expr_make(ExprKind kind, Type const *type, Token const &token)
 }
 
 
-static inline Expr
-expr_make_none(void)
+static inline Expr expr_make_none(void)
 {
     return expr_make(Expr_None, nullptr, token_make_none());
 }
@@ -46,9 +45,11 @@ expr_make_none(void)
 static inline Expr
 expr_make_nil(Token const &token)
 {
-    return expr_make(Expr_nil, nullptr, token);
+    return expr_make(Expr_nil, basic_type_get(Value_nil), token);
 }
 
+// Literals are typed but can be coerced as long as data loss does not occur.
+// Coercion only occurs for numeric types.
 template<class T>
 static inline Expr
 expr_make_literal(Token const &token, T arg)
@@ -56,6 +57,7 @@ expr_make_literal(Token const &token, T arg)
     ValueKind kind = trait_ValueKind<T>::kind;
     Expr      expr = expr_make(Expr_Literal, nullptr, token);
 
+    expr.type         = basic_type_get(kind);
     expr.literal_kind = kind;
     value_set(&expr.literal, arg);
     return expr;
@@ -151,12 +153,25 @@ static inline bool expr_is_real(Expr *e) { return expr_has_literal_kind(e, Value
 #define expr_compare(e)      (LULU_ASSERT(expr_is_compare(e)),  (e)->pc)
 #define expr_pc(e)           (LULU_ASSERT(expr_is_pc(e)),       (e)->pc)
 
+template<class T>
+static inline void
+expr_set(Expr *e, T arg)
+{
+    e->literal_kind = trait_ValueKind<T>::kind;
+    e->type         = basic_type_get(e->literal_kind);
+    value_set<T>(&e->literal, arg);
+}
+
+static inline void expr_set_bool(Expr *e, bool      b) { expr_set(e, b); }
+static inline void expr_set_int (Expr *e, lulu_int  i) { expr_set(e, i); }
+static inline void expr_set_real(Expr *e, lulu_real r) { expr_set(e, r); }
+
 // Necessary for template shenanigans.
 template<class T>
 inline T
 expr_literal(Expr *e);
 
-template<> inline lulu_bool expr_literal(Expr *e) { return expr_bool(e); }
+template<> inline bool      expr_literal(Expr *e) { return expr_bool(e); }
 template<> inline lulu_int  expr_literal(Expr *e) { return expr_int (e); }
 template<> inline lulu_real expr_literal(Expr *e) { return expr_real(e); }
 

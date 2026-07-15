@@ -23,12 +23,12 @@
     X(Token_Mul, "*")                                                          \
     X(Token_Div, "/")                                                          \
     X(Token_Mod, "%")                                                          \
-    X(Token_Eq,  "==")                                                         \
     X(Token_Neq, "~=")                                                         \
-    X(Token_Lt,  "<")                                                          \
-    X(Token_Leq, "<=")                                                         \
-    X(Token_Gt,  ">")                                                          \
+    X(Token_Eq,  "==")                                                         \
     X(Token_Geq, ">=")                                                         \
+    X(Token_Lt,  "<")                                                          \
+    X(Token_Gt,  ">")                                                          \
+    X(Token_Leq, "<=")                                                         \
 /* END(2): Binary Operators */                                                 \
     X(Token_Open_Paren,    "(")                                                \
     X(Token_Close_Paren,   ")")                                                \

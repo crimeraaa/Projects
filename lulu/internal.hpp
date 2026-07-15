@@ -100,9 +100,7 @@ using usize   = std::size_t;
 using uintptr = std::uintptr_t;
 
 // TODO(2026-07-08): Make configurable?
-using lulu_bool = bool;
 using lulu_int  = i64;
-/// using lulu_uint = u64;
 using lulu_real = f64;
 
 // #define LULU_UINT_MAX   (cast(lulu_uint)-1)
