@@ -6,7 +6,6 @@
 #include "state.cpp"
 #include "type.cpp"
 #include "lexer.cpp"
-#include "chunk.cpp"
 #include "parser.cpp"
 #include "compiler.cpp"
 #include "value.cpp"

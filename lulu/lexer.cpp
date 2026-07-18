@@ -114,7 +114,7 @@ token_make(TokenKind k, String s, i32 line, i32 col)
 
 // Initalizes the given token with the current lexeme.
 static void
-lexer_init_token(Lexer const *x, Token *t, TokenKind k)
+lexer_init_token(Lexer const *x, Token *out, TokenKind k)
 {
     String s;
     i32 line, col;
@@ -122,7 +122,7 @@ lexer_init_token(Lexer const *x, Token *t, TokenKind k)
     s    = lexer_get_lexeme(x);
     line = x->line;
     col  = cast(i32)(cast(usize)x->col - s.len);
-    *t   = token_make(k, (s.len > 0) ? s : token_kind_string(k), line, col);
+    *out = token_make(k, (s.len > 0) ? s : token_kind_string(k), line, col);
 }
 
 // Keep advancing while the character pointed to by the cursor
@@ -241,7 +241,7 @@ lexer_get_keyword(String s, TokenKind kind, usize offset)
 }
 
 static LexerError
-lexer_scan_keyword_or_ident(Lexer *x, String s, Token *t)
+lexer_scan_keyword_or_ident(Lexer *x, String s, Token *out)
 {
     TokenKind k = Token_Ident;
     // len("do") <= n <= len("function")
@@ -264,6 +264,7 @@ lexer_scan_keyword_or_ident(Lexer *x, String s, Token *t)
         case 'u': k = lexer_get_keyword(s, Token_function, 2); break;
         }
         break;
+    case 'g': k = lexer_get_keyword(s, Token_global, 1); break;
     case 'i':
         switch (s.data[1]) {
         case 'f': k = lexer_get_keyword(s, Token_if, 2); break;
@@ -295,7 +296,7 @@ lexer_scan_keyword_or_ident(Lexer *x, String s, Token *t)
     default:
         break;
     }
-    lexer_init_token(x, t, k);
+    lexer_init_token(x, out, k);
     return LEXER_OK;
 }
 
@@ -307,19 +308,28 @@ lexer_scan_keyword_or_ident(Lexer *x, String s, Token *t)
 static int
 char_to_digit(char c, int base)
 {
-    int digit = 0;
-    if (char_is_decimal(c)) {
-        digit = c - '0';
-    } else if (char_is_lower(c)) {
-        digit = c - 'a' + 0xa;
-    } else if (char_is_upper(c)) {
-        digit = c - 'A' + 0xA;
-    } else {
-        // We should never have spaces in this function.
-        // Rather, we can only encounter invalid base-`base` digits.
-        return -1;
+    // We should never have spaces in this function.
+    // Rather, we can only encounter invalid base-`base` digits.
+    int digit = -1;
+    switch (c) {
+    case '0':           digit = 0;  break;
+    case '1':           digit = 1;  break;
+    case '2':           digit = 2;  break;
+    case '3':           digit = 3;  break;
+    case '4':           digit = 4;  break;
+    case '5':           digit = 5;  break;
+    case '6':           digit = 6;  break;
+    case '7':           digit = 7;  break;
+    case '8':           digit = 8;  break;
+    case '9':           digit = 9;  break;
+    case 'a': case 'A': digit = 10; break;
+    case 'b': case 'B': digit = 11; break;
+    case 'c': case 'C': digit = 12; break;
+    case 'd': case 'D': digit = 13; break;
+    case 'e': case 'E': digit = 14; break;
+    case 'f': case 'F': digit = 15; break;
     }
-    return (digit < base) ? digit : -1;
+    return (0 <= digit && digit < base) ? digit : -1;
 }
 
 /*
@@ -329,7 +339,7 @@ char_to_digit(char c, int base)
     (if we even have that!).
  */
 LULU_INTERNAL_FUNC bool
-lexer_parse_int(String s, lulu_int *v)
+lexer_parse_int(String s, lulu_int *out)
 {
     int base = 0;
     if (s.len > 2 && s.data[0] == '0') switch (s.data[1]) {
@@ -349,7 +359,7 @@ lexer_parse_int(String s, lulu_int *v)
     }
 
     // Avoid reading from and writing to garbage values.
-    *v = 0;
+    *out = 0;
 
     // Work from the most significant to least significant digits.
     for (usize i = 0; i < s.len; i++) {
@@ -357,8 +367,8 @@ lexer_parse_int(String s, lulu_int *v)
         if (digit < 0) {
             return false;
         }
-        *v *= cast(lulu_int)base;
-        *v += cast(lulu_int)digit;
+        *out *= cast(lulu_int)base;
+        *out += cast(lulu_int)digit;
     }
 
     /*
@@ -378,7 +388,7 @@ lexer_parse_int(String s, lulu_int *v)
 #define FLAG_FLOAT  (FLAG_FRAC | FLAG_EXP)
 
 LULU_INTERNAL_FUNC bool
-lexer_parse_real(String s, lulu_real *v)
+lexer_parse_real(String s, lulu_real *out)
 {
     char *pend;
 
@@ -386,12 +396,12 @@ lexer_parse_real(String s, lulu_real *v)
      TODO(2026-06-30):
         Implement our own `strtod` that doesn't assume nul-termination!
      */
-    *v = std::strtod(s.data, &pend);
+    *out = std::strtod(s.data, &pend);
     return pend == s.data + s.len;
 }
 
 static LexerError
-lexer_scan_number(Lexer *x, Token *t)
+lexer_scan_number(Lexer *x, Token *out)
 {
     bool ok    = true;
     u8   flags = 0;
@@ -413,7 +423,7 @@ lexer_scan_number(Lexer *x, Token *t)
 
     // We can allow alphanumerics for prefixed integers, but not floats.
     extra = lexer_consume_fn(x, char_is_alnum);
-    lexer_init_token(x, t, (flags & FLAG_FLOAT) ? Token_Float : Token_Int);
+    lexer_init_token(x, out, (flags & FLAG_FLOAT) ? Token_Float : Token_Int);
     if (flags & FLAG_FLOAT) {
         ok = (extra == 0);
     }
@@ -425,7 +435,7 @@ lexer_scan_number(Lexer *x, Token *t)
 #undef FLAG_FRAC
 
 static LexerError
-lexer_scan_string(Lexer *x, Token *t, char quote)
+lexer_scan_string(Lexer *x, Token *out, char quote)
 {
     bool ok = false;
     while(!lexer_eof(x)) {
@@ -438,24 +448,24 @@ lexer_scan_string(Lexer *x, Token *t, char quote)
         }
     }
 
-    lexer_init_token(x, t, Token_String);
+    lexer_init_token(x, out, Token_String);
     if (!ok) {
         return LEXER_UNTERMINATED_STRING;
     }
 
     // Skip the quotes.
-    t->lexeme = slice(t->lexeme, 1, t->lexeme.len - 1);
+    out->lexeme = slice(out->lexeme, 1, out->lexeme.len - 1);
     return LEXER_OK;
 }
 
 LULU_INTERNAL_FUNC LexerError
-lexer_scan_token(Lexer *x, Token *t)
+lexer_scan_token(Lexer *x, Token *out)
 {
     TokenKind k = Token_None;
     char      c = 0;
     lexer_skip_whitespace(x);
     if (lexer_eof(x)) {
-        lexer_init_token(x, t, Token_Eof);
+        lexer_init_token(x, out, Token_Eof);
         return LEXER_OK;
     }
 
@@ -468,12 +478,11 @@ lexer_scan_token(Lexer *x, Token *t)
         a meaningless optimization?
      */
     if (char_is_letter(c)) {
-        String s;
         lexer_consume_fn(x, char_is_alnum);
-        s = lexer_get_lexeme(x);
-        return lexer_scan_keyword_or_ident(x, s, t);
+        String s = lexer_get_lexeme(x);
+        return lexer_scan_keyword_or_ident(x, s, out);
     } else if (char_is_decimal(c)) {
-        return lexer_scan_number(x, t);
+        return lexer_scan_number(x, out);
     }
 
     switch (c) {
@@ -506,16 +515,16 @@ lexer_scan_token(Lexer *x, Token *t)
         // Don't have '..' but it could be a fractional literal.
         c = lexer_peek_next_char(x);
         if (char_is_decimal(c)) {
-            return lexer_scan_number(x, t);
+            return lexer_scan_number(x, out);
         }
         k = Token_Period;
         break;
     case '\'':
-    case '\"': return lexer_scan_string(x, t, c);
+    case '\"': return lexer_scan_string(x, out, c);
     default:
         break;
     }
-    lexer_init_token(x, t, k);
+    lexer_init_token(x, out, k);
     return k ? LEXER_OK : LEXER_UNEXPECTED_CHARACTER;
 }
 

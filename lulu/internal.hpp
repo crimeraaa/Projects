@@ -7,14 +7,12 @@
 
 #if defined(__GNUC__) || defined(__clang__)
 
-#define LULU_NORETURN       __attribute__((__noreturn__))
 #define LULU_UNREACHABLE()  __builtin_trap()
 #define LULU__ASSERT_IMPL() __builtin_trap()
 #define restrict            __restrict__
 
 #elif defined(_MSC_VER) // ^^^ GCC, clang; vvv MSVC
 
-#define LULU_NORETURN       __declspec(noreturn)
 #define LULU__ASSERT_IMPL() __debugbreak()
 #define LULU_UNREACHABLE()  cast(void)0
 #define LULU_FORMAT(f, a)
@@ -24,8 +22,6 @@
 
 #include <cstdlib>
 
-// No harm in not knowing, but your compiler can't optimize for such cases.
-#define LULU_NORETURN
 #define LULU_FORMAT(f, a)
 #define LULU_UNREACHABLE()  cast(void)0
 #define restrict

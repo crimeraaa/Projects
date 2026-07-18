@@ -82,9 +82,9 @@ debug_disassemble(Chunk const *c)
 {
     printf("======== DISASSEMBLY ========\n");
 
-    if (c->values_len > 0) {
+    if (c->values_cap > 0) {
         printf(".values:\n");
-        for (usize i = 0; i < c->values_len; i++) {
+        for (usize i = 0; i < c->values_cap; i++) {
             printf("| [%zu]: ", i);
             print_tvalue(c->values[i]);
             putc('\n', stdout);
@@ -92,14 +92,14 @@ debug_disassemble(Chunk const *c)
     }
 
     printf(".code:\n");
-    for (usize i = 0; i < c->code_len; i++) {
+    for (usize i = 0; i < c->code_cap; i++) {
         debug_disassemble_at(c, i);
     }
     printf("=============================\n");
 }
 
-static char const *OPCODE_NAMES[] = {
-#define X(e, s, fmt) s,
+static char const *OPCODE_CSTRINGS[] = {
+#define X(e, ...) #e,
     OPCODE_KINDS(X)
 #undef X
 };
@@ -107,25 +107,31 @@ static char const *OPCODE_NAMES[] = {
 LULU_INTERNAL_FUNC void
 debug_disassemble_at(Chunk const *c, usize offset)
 {
-    Instruction   i      = c->code[offset];
-    OpCode const  opcode = GET_OPCODE(i);
-    char   const *opname = OPCODE_NAMES[opcode];
-    u8     const  A      = GETARG_A(i);
+    Instruction i  = c->code[offset];
+    OpCode      op = GET_OPCODE(i);
+    u8          A  = GETARG_A(i);
 
-    printf("| %-16s %-3u ", opname, A);
-    switch (opform_get(opcode)) {
+    printf("| %-8s %-3u ", OPCODE_CSTRINGS[op], A);
+    switch (OPCODE_INFO_FORMAT(op)) {
     case OpForm_ABC:
-        printf("%-3u %-5u", GETARG_B(i), GETARG_C(i));
-        break;
-    case OpForm_vABC:
-        printf("%-3u %-3u %u", GETARG_B(i), GETARG_vC(i), GETARG_k(i));
+        printf("%-3u %-7u", GETARG_B(i), GETARG_C(i));
         break;
     case OpForm_ABx:
-        printf("%-9u", GETARG_Bx(i));
+        printf("%-11u", GETARG_Bx(i));
         break;
     case OpForm_AsBx:
-        printf("%-9i", GETARG_sBx(i));
+        printf("%-11i", GETARG_sBx(i));
+        break;
+    case OpForm_vABC:
+        printf("%-3u %-3u k=%u", GETARG_B(i), GETARG_vC(i), GETARG_k(i));
+        break;
+    case OpForm_vABx:
+        printf("%-7u k=%u", GETARG_vBx(i), GETARG_k(i));
+        break;
+    case OpForm_vAsBx:
+        printf("%-7i k=%u", GETARG_vsBx(i), GETARG_k(i));
         break;
     }
+
     printf("\n");
 }

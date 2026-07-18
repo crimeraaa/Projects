@@ -10,7 +10,7 @@ enum ExprKind : u8 {
     Expr_Literal,
     Expr_Type,       // Type name. No data.
     Expr_Constant,   // Constant index is in `constant`.
-    Expr_Variable,   // Variable index is in `variable`.
+    Expr_Variable,   // Variable index is in `reg`.
     Expr_Call,       // Call instruction index in `pc`.
     Expr_Compare,    // Comparison instruction index in `pc`.
     Expr_Pending,    // Instruction index in `pc`- need destination register.
@@ -18,10 +18,11 @@ enum ExprKind : u8 {
 };
 
 struct Expr {
-    ExprKind    kind;
-    ValueKind   literal_kind; // Helps reduce pointer dereferencing.
+    ExprKind    kind         = Expr_None;
+    ValueKind   literal_kind = Value_nil; // Helps reduce pointer dereferencing.
+    bool        literal_sign = false;     // Integer literal shenanigans.
     Token       token;
-    Type const *type;
+    Type const *type         = nullptr;
     union {
         Value literal;
         u32   constant; // Index of value in chunk constants array.
@@ -33,13 +34,11 @@ struct Expr {
 static inline Expr
 expr_make(ExprKind kind, Type const *type, Token const &token)
 {
-    return {kind, Value_nil, token, type, {0}};
-}
-
-
-static inline Expr expr_make_none(void)
-{
-    return expr_make(Expr_None, nullptr, token_make_none());
+    Expr e;
+    e.kind  = kind;
+    e.type  = type;
+    e.token = token;
+    return e;
 }
 
 static inline Expr
@@ -54,16 +53,20 @@ template<class T>
 static inline Expr
 expr_make_literal(Token const &token, T arg)
 {
-    ValueKind kind = trait_ValueKind<T>::kind;
-    Expr      expr = expr_make(Expr_Literal, nullptr, token);
+    auto constexpr    kind = trait_ValueKind<T>::kind;
+    Type const *const type = basic_type_get(kind);
+    Expr              expr = expr_make(Expr_Literal, type, token);
 
-    expr.type         = basic_type_get(kind);
+    // Literal value stuff
     expr.literal_kind = kind;
+    if constexpr(kind == Value_int) {
+        expr.literal_sign = arg < 0;
+    }
     value_set(&expr.literal, arg);
     return expr;
 }
 
-static inline Expr expr_make_bool(Token const &t) { return expr_make_literal(t, t.kind == Token_true); }
+static inline Expr expr_make_bool(Token const &t, bool      b) { return expr_make_literal(t, b); }
 static inline Expr expr_make_int (Token const &t, lulu_int  i) { return expr_make_literal(t, i); }
 static inline Expr expr_make_real(Token const &t, lulu_real r) { return expr_make_literal(t, r); }
 
@@ -82,7 +85,7 @@ expr_make_variable(Token const &token, Type const *type, u16 reg)
 }
 
 static inline bool
-expr_is_numeric(Expr *e)
+expr_is_numeric(Expr const *e)
 {
     switch (e->type->kind) {
     case TypeKind_Basic:
@@ -110,23 +113,23 @@ expr_set_constant(Expr *e, u32 index)
 #define expr_is_literal(e) ((e)->kind == Expr_Literal)
 
 static inline bool
-expr2_both_literal(Expr *a, Expr *b)
+expr2_both_literal(Expr const *a, Expr const *b)
 {
     return expr_is_literal(a) && expr_is_literal(b);
 }
 
-static inline bool expr_is_reg    (Expr *a) { return a->kind == Expr_Discharged; }
-static inline bool expr_is_local  (Expr *e) { return e->kind == Expr_Variable;   }
-static inline bool expr_is_compare(Expr *e) { return e->kind == Expr_Compare;    }
-static inline bool expr_is_pc     (Expr *a) { return a->kind == Expr_Pending;    }
+static inline bool expr_is_reg    (Expr const *e) { return e->kind == Expr_Discharged; }
+static inline bool expr_is_local  (Expr const *e) { return e->kind == Expr_Variable;   }
+static inline bool expr_is_compare(Expr const *e) { return e->kind == Expr_Compare;    }
+static inline bool expr_is_pc     (Expr const *e) { return e->kind == Expr_Pending;    }
 
-static inline bool expr_has_basic_type(Expr *e)
+static inline bool expr_has_basic_type(Expr const *e)
 {
     return e->type != nullptr && e->type->kind == TypeKind_Basic;
 }
 
 static inline bool
-expr_has_basic_kind(Expr *e, ValueKind kind)
+expr_has_basic_kind(Expr const *e, ValueKind kind)
 {
     return expr_has_basic_type(e) && e->type->basic.kind == kind;
 }
@@ -135,14 +138,14 @@ expr_has_basic_kind(Expr *e, ValueKind kind)
     (LULU_ASSERT(expr_has_basic_type(e)), (e)->type->basic.kind)
 
 static inline bool
-expr_has_literal_kind(Expr *e, ValueKind kind)
+expr_has_literal_kind(Expr const *e, ValueKind kind)
 {
     return expr_is_literal(e) && (e->literal_kind == kind);
 }
 
-static inline bool expr_is_bool(Expr *e) { return expr_has_literal_kind(e, Value_bool); }
-static inline bool expr_is_int (Expr *e) { return expr_has_literal_kind(e, Value_int);  }
-static inline bool expr_is_real(Expr *e) { return expr_has_literal_kind(e, Value_real); }
+static inline bool expr_is_bool(Expr const *e) { return expr_has_literal_kind(e, Value_bool); }
+static inline bool expr_is_int (Expr const *e) { return expr_has_literal_kind(e, Value_int);  }
+static inline bool expr_is_real(Expr const *e) { return expr_has_literal_kind(e, Value_real); }
 
 #define expr_literal_kind(e) (LULU_ASSERT(expr_is_literal(e)),  (e)->literal_kind)
 #define expr_bool(e)         (LULU_ASSERT(expr_is_bool(e)),     value_bool((e)->literal))
@@ -169,9 +172,63 @@ static inline void expr_set_real(Expr *e, lulu_real r) { expr_set(e, r); }
 // Necessary for template shenanigans.
 template<class T>
 inline T
-expr_literal(Expr *e);
+expr_literal(Expr const *e);
 
-template<> inline bool      expr_literal(Expr *e) { return expr_bool(e); }
-template<> inline lulu_int  expr_literal(Expr *e) { return expr_int (e); }
-template<> inline lulu_real expr_literal(Expr *e) { return expr_real(e); }
+template<> inline bool      expr_literal(Expr const *e) { return expr_bool(e); }
+template<> inline lulu_int  expr_literal(Expr const *e) { return expr_int (e); }
+template<> inline lulu_real expr_literal(Expr const *e) { return expr_real(e); }
 
+static bool
+expr_neg(Expr *e)
+{
+    switch (expr_literal_kind(e)) {
+    case Value_int:  value_set_int (&e->literal, -expr_int (e)); break;
+    case Value_real: value_set_real(&e->literal, -expr_real(e)); break;
+    default:
+        return false;
+    }
+    return true;
+}
+
+template<class Dst, class Src>
+static bool
+expr_coerce_safe(Expr *e)
+{
+    LULU_ASSERT(expr_is_literal(e));
+    auto src_arg = value_get<Src>(e->literal);
+    auto dst_arg = cast(Dst)src_arg;
+
+    // Conversion results in data loss?
+    if (cast(Src)dst_arg != src_arg) {
+        return false;
+    }
+
+    expr_set<Dst>(e, dst_arg);
+    return true;
+}
+
+static bool
+expr_int_safe(Expr *e, lulu_int min, lulu_int max, lulu_int *out)
+{
+    lulu_int imm = 0;
+    switch (expr_literal_kind(e)) {
+    case Value_int:
+        imm = expr_int(e);
+        break;
+    case Value_real: {
+        lulu_real r = expr_real(e);
+
+        // Conversion results in data loss?
+        imm = cast(lulu_int)r;
+        if (cast(lulu_real)imm != r) {
+            return false;
+        }
+        break;
+    }
+    default:
+        return false;
+    }
+
+    *out = imm;
+    return min <= imm && imm <= max;
+}

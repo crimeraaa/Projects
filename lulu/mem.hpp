@@ -46,28 +46,28 @@ mem_scratch_begin(Arena *a);
 LULU_INTERNAL_FUNC void
 mem_scratch_end(Scratch *x);
 
-LULU_INTERNAL_FUNC void *
+LULU_INTERNAL_FUNC [[nodiscard]] void *
 mem_arena_alloc(lulu_State *L, usize size);
 
-LULU_INTERNAL_FUNC void *
+LULU_INTERNAL_FUNC [[nodiscard]] void *
 mem_arena_resize(lulu_State *L, void *old_ptr, usize old_size, usize new_size);
 
 template<class T>
-static inline T *
+[[nodiscard]] static inline T *
 mem_arena_alloc_item(lulu_State *L)
 {
     return cast(T *)mem_arena_alloc(L, sizeof(T));
 }
 
 template<class T>
-static inline T *
+[[nodiscard]] static inline T *
 mem_arena_alloc_array(lulu_State *L, usize count)
 {
     return cast(T *)mem_arena_alloc(L, sizeof(T) * count);
 }
 
 template<class T>
-static inline T *
+[[nodiscard]] static inline T *
 mem_arena_resize_array(lulu_State *L, T *old_mem, usize old_cap, usize new_cap)
 {
     auto old_size = sizeof(T) * old_cap;
@@ -76,18 +76,18 @@ mem_arena_resize_array(lulu_State *L, T *old_mem, usize old_cap, usize new_cap)
 }
 
 
-LULU_INTERNAL_FUNC void *
+LULU_INTERNAL_FUNC [[nodiscard]] void *
 mem_heap_resize_bytes(lulu_State *L, void *old_ptr, usize old_size, usize new_size);
 
 template<class T>
-static inline T *
+[[nodiscard]] static inline T *
 mem_heap_alloc(lulu_State *L, usize count)
 {
     return cast(T *)mem_heap_resize_bytes(L, nullptr, 0, sizeof(T) * count);
 }
 
 template<class T>
-static inline T *
+[[nodiscard]] static inline T *
 mem_heap_resize(lulu_State *L, T *old_mem, usize old_cap, usize new_cap)
 {
     auto old_size = sizeof(T) * old_cap;
@@ -95,15 +95,14 @@ mem_heap_resize(lulu_State *L, T *old_mem, usize old_cap, usize new_cap)
     return cast(T *)mem_heap_resize_bytes(L, old_mem, old_size, new_size);
 }
 
-template<class T>
-static inline T *
-mem_heap_grow(lulu_State *L, T *old_mem, usize *old_count)
+template<class T, class Z>
+[[nodiscard]] static inline T *
+mem_heap_grow(lulu_State *L, T *mem, Z *count)
 {
-    usize old_cap  = *old_count;
+    T *   old_mem  = mem;
+    usize old_cap  = cast(usize)*count;
     usize new_cap  = (old_cap > 8) ? old_cap * 2 : 8;
-    usize old_size = sizeof(T) * old_cap;
-    usize new_size = sizeof(T) * new_cap;
-    *old_count = new_cap;
+    *count = cast(Z)new_cap;
     return mem_heap_resize(L, old_mem, old_cap, new_cap);
 }
 
@@ -118,11 +117,11 @@ template<class T>
 static inline void
 mem_heap_free(lulu_State *L, T *old_mem, usize old_count)
 {
-    mem_heap_resize(L, old_mem, sizeof(T) * old_count, 0);
+    cast(void)mem_heap_resize<T>(L, old_mem, old_count, 0);
 }
 
 template<class T>
-static inline Slice<T>
+[[nodiscard]] static inline Slice<T>
 mem_alloc_slice(lulu_State *L, usize count)
 {
     T *data = mem_heap_alloc<T>(L, count);
@@ -154,19 +153,11 @@ mem_free_slice(lulu_State *L, Slice<T> s)
 template<class T>
 struct Dynamic {
     Slice<T> slice;
-    usize    cap;
+    usize    cap = 0;
 
-    template<class N>
-    T &operator[](N index)
-    {
-        return this->slice[index];
-    }
-
-    template<class N>
-    T const &operator[](N index) const
-    {
-        return this->slice[index];
-    }
+    // Defer to underlying Slice implementation.
+    template<class N> T &      operator[](N index)       { return this->slice[index]; }
+    template<class N> T const &operator[](N index) const { return this->slice[index]; }
 };
 
 template<class T> static inline T *   raw_data (Dynamic<T> d) { return raw_data(d.slice); }
@@ -180,8 +171,11 @@ static inline void
 mem_append(lulu_State *L, Dynamic<T> *d, T const &value)
 {
     if (len(*d) + 1 > cap(*d)) {
-        mem_grow_slice(L, &d->slice);
+        d->slice.data = mem_heap_grow(L, d->slice.data, &d->cap);
     }
-    d->data[d->len++] = value;
+
+    // Raw access because we assign to a (currently) out of bounds index.
+    // Only once length is updated can we use operator[] again.
+    d->slice.data[d->slice.len++] = value;
 }
 

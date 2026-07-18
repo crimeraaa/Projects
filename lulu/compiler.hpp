@@ -16,22 +16,20 @@ struct Variable {
 
 struct Compiler {
     // Shared state.
-    lulu_State *L;
-    Parser *    parser;
+    lulu_State *L      = nullptr;
+    Parser *    parser = nullptr;
 
     // Compiler state.
-    Chunk *  chunk;
-    u16      free_reg;
-    u16      active_count;
+    Chunk *  chunk           = nullptr;
+    i32      pc              = 0;
+    u32      constants_count = 0;
+    u16      free_reg        = 0;
+    u16      active_count    = 0;
     Variable variables[VARIABLES_MAX_COUNT];
 };
 
-static inline Compiler
-compiler_make(lulu_State *L, Parser *p, Chunk *chunk)
-{
-    Compiler c = {L, p, chunk, /*free_reg=*/0, /*active_count=*/0};
-    return c;
-}
+LULU_INTERNAL_FUNC void
+compiler_finish(Compiler *c);
 
 LULU_INTERNAL_FUNC u16
 compiler_expr_next_reg(Compiler *c, Expr *e);

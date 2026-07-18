@@ -33,8 +33,8 @@ union Value {
     bool      boolean;
 };
 
-static inline bool      value_bool(Value v) { return v.boolean; }
-static inline lulu_int  value_int (Value v) { return v.integer; }
+static inline bool      value_bool(Value v) { return v.boolean;  }
+static inline lulu_int  value_int (Value v) { return v.integer;  }
 static inline lulu_real value_real(Value v) { return v.floating; }
 
 static inline void value_set_bool(Value *v, bool      arg) { v->boolean  = arg; }

@@ -55,6 +55,7 @@
     X(Token_false,    "false")                                                 \
     X(Token_for,      "for")                                                   \
     X(Token_function, "function")                                              \
+    X(Token_global,   "global")                                                \
     X(Token_if,       "if")                                                    \
     X(Token_in,       "in")                                                    \
     X(Token_local,    "local")                                                 \
@@ -79,13 +80,13 @@ enum TokenKind : u8 {
 };
 
 struct Token {
-    TokenKind kind;
+    TokenKind kind = Token_None;
 
     // String view into the source code.
     String lexeme;
 
     // Position information.
-    i32 line, col;
+    i32 line = 0, col = 0;
 };
 
 struct Lexer {
@@ -93,13 +94,13 @@ struct Lexer {
     String path, input;
 
     // Lexeme's starting position in `input`.
-    usize start;
+    usize start = 0;
 
     // Current view position in `input`. Must be `>= start`.
-    usize cursor;
+    usize cursor = 0;
 
     // Position information.
-    i32 line, col;
+    i32 line = 0, col = 0;
 };
 
 enum LexerError : u8 {
@@ -112,31 +113,15 @@ enum LexerError : u8 {
 LULU_INTERNAL_FUNC char const *
 token_kind_cstring(TokenKind k);
 
-static inline Token
-token_make_none(void)
-{
-    Token t = {Token_None,
-        /*lexeme=*/nullptr, /*len=*/0,
-        /*line  =*/0,       /*col=*/0};
-    return t;
-}
-
-static inline Lexer
-lexer_make(String path, String input)
-{
-    Lexer x = {path, input, /*start=*/0, /*cursor=*/0, /*line=*/1, /*col=*/1};
-    return x;
-}
-
 LULU_INTERNAL_FUNC char const *
 lexer_error_string(LexerError err);
 
 LULU_INTERNAL_FUNC LexerError
-lexer_scan_token(Lexer *x, Token *t);
+lexer_scan_token(Lexer *x, Token *out);
 
 LULU_INTERNAL_FUNC bool
-lexer_parse_int(String s, lulu_int *v);
+lexer_parse_int(String s, lulu_int *out);
 
 LULU_INTERNAL_FUNC bool
-lexer_parse_real(String s, lulu_real *v);
+lexer_parse_real(String s, lulu_real *out);
 

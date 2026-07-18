@@ -4,8 +4,8 @@
 
 template<class T>
 struct Slice {
-    T *   data;
-    usize len;
+    T *   data = nullptr;
+    usize len  = 0;
 
     template<class N>
     T &

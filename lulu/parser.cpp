@@ -64,8 +64,6 @@ parser_error_at(Parser *p, char const *info, Token const &t)
         t.line, t.col, info,
         parser_clamp_string({loc, sizeof(loc)}, t.lexeme));
 
-
-    chunk_destroy(p->L, p->compiler->chunk);
     state_throw(p->L, LULU_SYNTAX_ERROR);
 }
 
@@ -135,9 +133,9 @@ parser_operand(Parser *p, Expr *out, bool lhs)
     Token token = p->token;
     parser_advance(p);
     switch (token.kind) {
-    case Token_nil:     *out = expr_make_nil(token); break;
-    case Token_false:   [[fallthrough]];
-    case Token_true:    *out = expr_make_bool(token); break;
+    case Token_nil:     *out = expr_make_nil (token);        break;
+    case Token_false:   *out = expr_make_bool(token, false); break;
+    case Token_true:    *out = expr_make_bool(token, true);  break;
     case Token_Int: {
         lulu_int tmp;
         if (!lexer_parse_int(token.lexeme, &tmp)) {
@@ -193,7 +191,7 @@ parser_operand(Parser *p, Expr *out, bool lhs)
 static void
 parser_call(Parser *p, Expr *func)
 {
-    Expr arg = expr_make_none();
+    Expr arg;
     if (!parser_check(p, Token_Close_Paren)) {
         parser_expr(p, &arg, /*lhs=*/false);
     }
@@ -377,7 +375,7 @@ parser_decl(Parser *p, Expr *lhs)
         type = parser_type(p);
     }
 
-    Expr rhs = expr_make_none();
+    Expr rhs;
     if (parser_match(p, Token_Assign)) {
         parser_expr(p, &rhs, /*lhs=*/false);
         // Need to infer the type to assign with?
@@ -429,31 +427,31 @@ parser_simple_stmt(Parser *p)
     parser_match(p, Token_Semicol);
 }
 
-
-static Parser
-parser_make(lulu_State *L, Compiler *c, ParserData *data)
-{
-    Parser p = {L, c, lexer_make(data->path, data->input),
-        /*token     =*/token_make_none(),
-        /*scratch   =*/&data->scratch,
-        /*recursions=*/0};
-
-    parser_advance(&p);
-    return p;
-}
-
 LULU_INTERNAL_FUNC Chunk *
 parser_parse(lulu_State *L, ParserData *data)
 {
     Parser   p;
     Compiler c;
-    p = parser_make(L, &c, data);
-    c = compiler_make(L, &p, &data->chunk);
+
+    // parser init
+    p.L           = L;
+    p.compiler    = &c;
+    p.lexer.path  = data->path;
+    p.lexer.input = data->input;
+    p.lexer.line  = 1;
+    p.lexer.col   = 1;
+    p.scratch     = &data->scratch;
+    
+    // compiler init
+    c.L        = L;
+    c.parser   = &p;
+    c.chunk    = &data->chunk;
+    parser_advance(&p);
     while (!parser_check(&p, Token_Eof)) {
         parser_simple_stmt(&p);
     }
-    compiler_return(&c, nullptr);
     parser_expect(&p, Token_Eof);
+    compiler_finish(&c);
     return c.chunk;
 }
 

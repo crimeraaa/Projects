@@ -9,34 +9,17 @@
 
 struct Chunk {
     // Bytecode array.
-    Instruction *code;
-    i32        code_len;
-    i32        code_cap;
+    Instruction *code     = nullptr;
+    i32          code_cap = 0;
 
     // Constants dynamic array.
-    TValue *values;
-    u32     values_len;
-    u32     values_cap;
+    TValue *values        = nullptr;
+    u32     values_cap    = 0;
 
     // Usage information.
-    u16 stack_size;
+    u16 stack_size = 0;
 };
-
-static inline Chunk
-chunk_make(void)
-{
-    Chunk c = {/*code=*/nullptr, 0, 0,
-        /*values     =*/nullptr, 0, 0,
-        /*stack_size =*/0};
-    return c;
-}
 
 LULU_INTERNAL_FUNC void
 chunk_destroy(lulu_State *L, Chunk *c);
-
-LULU_INTERNAL_FUNC void
-chunk_add_instruction(lulu_State *L, Chunk *c, Instruction i);
-
-LULU_INTERNAL_FUNC u32
-chunk_add_constant(lulu_State *L, Chunk *c, TValue v);
 

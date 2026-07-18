@@ -91,9 +91,11 @@ state_parse(lulu_State *L, void *user_data)
 LULU_INTERNAL_FUNC lulu_Error
 state_parse_protected(lulu_State *L, String path, String input)
 {
-    ParserData data = {path, input, chunk_make(), mem_scratch_begin(&L->arena)};
+    Chunk      chunk;
+    ParserData data = {path, input, chunk, mem_scratch_begin(&L->arena)};
     lulu_Error err  = state_try(L, state_parse, &data);
     mem_scratch_end(&data.scratch);
-    chunk_destroy(L, &data.chunk);
+    mem_heap_free(L, data.chunk.code,   data.chunk.code_cap);
+    mem_heap_free(L, data.chunk.values, data.chunk.values_cap);
     return err;
 }
