@@ -119,12 +119,17 @@ swap(T *restrict const a, T *restrict const b)
     *b = tmp;
 }
 
-template<class T> static inline T num_neg(T a)      { return -a;    }
-template<class T> static inline T num_add(T a, T b) { return a + b; }
-template<class T> static inline T num_sub(T a, T b) { return a - b; }
-template<class T> static inline T num_mul(T a, T b) { return a * b; }
-template<class T> static inline T num_div(T a, T b) { return a / b; }
-template<class T> static inline T num_mod(T a, T b) { return a % b; }
+template<class T> static inline T num_bnot(T a)      { return ~a; }
+template<class T> static inline T num_band(T a, T b) { return a & b; }
+template<class T> static inline T num_bor (T a, T b) { return a | b; }
+template<class T> static inline T num_bxor(T a, T b) { return a ^ b; }
+
+template<class T> static inline T num_neg(T a)       { return -a;    }
+template<class T> static inline T num_add(T a, T b)  { return a + b; }
+template<class T> static inline T num_sub(T a, T b)  { return a - b; }
+template<class T> static inline T num_mul(T a, T b)  { return a * b; }
+template<class T> static inline T num_div(T a, T b)  { return a / b; }
+template<class T> static inline T num_mod(T a, T b)  { return a % b; }
 
 // Specialization for reals becuase C/C++ doesn't allow direct modulo.
 template<>

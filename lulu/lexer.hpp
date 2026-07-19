@@ -15,27 +15,23 @@
     X(Token_Float,  "<float>")                                                 \
     X(Token_String, "<string>")                                                \
 /* BEGIN(1): Operators */                                                      \
-    X(Token_Len,    "#")                                                       \
-    X(Token_Assign, "=")                                                       \
+    X(Token_Ampersand, "&")                                                    \
+    X(Token_Pipe,      "|")                                                    \
+    X(Token_Caret,     "^")                                                    \
+    X(Token_Tilde,     "~")                                                    \
+    X(Token_Len,       "#")                                                    \
+    X(Token_Assign,    "=")                                                    \
 /* BEGIN(2): Binary Operators */                                               \
-    X(Token_Add, "+")                                                          \
-    X(Token_Sub, "-")                                                          \
-    X(Token_Mul, "*")                                                          \
-    X(Token_Div, "/")                                                          \
-    X(Token_Mod, "%")                                                          \
-    X(Token_Neq, "~=")                                                         \
-    X(Token_Eq,  "==")                                                         \
-    X(Token_Geq, ">=")                                                         \
-    X(Token_Lt,  "<")                                                          \
-    X(Token_Gt,  ">")                                                          \
-    X(Token_Leq, "<=")                                                         \
+    X(Token_Plus,          "+")  X(Token_Dash,          "-")                   \
+    X(Token_Asterisk,      "*")  X(Token_Slash,         "/")                   \
+    X(Token_Percent,       "%")                                                \
+    X(Token_Tilde_Equal,   "~=") X(Token_Equal_Equal,   "==")                  \
+    X(Token_Greater_Equal, ">=") X(Token_Less_Than,     "<")                   \
+    X(Token_Greater_Than,  ">")  X(Token_Less_Equal,    "<=")                  \
 /* END(2): Binary Operators */                                                 \
-    X(Token_Open_Paren,    "(")                                                \
-    X(Token_Close_Paren,   ")")                                                \
-    X(Token_Open_Curly,    "{")                                                \
-    X(Token_Close_Curly,   "}")                                                \
-    X(Token_Open_Bracket,  "[")                                                \
-    X(Token_Close_Bracket, "]")                                                \
+    X(Token_Open_Paren,    "(")  X(Token_Close_Paren,   ")")                   \
+    X(Token_Open_Curly,    "{")  X(Token_Close_Curly,   "}")                   \
+    X(Token_Open_Bracket,  "[")  X(Token_Close_Bracket, "]")                   \
     X(Token_Colon,         ":")                                                \
     X(Token_Semicol,       ";")                                                \
     X(Token_Comma,         ",")                                                \
@@ -70,8 +66,9 @@
     X(Token_while,    "while")
 /* END: Keywords */
 
-/**
- * @link https://www.lua.org/manual/5.1/manual.html
+/*
+ Relevant links:
+ 1) https://www.lua.org/manual/5.1/manual.html
  */
 enum TokenKind : u8 {
 #define X(e, s) e,

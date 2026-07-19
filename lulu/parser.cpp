@@ -7,26 +7,13 @@
 #include "expr.hpp"
 #include "type.hpp"
 
-enum Precedence : u8 {
-    Prec_None, // Zero value. Useful to indicate a rule does not exist.
-    Prec_Expr, // Default precedence to parse with.
-    Prec_Or,
-    Prec_And,
-    Prec_Equality,
-    Prec_Comparison,
-    Prec_Term,      // x {+,-} y
-    Prec_Factor,    // x {*,/,%} y
-    Prec_Unary,     // {-,#,not} x
-    Prec_Call,
-};
-
 /*
  Description:
     Parses a single expression of the given precedence. By default, we parse
     the basic precedence which is a good starting point.
  */
 static void
-parser_expr(Parser *p, Expr *out, bool lhs, Precedence prec = Prec_Expr);
+parser_expr(Parser *p, Expr *out, bool lhs, int prec = 1);
 
 static char const *
 parser_clamp_string(Slice<char> buf, String s)
@@ -103,12 +90,15 @@ parser_expect(Parser *p, TokenKind k)
     }
 }
 
-static Variable *
+/*
+ TODO(2026-07-20): Add global lookup instead of worrying only about locals.
+ */
+static Local *
 parser_find_variable(Parser *p, String name, u16 *out)
 {
     Compiler *c = p->compiler;
     for (u16 i = c->active_count; i-- > 0;) {
-        Variable *v = &c->variables[i];
+        Local *v = &c->locals[i];
         if (name == v->name) {
             if (out) *out = i;
             return v;
@@ -171,14 +161,14 @@ parser_operand(Parser *p, Expr *out, bool lhs)
         if (type) {
             *out = expr_make_type(token, type);
         } else {
-            u16       i;
-            Variable *v = parser_find_variable(p, ident, &i);
+            u16    i;
+            Local *v = parser_find_variable(p, ident, &i);
             // If we're in a declaration or assignment, allow this temporarily.
             // We'll have to check if it exists anyway.
             if (!v && !lhs) {
                 parser_error_at(p, "Unknown identifier", token);
             }
-            *out = expr_make_variable(token, (v) ? v->type : nullptr, i);
+            *out = expr_make_local(token, (v) ? v->type : nullptr, i);
         }
         break;
     }
@@ -219,27 +209,55 @@ parser_primary_expr(Parser *p, Expr *out, bool lhs)
     }
 }
 
-static String
-parser_ident(Parser *p)
-{
-    String ident = p->token.lexeme;
-    parser_expect(p, Token_Ident);
-    return ident;
-}
-
 /*
  Assumptions:
  1) We are about to consume an identifier.
  */
-static Type const *
-parser_type(Parser *p)
+static void
+parser_type(Parser *p, Expr *out)
 {
-    String      ident = parser_ident(p);
-    Type const *type  = type_get(p->L, ident);
+    Token const  token = p->token;
+    parser_expect(p, Token_Ident);
+
+    Type const *type = type_get(p->L, token.lexeme);
     if (!type) {
         parser_error(p, "Unknown type name");
     }
-    return type;
+    *out = expr_make_type(token, type);
+}
+
+// Must be higher than all other precedences in `parser_prec()`.
+#define PREC_UNARY 8
+
+/*
+ Relevant links:
+ 1) https://odin-lang.org/docs/overview/#operator-precedence
+ */
+static int
+parser_prec(TokenKind k)
+{
+    switch (k) {
+    case Token_Asterisk:
+    case Token_Slash:
+    case Token_Percent:
+    case Token_Ampersand:     return 7;
+    case Token_Plus:
+    case Token_Dash:
+    case Token_Pipe:
+    case Token_Caret:         return 6;
+    case Token_Greater_Equal:
+    case Token_Less_Than:
+    case Token_Greater_Than:
+    case Token_Less_Equal:    return 5;
+    case Token_Equal_Equal:
+    case Token_Tilde_Equal:   return 4;
+    case Token_and:           return 3;
+    case Token_or:            return 2;
+    // Precedence 1 is reserved for the base expression parsing.
+    // Precedence 0 indicates we cannot parse an expression with this.
+    default:
+        return 0;
+    }
 }
 
 /*
@@ -256,19 +274,20 @@ parser_unary_expr(Parser *p, Expr *out, bool lhs)
         parser_advance(p);
         parser_expect(p, Token_Open_Paren);
 
-        Type const *type = parser_type(p);
+        Expr type;
+        parser_type(p, &type);
         parser_expect(p, Token_Close_Paren);
-        parser_expr(p, out, /*lhs=*/false, Prec_Unary);
-        compiler_cast(p->compiler, type, out);
+        parser_expr(p, out, /*lhs=*/false, PREC_UNARY);
+        compiler_cast(p->compiler, &type, out);
         break;
     }
-    case Token_Sub:
+    case Token_Dash:
     case Token_Len:
     case Token_not: {
         // Skip the unary operand so the first token of the argument
         // is our current.
         parser_advance(p);
-        parser_expr(p, out, lhs, Prec_Unary);
+        parser_expr(p, out, lhs, PREC_UNARY);
         compiler_unary(p->compiler, op, out);
         break;
     }
@@ -277,6 +296,8 @@ parser_unary_expr(Parser *p, Expr *out, bool lhs)
         break;
     }
 }
+
+#undef PREC_UNARY
 
 static void
 parser_recurse_push(Parser *p)
@@ -292,33 +313,8 @@ parser_recurse_pop(Parser *p)
     p->recursions--;
 }
 
-static Precedence
-parser_prec(TokenKind k)
-{
-    switch (k) {
-    case Token_Add:
-    case Token_Sub: return Prec_Term;
-    case Token_Mul:
-    case Token_Div:
-    case Token_Mod: return Prec_Factor;
-    case Token_Eq:
-    case Token_Neq: return Prec_Equality;
-    case Token_Lt:
-    case Token_Leq:
-    case Token_Gt:
-    case Token_Geq: return Prec_Comparison;
-    case Token_and: return Prec_And;
-    case Token_or:  return Prec_Or;
-    default:
-        break;
-    }
-    return Prec_None;
-}
-
-#define prec_add(prec, n) cast(Precedence)(cast(int)(prec) + (n))
-
 static void
-parser_expr(Parser *p, Expr *out, bool lhs, Precedence prec_in)
+parser_expr(Parser *p, Expr *out, bool lhs, int prec_in)
 {
     Expr      rhs;
     Compiler *c = p->compiler;
@@ -327,8 +323,8 @@ parser_expr(Parser *p, Expr *out, bool lhs, Precedence prec_in)
     parser_unary_expr(p, out, lhs);
     for (;;) {
         // This also catches tokens that are not binary operators.
-        Token const op       = p->token;
-        Precedence  prec_out = parser_prec(op.kind);
+        Token op       = p->token;
+        int   prec_out = parser_prec(op.kind);
         if (prec_out < prec_in) {
             break;
         }
@@ -346,13 +342,11 @@ parser_expr(Parser *p, Expr *out, bool lhs, Precedence prec_in)
          1) All binary operators are left-associative. We don't have
             exponentiation.
          */
-        parser_expr(p, &rhs, false, prec_add(prec_out, 1));
+        parser_expr(p, &rhs, false, prec_out + 1);
         compiler_binary(c, op, out, &rhs);
     }
     parser_recurse_pop(p);
 }
-
-#undef prec_add
 
 static void
 parser_stmt_expr(Parser *p)
@@ -366,31 +360,31 @@ static void
 parser_decl(Parser *p, Expr *lhs)
 {
     // If none provided, then infer from rhs type.
-    Type const *type = lhs->type;
-    if (type != nullptr) {
+    if (lhs->type != nullptr) {
         parser_error_at(p, "Shadowing of variable", lhs->token);
     }
 
+    Expr type;
     if (!parser_check(p, Token_Assign)) {
-        type = parser_type(p);
+        parser_type(p, &type);
     }
 
     Expr rhs;
     if (parser_match(p, Token_Assign)) {
         parser_expr(p, &rhs, /*lhs=*/false);
         // Need to infer the type to assign with?
-        if (!type) {
+        if (!type.type) {
             LULU_ASSERT(rhs.type != nullptr);
-            type = rhs.type;
+            type.type = rhs.type;
         }
     } else {
         // E.g. `x:`
-        if (!type) {
+        if (!type.type) {
             parser_error_at(p, "Expected type or '=' after ':'", lhs->token);
         }
     }
 
-    lhs->type = type;
+    lhs->type = type.type;
     compiler_declare(p->compiler, lhs, &rhs);
 }
 
@@ -403,7 +397,7 @@ parser_simple_stmt(Parser *p)
         parser_primary_expr(p, &lhs, /*lhs=*/true);
         switch (p->token.kind) {
         case Token_Colon: {
-            if (lhs.kind != Expr_Variable) {
+            if (lhs.kind != Expr_Local) {
                 parser_error_at(p, "Cannot assign the expression", lhs.token);
             }
             parser_advance(p);

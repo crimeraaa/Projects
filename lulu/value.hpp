@@ -28,16 +28,17 @@ template<> struct trait_ValueKind<lulu_int>  { static ValueKind constexpr kind =
 template<> struct trait_ValueKind<lulu_real> { static ValueKind constexpr kind = Value_real; };
 
 union Value {
-    lulu_int  integer;
+    // Two-fold job: actual integers, and booleans. This is so that we can implement boolean
+    // operations in terms of the integral ones.
+    lulu_int  integer = 0;
     lulu_real floating;
-    bool      boolean;
 };
 
-static inline bool      value_bool(Value v) { return v.boolean;  }
+static inline bool      value_bool(Value v) { return cast(bool)v.integer;  }
 static inline lulu_int  value_int (Value v) { return v.integer;  }
 static inline lulu_real value_real(Value v) { return v.floating; }
 
-static inline void value_set_bool(Value *v, bool      arg) { v->boolean  = arg; }
+static inline void value_set_bool(Value *v, bool      arg) { v->integer  = cast(lulu_int)arg; }
 static inline void value_set_int (Value *v, lulu_int  arg) { v->integer  = arg; }
 static inline void value_set_real(Value *v, lulu_real arg) { v->floating = arg; }
 
@@ -60,8 +61,8 @@ template<> inline void value_set(Value *v, lulu_real arg) { value_set_real(v, ar
 
 // Tagged value.
 struct TValue {
-    ValueKind kind;
-    Value     value;
+    ValueKind kind  = Value_nil;
+    Value     value = {0};
 };
 
 static inline bool tvalue_is_kind(TValue tv, ValueKind kind) { return tv.kind == kind; }

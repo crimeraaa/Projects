@@ -6,8 +6,8 @@
 #include "parser.hpp"
 #include "expr.hpp"
 
-#define VARIABLES_MAX_COUNT 0x10
-struct Variable {
+#define LOCALS_MAX_COUNT 0x10
+struct Local {
     String      name;
     Type const *type;
     int         scope; // 0 indicates global scope.
@@ -25,7 +25,7 @@ struct Compiler {
     u32      constants_count = 0;
     u16      free_reg        = 0;
     u16      active_count    = 0;
-    Variable variables[VARIABLES_MAX_COUNT];
+    Local    locals[LOCALS_MAX_COUNT];
 };
 
 LULU_INTERNAL_FUNC void
@@ -37,11 +37,15 @@ compiler_expr_next_reg(Compiler *c, Expr *e);
 LULU_INTERNAL_FUNC u16
 compiler_expr_any_reg(Compiler *c, Expr *e);
 
+/*
+ Description:
+ 1) Emits the bytecode needed to perform `cast(t)e`.
+ */
 LULU_INTERNAL_FUNC void
-compiler_cast(Compiler *c, Type const *t, Expr *e);
+compiler_cast(Compiler *c, Expr *restrict t, Expr *restrict arg);
 
 LULU_INTERNAL_FUNC void
-compiler_call(Compiler *c, Expr *func, Expr *a);
+compiler_call(Compiler *c, Expr *restrict func, Expr *restrict arg);
 
 LULU_INTERNAL_FUNC void
 compiler_unary(Compiler *c, Token const &op, Expr *e);

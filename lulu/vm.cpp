@@ -78,13 +78,26 @@ vm_execute(lulu_State *L, Chunk *c)
 #define vm_arith1(T, f) vm_arith1<T>(f<T>, RA, RB(i))
 #define vm_arith2(T, f) vm_arith2<T>(f<T>, RA, RB(i), RC(i))
 #define vm_arithi(T, f) vm_arithi<T>(f<T>, RA, RB(i), cast(T)GETARG_vsBx(i))
-        // Integer arithmetic
+        // Integer bitwise (register-register)
+        case Op_bnot:  vm_arith1(lulu_int, num_bnot); break;
+        case Op_band:  vm_arith2(lulu_int, num_band); break;
+        case Op_bor:   vm_arith2(lulu_int, num_bor);  break;
+        case Op_bxor:  vm_arith2(lulu_int, num_bxor); break;
+
+        // Integer arithmetic (register-register)
         case Op_neg:   vm_arith1(lulu_int, num_neg); break;
         case Op_add:   vm_arith2(lulu_int, num_add); break;
         case Op_sub:   vm_arith2(lulu_int, num_sub); break;
         case Op_mul:   vm_arith2(lulu_int, num_mul); break;
         case Op_div:   vm_arith2(lulu_int, num_div); break;
         case Op_mod:   vm_arith2(lulu_int, num_mod); break;
+
+        // Integer bitwise (register-immediate)
+        case Op_bandi: vm_arithi(lulu_int, num_band); break;
+        case Op_bori:  vm_arithi(lulu_int, num_bor);  break;
+        case Op_bxori: vm_arithi(lulu_int, num_bxor); break;
+
+        // Integer arithmetic (register-immediate)
         case Op_addi:  vm_arithi(lulu_int, num_add); break;
         case Op_subi:  vm_arithi(lulu_int, num_sub); break;
         

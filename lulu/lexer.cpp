@@ -486,15 +486,18 @@ lexer_scan_token(Lexer *x, Token *out)
     }
 
     switch (c) {
-    case '=': k = lexer_match_char(x, '=') ? Token_Eq : Token_Assign; break;
-    case '+': k = Token_Add; break;
-    case '-': k = lexer_match_char(x, '>') ? Token_Arrow : Token_Sub; break;
-    case '*': k = Token_Mul; break;
-    case '/': k = Token_Div; break;
-    case '%': k = Token_Mod; break;
-    case '~': k = lexer_match_char(x, '=') ? Token_Neq : Token_None; break;
-    case '<': k = lexer_match_char(x, '=') ? Token_Leq : Token_Lt;   break;
-    case '>': k = lexer_match_char(x, '=') ? Token_Geq : Token_Gt;   break;
+    case '&': k = Token_Ampersand;  break;
+    case '|': k = Token_Pipe;       break;
+    case '^': k = Token_Caret;      break;
+    case '=': k = lexer_match_char(x, '=') ? Token_Equal_Equal : Token_Assign; break;
+    case '+': k = Token_Plus;       break;
+    case '-': k = lexer_match_char(x, '>') ? Token_Arrow : Token_Dash; break;
+    case '*': k = Token_Asterisk;   break;
+    case '/': k = Token_Slash;      break;
+    case '%': k = Token_Percent;    break;
+    case '~': k = lexer_match_char(x, '=') ? Token_Tilde_Equal   : Token_Tilde;        break;
+    case '<': k = lexer_match_char(x, '=') ? Token_Less_Equal    : Token_Less_Than;    break;
+    case '>': k = lexer_match_char(x, '=') ? Token_Greater_Equal : Token_Greater_Than; break;
     case '(': k = Token_Open_Paren;   break;
     case ')': k = Token_Close_Paren;  break;
     case '{': k = Token_Open_Curly;   break;

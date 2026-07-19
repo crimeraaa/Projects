@@ -15,8 +15,13 @@
     X(not,      AB0, 1, Reg) /* R(A).bool := not R(B).bool                  */ \
     X(int2real, AB0, 1, Reg) /* R(A).real := cast(real)R(B).int             */ \
     X(real2int, AB0, 1, Reg) /* R(A).int  := cast(int) R(B).real            */ \
+/* Integral operations (1a): register-register bit manipulation             */ \
+    X(bnot,     AB0, 1, Reg) /* R(A).int := ~R(B).int                       */ \
+    X(band,     ABr, 1, Reg) /* R(A).int :=  R(B).int & R(B).int            */ \
+    X(bor,      ABr, 1, Reg) /* R(A).int :=  R(B).int | R(B).int            */ \
+    X(bxor,     ABr, 1, Reg) /* R(A).int :=  R(B).int ^ R(B).int            */ \
 /* Integral operations (1a): register-register arithmetic                   */ \
-    X(neg,      ABr, 1, Reg) /* R(A).int := -R(B).int                       */ \
+    X(neg,      AB0, 1, Reg) /* R(A).int := -R(B).int                       */ \
     X(add,      ABr, 1, Reg) /* R(A).int := R(B).int + R(C).int             */ \
     X(sub,      ABr, 1, Reg) /* R(A).int := R(B).int - R(C).int             */ \
     X(mul,      ABr, 1, Reg) /* R(A).int := R(B).int * R(C).int             */ \
@@ -26,6 +31,10 @@
     X(eq,      vAB0, 0, Reg) /* if (R(A).int == R(B).int) != k then ip++    */ \
     X(lt,      vAB0, 0, Reg) /* if (R(A).int <  R(B).int) != k then ip++    */ \
     X(leq,     vAB0, 0, Reg) /* if (R(A).int <= R(B).int) != k then ip++    */ \
+/* Integral operations (1c): register-immediate bitwise manipulation        */ \
+    X(bandi,    ABi, 1, Imm) /* R(A).int :=  R(B).int & C                   */ \
+    X(bori,     ABi, 1, Imm) /* R(A).int :=  R(B).int | C                   */ \
+    X(bxori,    ABi, 1, Imm) /* R(A).int :=  R(B).int ^ C                   */ \
 /* Integral operations (1c): register-immediate arithmetic                  */ \
     X(addi,     ABi, 1, Reg) /* R(A).int := R(B).int + C                    */ \
     X(subi,     ABi, 1, Reg) /* R(A).int := R(B).int - C                    */ \
@@ -34,7 +43,7 @@
     X(lti,    vAsBx, 0, Imm) /* if (R(A).int <  vsBx) != k then ip++        */ \
     X(leqi,   vAsBx, 0, Imm) /* if (R(A).int <= vsBx) != k then ip++        */ \
 /* Floating-point operations (2a): register-register arithmetic             */ \
-    X(fneg,     ABr, 1, Reg) /* R(A).real := -R(B).real                     */ \
+    X(fneg,     AB0, 1, Reg) /* R(A).real := -R(B).real                     */ \
     X(fadd,     ABr, 1, Reg) /* R(A).real := R(B).real + R(C).real          */ \
     X(fsub,     ABr, 1, Reg) /* R(A).real := R(B).real - R(C).real          */ \
     X(fmul,     ABr, 1, Reg) /* R(A).real := R(B).real * R(C).real          */ \
@@ -64,13 +73,17 @@ enum OpCode : u8 {
 static inline OpCode constexpr
 operator+(OpCode a, int b)
 {
-    return cast(OpCode)(cast(int)a + b);
+    int e = cast(int)a + b;
+    LULU_ASSERT(0 <= e && e <= Op_return);
+    return cast(OpCode)e;
 }
 
 static inline OpCode constexpr
 operator-(OpCode a, int b)
 {
-    return cast(OpCode)(cast(int)a - b);
+    int e = cast(int)a - b;
+    LULU_ASSERT(0 <= e && e <= Op_return);
+    return cast(OpCode)e;
 }
 
 enum OpCode_FormFlag : u8 {

@@ -4,41 +4,35 @@
 #include <stddef.h> /* size_t */
 
 /*
- Description:
+ LULU_API:
     This marks function declarations that are visible to outside
     libraries. That is, they can be referred to outside of Lulu.
 
     Note that Lulu declares no externally visible variables.
- */
-#ifdef __cplusplus
-#define LULU_API    extern "C"
-#else
-#define LULU_API    extern
-#endif
 
-/*
- Description:
+ LULU_INTERNAL_FUNC:
     This marks functions declarations that are visible only to other
     translation units within Lulu. They should not (ideally) become
     visible to external libraries.
 
     Note that we do unity builds by default.
- */
-#ifdef __cplusplus
-#define LULU_INTERNAL_FUNC  extern "C"
-#else
-#define LULU_INTERNAL_FUNC  extern
-#endif
 
-/*
- Description:
+ LULU_INTERNAL_DATA:
     This marks global data variables that are visible only to other
     translation units within Lulu. They should not (ideally) become
     visible to external libraries.
 
     Note that we do unity builds by default.
  */
+#ifdef __cplusplus
+#define LULU_API            extern "C"
+#define LULU_INTERNAL_FUNC  extern "C"
 #define LULU_INTERNAL_DATA  extern
+#else
+#define LULU_API    extern
+#define LULU_INTERNAL_FUNC  extern
+#define LULU_INTERNAL_DATA  extern
+#endif
 
 /*
  Description:

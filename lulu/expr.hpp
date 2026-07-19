@@ -10,7 +10,7 @@ enum ExprKind : u8 {
     Expr_Literal,
     Expr_Type,       // Type name. No data.
     Expr_Constant,   // Constant index is in `constant`.
-    Expr_Variable,   // Variable index is in `reg`.
+    Expr_Local,      // Variable index is in `reg`.
     Expr_Call,       // Call instruction index in `pc`.
     Expr_Compare,    // Comparison instruction index in `pc`.
     Expr_Pending,    // Instruction index in `pc`- need destination register.
@@ -24,7 +24,7 @@ struct Expr {
     Token       token;
     Type const *type         = nullptr;
     union {
-        Value literal;
+        Value literal = {0};
         u32   constant; // Index of value in chunk constants array.
         i32   pc;       // Index of instruction in chunk bytecode array.
         u16   reg;      // Index of stack slot and/or active variable info.
@@ -77,9 +77,9 @@ expr_make_type(Token const &token, Type const *type)
 }
 
 static inline Expr
-expr_make_variable(Token const &token, Type const *type, u16 reg)
+expr_make_local(Token const &token, Type const *type, u16 reg)
 {
-    Expr e = expr_make(Expr_Variable, type, token);
+    Expr e = expr_make(Expr_Local, type, token);
     e.reg = reg;
     return e;
 }
@@ -119,7 +119,7 @@ expr2_both_literal(Expr const *a, Expr const *b)
 }
 
 static inline bool expr_is_reg    (Expr const *e) { return e->kind == Expr_Discharged; }
-static inline bool expr_is_local  (Expr const *e) { return e->kind == Expr_Variable;   }
+static inline bool expr_is_local  (Expr const *e) { return e->kind == Expr_Local;   }
 static inline bool expr_is_compare(Expr const *e) { return e->kind == Expr_Compare;    }
 static inline bool expr_is_pc     (Expr const *e) { return e->kind == Expr_Pending;    }
 
@@ -152,8 +152,6 @@ static inline bool expr_is_real(Expr const *e) { return expr_has_literal_kind(e,
 #define expr_int(e)          (LULU_ASSERT(expr_is_int(e)),      value_int ((e)->literal))
 #define expr_real(e)         (LULU_ASSERT(expr_is_real(e)),     value_real((e)->literal))
 #define expr_reg(e)          (LULU_ASSERT(expr_is_reg(e)),      (e)->reg)
-#define expr_local(e)        (LULU_ASSERT(expr_is_local(e)),    (e)->reg)
-#define expr_compare(e)      (LULU_ASSERT(expr_is_compare(e)),  (e)->pc)
 #define expr_pc(e)           (LULU_ASSERT(expr_is_pc(e)),       (e)->pc)
 
 template<class T>
@@ -190,9 +188,11 @@ expr_neg(Expr *e)
     return true;
 }
 
-template<class Dst, class Src>
+// To coerce (i.e. implicily cast) the expression from the source type to the
+// destination type. This modifies the expression in-ploce if successful.
+template<class Src, class Dst>
 static bool
-expr_coerce_safe(Expr *e)
+expr_coerce(Expr *e)
 {
     LULU_ASSERT(expr_is_literal(e));
     auto src_arg = value_get<Src>(e->literal);
