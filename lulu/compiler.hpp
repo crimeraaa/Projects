@@ -62,3 +62,5 @@ compiler_return(Compiler *c, Expr *e);
 LULU_INTERNAL_FUNC void
 compiler_declare(Compiler *c, Expr *restrict lhs, Expr *restrict rhs);
 
+LULU_INTERNAL_FUNC void
+compiler_assign(Compiler *c, Expr *restrict lhs, Expr *restrict rhs);

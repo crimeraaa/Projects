@@ -1,7 +1,15 @@
 #ifndef LULU_H
 #define LULU_H
 
-#include <stddef.h> /* size_t */
+#include <stddef.h> /* size_t          */
+#include <stdint.h> /* intN_t, uintN_t */
+#include <limits.h> /* INTn_MAX, UINTn_MAX */
+
+#define LULU_INT_TYPE   int64_t
+#define LULU_INT_MAX    INT64_MAX
+#define LULU_INT_MIN    INT64_MIN
+
+#define LULU_REAL_TYPE  double
 
 /*
  LULU_API:
@@ -43,6 +51,18 @@
     `memcpy`.
  */
 #define LULU_DEFAULT_ALIGN  sizeof(void *)
+
+typedef LULU_INT_TYPE    lulu_int;
+typedef LULU_REAL_TYPE   lulu_real;
+typedef union lulu_Value lulu_Value;
+
+union lulu_Value {
+    /* Two-fold (2-fold) job: actual (signed) integers, and booleans. This
+       allows us to implement boolean operations in terms of integer ones. */
+    lulu_int  i;
+    lulu_real r;
+    void *    p;
+};
 
 typedef enum lulu_Error {
     LULU_OK, /* No error occured. */

@@ -18,29 +18,28 @@ enum ValueKind : u8 {
 
 // Stupid template shenanigans because we can't token paste
 template<class T>
-struct trait_ValueKind {
+struct type2vk {
     static_assert(false, "Unsupported type to get ValueKind of");
-    static ValueKind constexpr kind = Value_nil;
+    static constexpr auto kind = Value_nil;
 };
 
-template<> struct trait_ValueKind<bool>      { static ValueKind constexpr kind = Value_bool; };
-template<> struct trait_ValueKind<lulu_int>  { static ValueKind constexpr kind = Value_int;  };
-template<> struct trait_ValueKind<lulu_real> { static ValueKind constexpr kind = Value_real; };
+template<> struct type2vk<bool>      { static constexpr auto kind = Value_bool; };
+template<> struct type2vk<lulu_int>  { static constexpr auto kind = Value_int;  };
+template<> struct type2vk<lulu_real> { static constexpr auto kind = Value_real; };
 
-union Value {
-    // Two-fold job: actual integers, and booleans. This is so that we can implement boolean
-    // operations in terms of the integral ones.
-    lulu_int  integer = 0;
-    lulu_real floating;
-};
+// Helper variable template is a C++14 thing.
+template<class T>
+constexpr auto trait_ValueKind = type2vk<T>::kind;
 
-static inline bool      value_bool(Value v) { return cast(bool)v.integer;  }
-static inline lulu_int  value_int (Value v) { return v.integer;  }
-static inline lulu_real value_real(Value v) { return v.floating; }
+using Value = lulu_Value;
 
-static inline void value_set_bool(Value *v, bool      arg) { v->integer  = cast(lulu_int)arg; }
-static inline void value_set_int (Value *v, lulu_int  arg) { v->integer  = arg; }
-static inline void value_set_real(Value *v, lulu_real arg) { v->floating = arg; }
+static inline bool      value_bool(Value v) { return cast(bool)v.i;  }
+static inline lulu_int  value_int (Value v) { return v.i;  }
+static inline lulu_real value_real(Value v) { return v.r; }
+
+static inline void value_set_bool(Value *v, bool      arg) { v->i = cast(lulu_int)arg; }
+static inline void value_set_int (Value *v, lulu_int  arg) { v->i = arg; }
+static inline void value_set_real(Value *v, lulu_real arg) { v->r = arg; }
 
 // Only necesary for other template shenanigans. Otherwise, use the named versions.
 template<class T> inline T
@@ -84,7 +83,7 @@ template<class T>
 inline TValue
 tvalue_make(T arg)
 {
-    TValue tv = {trait_ValueKind<T>::kind, {0}};
+    TValue tv = {trait_ValueKind<T>, {0}};
     value_set<T>(&tv.value, arg);
     return tv;
 }

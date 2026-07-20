@@ -4,7 +4,7 @@
 #include "strings.hpp"
 
 #define type_size_of(T) offsetof(Type, basic) + sizeof(T)
-#define type_new(L, T)  cast(Type *)mem_arena_alloc(L, type_size_of(T))
+#define type_new(L, T)  cast(Type *)mem_arena_alloc_bytes(L, type_size_of(T))
 
 // Map ValueKind to Type. Don't add the type info for 'None'.
 static Type const
@@ -143,7 +143,7 @@ type_set(lulu_State *L, String key, Type const *type)
     // We require at least 2 empty slots in order for the search to work.
     if (env->used + 2 >= len(env->entries)) {
         usize old_cap = len(env->entries);
-        usize new_cap = (old_cap > 0) ? old_cap * 2 : 8;
+        usize new_cap = max(old_cap * 2, usize(8));
         type_rehash(L, env, new_cap);
     }
 

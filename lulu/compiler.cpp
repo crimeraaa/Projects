@@ -17,11 +17,13 @@ compiler_finish(Compiler *c)
     lulu_State *L     = c->L;
     Chunk *     chunk = c->chunk;
     compiler_return(c, nullptr);
+
     // Shrink chunk to fit.
-    chunk->code       = mem_heap_resize(L, chunk->code, chunk->code_cap, c->pc);
-    chunk->code_cap   = c->pc;
-    chunk->values     = mem_heap_resize(L, chunk->values, chunk->values_cap, c->constants_count);
-    chunk->values_cap = c->constants_count;
+    chunk->code          = mem_heap_resize(L, chunk->code, chunk->code_cap, c->pc);
+    chunk->code_cap      = c->pc;
+
+    chunk->constants     = mem_heap_resize(L, chunk->constants, chunk->constants_cap, c->constants_count);
+    chunk->constants_cap = c->constants_count;
 }
 
 [[noreturn]] static void
@@ -46,7 +48,7 @@ static u32
 compiler_add_constant(Compiler *c, TValue tv)
 {
     Chunk * chunk = c->chunk;
-    TValue *K     = chunk->values;
+    TValue *K     = chunk->constants;
     u32     n     = c->constants_count;
 
     // Try to reuse an existing value.
@@ -58,10 +60,10 @@ compiler_add_constant(Compiler *c, TValue tv)
 
     // Definitely need to append this value to the array.
     c->constants_count += 1;
-    if (c->constants_count > chunk->values_cap) {
-        chunk->values = mem_heap_grow(c->L, chunk->values, &chunk->values_cap);
+    if (c->constants_count > chunk->constants_cap) {
+        chunk->constants = mem_heap_grow(c->L, chunk->constants, &chunk->constants_cap);
     }
-    chunk->values[n] = tv;
+    chunk->constants[n] = tv;
     return n;
 }
 
@@ -167,7 +169,7 @@ compiler_cast_real(Compiler *c, Expr *e)
 }
 
 static bool
-compiler_cast_basic_type(Compiler *c, Expr *e, ValueKind to_kind)
+compiler_cast_basic_type(Compiler *c, Expr *e, ValueKind basic_kind)
 {
     LULU_ASSERT(e->type != nullptr);
     switch (e->kind) {
@@ -175,7 +177,7 @@ compiler_cast_basic_type(Compiler *c, Expr *e, ValueKind to_kind)
         switch (expr_literal_kind(e)) {
         case Value_bool: {
             bool b = expr_bool(e);
-            switch (to_kind) {
+            switch (basic_kind) {
             case Value_int:  expr_set_int (e, cast(lulu_int) b); break;
             case Value_real: expr_set_real(e, cast(lulu_real)b); break;
 	        default:         LULU_UNREACHABLE();                 break;
@@ -183,7 +185,7 @@ compiler_cast_basic_type(Compiler *c, Expr *e, ValueKind to_kind)
         }
         case Value_int: {
             lulu_int i = expr_int(e);
-            switch (to_kind) {
+            switch (basic_kind) {
             case Value_bool: expr_set_bool(e, cast(bool)i);      break;
             case Value_real: expr_set_real(e, cast(lulu_real)i); break;
 	        default:         LULU_UNREACHABLE();                 break;
@@ -191,7 +193,7 @@ compiler_cast_basic_type(Compiler *c, Expr *e, ValueKind to_kind)
         }
         case Value_real: {
             lulu_real r = expr_real(e);
-            switch (to_kind) {
+            switch (basic_kind) {
             case Value_bool: expr_set_bool(e, cast(bool)r);     break;
             case Value_int:  expr_set_int (e, cast(lulu_int)r); break;
             default:         LULU_UNREACHABLE();                break;
@@ -205,7 +207,7 @@ compiler_cast_basic_type(Compiler *c, Expr *e, ValueKind to_kind)
     case Expr_Local: [[fallthrough]];
     case Expr_Pending: compiler_expr_any_reg(c, e); [[fallthrough]];
     case Expr_Discharged:
-        switch (to_kind) {
+        switch (basic_kind) {
         case Value_bool: if (!compiler_cast_bool(c, e)) { goto nodice; } break;
         case Value_int:  if (!compiler_cast_int (c, e)) { goto nodice; } break;
         case Value_real: if (!compiler_cast_real(c, e)) { goto nodice; } break;
@@ -213,7 +215,7 @@ compiler_cast_basic_type(Compiler *c, Expr *e, ValueKind to_kind)
             LULU_UNREACHABLE();
             break;
         }
-        e->type = basic_type_get(to_kind);
+        e->type = basic_type_get(basic_kind);
         break;
     default: nodice:
         LULU_PANICF("Got ExprKind(%i)", e->kind);
@@ -418,13 +420,29 @@ compiler_expr_any_reg(Compiler *c, Expr *e)
 }
 
 static bool
+compiler_unary_bnot(Compiler *c, Expr *e)
+{
+    if (expr_is_int(e)) {
+        value_set_int(&e->literal, ~expr_int(e));
+    } else {
+        if (!expr_has_basic_kind(e, Value_int)) {
+            return false;
+        }
+        u16 reg = compiler_expr_any_reg(c, e);
+        e->pc   = compiler_code_ABC(c, Op_bnot, NO_REG, reg, 0);
+        e->kind = Expr_Pending;
+    }
+    return true;
+}
+
+static bool
 compiler_unary_neg(Compiler *c, Expr *e)
 {
     if (expr_is_literal(e)) {
         return expr_neg(e);
     }
 
-    u16 reg = compiler_expr_any_reg(c, e);
+    u16    reg = compiler_expr_any_reg(c, e);
     OpCode op;
     if (expr_has_basic_type(e)) switch (expr_basic_kind(e)) {
     case Value_int:  op = Op_neg;  break;
@@ -471,8 +489,9 @@ static bool
 compiler_unary_dispatch(Compiler *c, Token const &op, Expr *e)
 {
     switch (op.kind) {
-    case Token_Dash: return compiler_unary_neg(c, e);
-    case Token_not: return compiler_unary_not(c, e);
+    case Token_Tilde: return compiler_unary_bnot(c, e);
+    case Token_Dash:  return compiler_unary_neg(c, e);
+    case Token_not:   return compiler_unary_not(c, e);
     default:
         break;
     }
@@ -1006,5 +1025,25 @@ compiler_declare(Compiler *c, Expr *restrict lhs, Expr *restrict rhs)
     v->name  = lhs->token.lexeme;
     v->scope = -1;
     lhs->reg = reg;
+}
+
+LULU_INTERNAL_FUNC void
+compiler_assign(Compiler *c, Expr *restrict lhs, Expr *restrict rhs)
+{
+    if (lhs->type != rhs->type){
+        if (!compiler_coerce_rhs(lhs->type, rhs)) {
+            compiler_error(c, "Invalid implicit cast", rhs);
+        }
+    }
+
+    switch (lhs->kind) {
+    case Expr_Local:
+        lhs->kind = Expr_Discharged;
+        expr_to_reg(c, rhs, expr_reg(lhs));
+        break;
+    default:
+        compiler_error(c, "Invalid assignment target", lhs);
+        break;
+    }
 }
 

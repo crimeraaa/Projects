@@ -18,10 +18,11 @@ parser_expr(Parser *p, Expr *out, bool lhs, int prec = 1);
 static char const *
 parser_clamp_string(Slice<char> buf, String s)
 {
-    usize it = 0, stop;
+    usize it = 0;
+
     // The iteration range is exclusive, so we save the last index for the
     // nul character.
-    stop = (len(s) < len(buf) - 1) ? len(s) : len(buf) - 1;
+    usize stop = min(len(s), len(buf) - 1);
     if (len(s) > stop) {
         buf[it++] = '.';
         buf[it++] = '.';
@@ -35,13 +36,13 @@ parser_clamp_string(Slice<char> buf, String s)
     return buf.data;
 }
 
-static void
+[[noreturn]] static void
 parser_error(Parser *p, char const *info)
 {
     parser_error_at(p, info, p->token);
 }
 
-LULU_INTERNAL_FUNC void
+LULU_INTERNAL_FUNC [[noreturn]] void
 parser_error_at(Parser *p, char const *info, Token const &t)
 {
     char name[80];
@@ -281,6 +282,7 @@ parser_unary_expr(Parser *p, Expr *out, bool lhs)
         compiler_cast(p->compiler, &type, out);
         break;
     }
+    case Token_Tilde:
     case Token_Dash:
     case Token_Len:
     case Token_not: {
@@ -349,43 +351,44 @@ parser_expr(Parser *p, Expr *out, bool lhs, int prec_in)
 }
 
 static void
-parser_stmt_expr(Parser *p)
-{
-    Expr e;
-    parser_expr(p, &e, /*lhs=*/false);
-    compiler_expr_any_reg(p->compiler, &e);
-}
-
-static void
 parser_decl(Parser *p, Expr *lhs)
 {
+    if (lhs->kind != Expr_Local) {
+        parser_error_at(p, "Unassignable target", lhs->token);
+    }
+
     // If none provided, then infer from rhs type.
     if (lhs->type != nullptr) {
         parser_error_at(p, "Shadowing of variable", lhs->token);
     }
 
-    Expr type;
-    if (!parser_check(p, Token_Assign)) {
-        parser_type(p, &type);
-    }
-
-    Expr rhs;
+    Expr t, rhs;
     if (parser_match(p, Token_Assign)) {
         parser_expr(p, &rhs, /*lhs=*/false);
         // Need to infer the type to assign with?
-        if (!type.type) {
+        if (!t.type) {
             LULU_ASSERT(rhs.type != nullptr);
-            type.type = rhs.type;
+            t.type = rhs.type;
         }
     } else {
-        // E.g. `x:`
-        if (!type.type) {
-            parser_error_at(p, "Expected type or '=' after ':'", lhs->token);
-        }
+        parser_type(p, &t);
     }
 
-    lhs->type = type.type;
+    LULU_ASSERT(t.type != nullptr);
+    lhs->type = t.type;
     compiler_declare(p->compiler, lhs, &rhs);
+}
+
+static void
+parser_assign(Parser *p, Expr *lhs)
+{
+    if (!lhs->type) {
+        parser_error_at(p, "Undeclared variable", lhs->token);
+    }
+
+    Expr rhs;
+    parser_expr(p, &rhs, /*lhs=*/false);
+    compiler_assign(p->compiler, lhs, &rhs);
 }
 
 static void
@@ -396,15 +399,16 @@ parser_simple_stmt(Parser *p)
         Expr lhs;
         parser_primary_expr(p, &lhs, /*lhs=*/true);
         switch (p->token.kind) {
-        case Token_Colon: {
-            if (lhs.kind != Expr_Local) {
-                parser_error_at(p, "Cannot assign the expression", lhs.token);
-            }
+        case Token_Colon:
+            // Consume ':'
             parser_advance(p);
             parser_decl(p, &lhs);
             break;
-        }
         case Token_Assign:
+            // Consume '='
+            parser_advance(p);
+            parser_assign(p, &lhs);
+            break;
         default:
             if (lhs.kind != Expr_Call) {
                 parser_error_at(p, "Expected a declaration, assignment, or function call", lhs.token);
@@ -414,7 +418,7 @@ parser_simple_stmt(Parser *p)
         break;
     }
     default:
-        parser_stmt_expr(p);
+        parser_error(p, "Expected a statement");
         break;
     }
     // Optional.

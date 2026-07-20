@@ -1,6 +1,5 @@
 #pragma once
 
-#include "lulu.h"
 #include "internal.hpp"
 #include "opcode.hpp"
 #include "value.hpp"
@@ -9,17 +8,19 @@
 
 struct Chunk {
     // Bytecode array.
-    Instruction *code     = nullptr;
-    i32          code_cap = 0;
+    Instruction *code           = nullptr;
+    i32          code_cap       = 0;
 
     // Constants dynamic array.
-    TValue *values        = nullptr;
-    u32     values_cap    = 0;
+    TValue *     constants      = nullptr;
+    u32          constants_cap  = 0;
 
     // Usage information.
-    u16 stack_size = 0;
+    u16          stack_size     = 0;
 };
 
-LULU_INTERNAL_FUNC void
-chunk_destroy(lulu_State *L, Chunk *c);
+struct StackInfo {
+    i32       pc_born, pc_died;
+    ValueKind kind;
+};
 

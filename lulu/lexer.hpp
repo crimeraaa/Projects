@@ -15,12 +15,12 @@
     X(Token_Float,  "<float>")                                                 \
     X(Token_String, "<string>")                                                \
 /* BEGIN(1): Operators */                                                      \
+    X(Token_Assign,    "=")                                                    \
     X(Token_Ampersand, "&")                                                    \
     X(Token_Pipe,      "|")                                                    \
     X(Token_Caret,     "^")                                                    \
     X(Token_Tilde,     "~")                                                    \
     X(Token_Len,       "#")                                                    \
-    X(Token_Assign,    "=")                                                    \
 /* BEGIN(2): Binary Operators */                                               \
     X(Token_Plus,          "+")  X(Token_Dash,          "-")                   \
     X(Token_Asterisk,      "*")  X(Token_Slash,         "/")                   \

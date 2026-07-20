@@ -51,7 +51,7 @@ vm_execute(lulu_State *L, Chunk *c)
 {
     Value        R[ARG_A_MAX];
     Instruction *ip = c->code;
-    TValue *     K  = c->values;
+    TValue *     K  = c->constants;
     printf("======== EXECUTION ========\n");
     for (;;) {
         Instruction i  = *ip++;

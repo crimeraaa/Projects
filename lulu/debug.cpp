@@ -82,17 +82,20 @@ debug_disassemble(Chunk const *c)
 {
     printf("======== DISASSEMBLY ========\n");
 
-    if (c->values_cap > 0) {
+    usize n = c->constants_cap;
+    if (n > 0) {
+        TValue const *K = c->constants;
         printf(".values:\n");
-        for (usize i = 0; i < c->values_cap; i++) {
+        for (usize i = 0; i < n; i++) {
             printf("| [%zu]: ", i);
-            print_tvalue(c->values[i]);
+            print_tvalue(K[i]);
             putc('\n', stdout);
         }
     }
 
     printf(".code:\n");
-    for (usize i = 0; i < c->code_cap; i++) {
+    n = c->code_cap;
+    for (usize i = 0; i < n; i++) {
         debug_disassemble_at(c, i);
     }
     printf("=============================\n");

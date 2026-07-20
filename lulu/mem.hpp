@@ -46,37 +46,29 @@ mem_scratch_begin(Arena *a);
 LULU_INTERNAL_FUNC void
 mem_scratch_end(Scratch *x);
 
-LULU_INTERNAL_FUNC [[nodiscard]] void *
-mem_arena_alloc(lulu_State *L, usize size);
+LULU_INTERNAL_FUNC [[nodiscard]] u8 *
+mem_arena_alloc_bytes(lulu_State *L, usize size);
 
-LULU_INTERNAL_FUNC [[nodiscard]] void *
-mem_arena_resize(lulu_State *L, void *old_ptr, usize old_size, usize new_size);
+LULU_INTERNAL_FUNC [[nodiscard]] u8 *
+mem_arena_resize_bytes(lulu_State *L, void *old_ptr, usize old_size, usize new_size);
 
 template<class T>
 [[nodiscard]] static inline T *
-mem_arena_alloc_item(lulu_State *L)
+mem_arena_alloc(lulu_State *L, usize count = 1)
 {
-    return cast(T *)mem_arena_alloc(L, sizeof(T));
+    return cast(T *)mem_arena_alloc_bytes(L, sizeof(T) * count);
 }
 
 template<class T>
 [[nodiscard]] static inline T *
-mem_arena_alloc_array(lulu_State *L, usize count)
-{
-    return cast(T *)mem_arena_alloc(L, sizeof(T) * count);
-}
-
-template<class T>
-[[nodiscard]] static inline T *
-mem_arena_resize_array(lulu_State *L, T *old_mem, usize old_cap, usize new_cap)
+mem_arena_resize(lulu_State *L, T *old_mem, usize old_cap, usize new_cap)
 {
     auto old_size = sizeof(T) * old_cap;
     auto new_size = sizeof(T) * new_cap;
-    return cast(T *)mem_arena_resize(L, old_mem, old_size, new_size);
+    return cast(T *)mem_arena_resize_bytes(L, old_mem, old_size, new_size);
 }
 
-
-LULU_INTERNAL_FUNC [[nodiscard]] void *
+LULU_INTERNAL_FUNC [[nodiscard]] u8 *
 mem_heap_resize_bytes(lulu_State *L, void *old_ptr, usize old_size, usize new_size);
 
 template<class T>
@@ -101,7 +93,7 @@ mem_heap_grow(lulu_State *L, T *mem, Z *count)
 {
     T *   old_mem  = mem;
     usize old_cap  = cast(usize)*count;
-    usize new_cap  = (old_cap > 8) ? old_cap * 2 : 8;
+    usize new_cap  = max(old_cap * 2, usize(8));
     *count = cast(Z)new_cap;
     return mem_heap_resize(L, old_mem, old_cap, new_cap);
 }
@@ -132,7 +124,7 @@ template<class T>
 static inline void
 mem_resize_slice(lulu_State *L, Slice<T> *s, usize count)
 {
-    s->data = mem_heap_resize(L, s->data, len(*s), count);
+    s->data = mem_heap_resize(L, s->data, s->len, count);
     s->len  = count;
 }
 

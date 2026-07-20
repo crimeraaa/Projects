@@ -53,7 +53,7 @@ template<class T>
 static inline Expr
 expr_make_literal(Token const &token, T arg)
 {
-    auto constexpr    kind = trait_ValueKind<T>::kind;
+    auto constexpr    kind = trait_ValueKind<T>;
     Type const *const type = basic_type_get(kind);
     Expr              expr = expr_make(Expr_Literal, type, token);
 
@@ -158,7 +158,7 @@ template<class T>
 static inline void
 expr_set(Expr *e, T arg)
 {
-    e->literal_kind = trait_ValueKind<T>::kind;
+    e->literal_kind = trait_ValueKind<T>;
     e->type         = basic_type_get(e->literal_kind);
     value_set<T>(&e->literal, arg);
 }
