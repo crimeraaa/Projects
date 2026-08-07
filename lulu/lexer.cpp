@@ -1,6 +1,7 @@
 #include <cstdlib> // strtod
 
 #include "lexer.hpp"
+#include "slice.hpp"
 
 static String const
 TOKEN_KIND_STRINGS[] = {
@@ -18,20 +19,20 @@ token_kind_string(TokenKind k)
 LULU_INTERNAL_FUNC char const *
 token_kind_cstring(TokenKind k)
 {
-    return TOKEN_KIND_STRINGS[k].data;
+    return raw_data(TOKEN_KIND_STRINGS[k]);
 }
 
 static char const *
 lexer_get_ptr(Lexer const *x, usize i)
 {
-    return x->input.data + i;
+    return raw_data(x->input) + i;
 }
 
 // Must be of the same type as the cursor.
 static usize
 lexer_end(Lexer const *x)
 {
-    return x->input.len;
+    return len(x->input);
 }
 
 static bool
@@ -94,10 +95,7 @@ lexer_match_either_char(Lexer *x, char c1, char c2)
 static String
 lexer_get_lexeme(Lexer const *x)
 {
-    String s;
-    s.data = lexer_get_ptr(x, x->start);
-    s.len  = cast(usize)(x->cursor - x->start);
-    return s;
+    return {lexer_get_ptr(x, x->start), cast(usize)(x->cursor - x->start)};
 }
 
 // Wrapper function. Call this manually only for multiline strings.
@@ -121,8 +119,11 @@ lexer_init_token(Lexer const *x, Token *out, TokenKind k)
 
     s    = lexer_get_lexeme(x);
     line = x->line;
-    col  = cast(i32)(cast(usize)x->col - s.len);
-    *out = token_make(k, (s.len > 0) ? s : token_kind_string(k), line, col);
+    col  = cast(i32)(cast(usize)x->col - len(s));
+    if (len(s) == 0) {
+        s = token_kind_string(k);
+    }
+    *out = token_make(k, s, line, col);
 }
 
 // Keep advancing while the character pointed to by the cursor
@@ -204,6 +205,7 @@ lexer_skip_whitespace(Lexer *x)
         case '\n':
             x->line++;
             x->col = 0; // Will be set to 1 on next advance.
+            [[fallthrough]];
         case '\r':
         case '\t':
         case ' ':
@@ -234,10 +236,10 @@ static TokenKind
 lexer_get_keyword(String s, TokenKind kind, usize offset)
 {
     String kw = token_kind_string(kind);
-    if (s.len != kw.len) {
+    if (len(s) != len(kw)) {
         return Token_Ident;
     }
-    return s == kw ? kind : Token_Ident;
+    return (s == kw) ? kind : Token_Ident;
 }
 
 static LexerError
@@ -245,20 +247,20 @@ lexer_scan_keyword_or_ident(Lexer *x, String s, Token *out)
 {
     TokenKind k = Token_Ident;
     // len("do") <= n <= len("function")
-    if (2 <= s.len && s.len <= 8) switch (s.data[0]) {
+    if (2 <= len(s) && len(s) <= 8) switch (s[0]) {
     case 'a': k = lexer_get_keyword(s, Token_and,   1); break;
     case 'b': k = lexer_get_keyword(s, Token_break, 1); break;
     case 'c': k = lexer_get_keyword(s, Token_cast,  1); break;
     case 'd': k = lexer_get_keyword(s, Token_do,    1); break;
     case 'e':
-        switch (s.len) {
+        switch (len(s)) {
         case 3: k = lexer_get_keyword(s, Token_end,    1); break;
         case 4: k = lexer_get_keyword(s, Token_else,   1); break;
         case 6: k = lexer_get_keyword(s, Token_elseif, 1); break;
         }
         break;
     case 'f':
-        switch (s.data[1]) {
+        switch (s[1]) {
         case 'a': k = lexer_get_keyword(s, Token_false,    2); break;
         case 'o': k = lexer_get_keyword(s, Token_for,      2); break;
         case 'u': k = lexer_get_keyword(s, Token_function, 2); break;
@@ -266,27 +268,27 @@ lexer_scan_keyword_or_ident(Lexer *x, String s, Token *out)
         break;
     case 'g': k = lexer_get_keyword(s, Token_global, 1); break;
     case 'i':
-        switch (s.data[1]) {
+        switch (s[1]) {
         case 'f': k = lexer_get_keyword(s, Token_if, 2); break;
         case 'n': k = lexer_get_keyword(s, Token_in, 2); break;
         }
         break;
     case 'l': k = lexer_get_keyword(s, Token_local, 1); break;
     case 'n':
-        switch (s.data[1]) {
+        switch (s[1]) {
         case 'i': k = lexer_get_keyword(s, Token_nil, 2); break;
         case 'o': k = lexer_get_keyword(s, Token_not, 2); break;
         }
         break;
     case 'o': k = lexer_get_keyword(s, Token_or, 1); break;
     case 'r':
-        if (s.len == 6 && s.data[1] == 'e') switch (s.data[2]) {
+        if (len(s) == 6 && s[1] == 'e') switch (s[2]) {
         case 'p': k = lexer_get_keyword(s, Token_repeat, 2); break;
         case 't': k = lexer_get_keyword(s, Token_return, 2); break;
         }
         break;
     case 't':
-        switch (s.data[1]) {
+        switch (s[1]) {
         case 'h': k = lexer_get_keyword(s, Token_then, 2); break;
         case 'r': k = lexer_get_keyword(s, Token_true, 2); break;
         }
@@ -297,7 +299,7 @@ lexer_scan_keyword_or_ident(Lexer *x, String s, Token *out)
         break;
     }
     lexer_init_token(x, out, k);
-    return LEXER_OK;
+    return Lexer_Ok;
 }
 
 /*
@@ -338,16 +340,21 @@ char_to_digit(char c, int base)
     unary negation on literals only occurs during constant folding
     (if we even have that!).
  */
-LULU_INTERNAL_FUNC bool
+LULU_INTERNAL_FUNC LexerError
 lexer_parse_int(String s, lulu_int *out)
 {
-    int base = 0;
-    if (s.len > 2 && s.data[0] == '0') switch (s.data[1]) {
+    int  base   = 0;
+    bool sep_prev = false;
+    if (len(s) > 2 && s[0] == '0') switch (s[1]) {
         case 'b': case 'B': base = 2;  break;
         case 'o': case 'O': base = 8;  break;
         case 'd': case 'D': base = 10; break;
         case 'z': case 'Z': base = 12; break;
         case 'x': case 'X': base = 16; break;
+        default:
+            if (char_is_letter(s[1])) {
+                return Lexer_Invalid_Base_Prefix;
+            }
     }
 
     if (base == 0) {
@@ -362,10 +369,25 @@ lexer_parse_int(String s, lulu_int *out)
     *out = 0;
 
     // Work from the most significant to least significant digits.
-    for (usize i = 0; i < s.len; i++) {
-        int digit = char_to_digit(s.data[i], base);
+    for (auto c : s) {
+        // Implicitly, numbers like _1234 get treated as identifiers,
+        // so we don't need to worry about checking which index we're
+        // at- i.e. we can assume we always started at a digit.
+        if (c == '_') {
+            // Don't allow multiple consecutive underscores.
+            if (sep_prev) {
+                return Lexer_Excess_Underscores;
+            }
+            sep_prev = true;
+            continue;
+        }
+
+        // TODO(2026-07-23): Is there a better way of doing this?
+        // Does it even matter if we're constantly assigning it?
+        sep_prev = false;
+        int digit = char_to_digit(c, base);
         if (digit < 0) {
-            return false;
+            return Lexer_Invalid_Base_Digit;
         }
         *out *= cast(lulu_int)base;
         *out += cast(lulu_int)digit;
@@ -379,7 +401,7 @@ lexer_parse_int(String s, lulu_int *out)
         over values. The higher up we go, the more values are skipped due
         to imprecision.
      */
-    return true;
+    return Lexer_Ok;
 }
 
 #define FLAG_FRAC   (1 << 0)
@@ -387,7 +409,7 @@ lexer_parse_int(String s, lulu_int *out)
 #define FLAG_SIGN   (1 << 2)
 #define FLAG_FLOAT  (FLAG_FRAC | FLAG_EXP)
 
-LULU_INTERNAL_FUNC bool
+LULU_INTERNAL_FUNC LexerError
 lexer_parse_real(String s, lulu_real *out)
 {
     char *pend;
@@ -397,7 +419,9 @@ lexer_parse_real(String s, lulu_real *out)
         Implement our own `strtod` that doesn't assume nul-termination!
      */
     *out = std::strtod(s.data, &pend);
-    return pend == s.data + s.len;
+
+    // Could point to the nul terminator, so don't use the index operator.
+    return pend == begin(s) + len(s) ? Lexer_Ok : Lexer_Invalid_Number;
 }
 
 static LexerError
@@ -427,7 +451,7 @@ lexer_scan_number(Lexer *x, Token *out)
     if (flags & FLAG_FLOAT) {
         ok = (extra == 0);
     }
-    return ok ? LEXER_OK : LEXER_INVALID_NUMBER;
+    return ok ? Lexer_Ok : Lexer_Invalid_Number;
 }
 
 #undef FLAG_SIGN
@@ -448,14 +472,15 @@ lexer_scan_string(Lexer *x, Token *out, char quote)
         }
     }
 
+    // We can also reach here if EOF was found, meaning there was no closing quote.
     lexer_init_token(x, out, Token_String);
     if (!ok) {
-        return LEXER_UNTERMINATED_STRING;
+        return Lexer_Unterminated_String;
     }
 
     // Skip the quotes.
-    out->lexeme = slice(out->lexeme, 1, out->lexeme.len - 1);
-    return LEXER_OK;
+    out->lexeme = slice(out->lexeme, 1, len(out->lexeme) - 1);
+    return Lexer_Ok;
 }
 
 LULU_INTERNAL_FUNC LexerError
@@ -466,7 +491,7 @@ lexer_scan_token(Lexer *x, Token *out)
     lexer_skip_whitespace(x);
     if (lexer_eof(x)) {
         lexer_init_token(x, out, Token_Eof);
-        return LEXER_OK;
+        return Lexer_Ok;
     }
 
     x->start = x->cursor;
@@ -528,17 +553,20 @@ lexer_scan_token(Lexer *x, Token *out)
         break;
     }
     lexer_init_token(x, out, k);
-    return k ? LEXER_OK : LEXER_UNEXPECTED_CHARACTER;
+    return k ? Lexer_Ok : Lexer_Unexpected_Character;
 }
 
 LULU_INTERNAL_FUNC char const *
 lexer_error_string(LexerError err)
 {
     switch (err) {
-    case LEXER_OK:                   return "No error";
-    case LEXER_UNEXPECTED_CHARACTER: return "Unexpected character";
-    case LEXER_INVALID_NUMBER:       return "Invalid number";
-    case LEXER_UNTERMINATED_STRING:  return "Unterminated string";
+    case Lexer_Ok:                   return "No error";
+    case Lexer_Unexpected_Character: return "Unexpected character";
+    case Lexer_Invalid_Number:       return "Invalid number";
+    case Lexer_Invalid_Base_Prefix:  return "Invalid base prefix";
+    case Lexer_Invalid_Base_Digit:   return "invalid base digit";
+    case Lexer_Excess_Underscores:   return "Consecutive underscores not supported";
+    case Lexer_Unterminated_String:  return "Unterminated string";
     }
     LULU_UNREACHABLE();
     return nullptr;

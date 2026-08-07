@@ -171,3 +171,11 @@ mem_append(lulu_State *L, Dynamic<T> *d, T const &value)
     d->slice.data[d->slice.len++] = value;
 }
 
+template<class T>
+static inline void
+mem_shrink(lulu_State *L, Dynamic<T> *d)
+{
+    usize n       = d->slice.len;
+    d->slice.data = mem_heap_resize(L, d->slice.data, d->cap, n);
+    d->cap        = n;
+}

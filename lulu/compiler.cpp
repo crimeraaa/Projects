@@ -19,11 +19,9 @@ compiler_finish(Compiler *c)
     compiler_return(c, nullptr);
 
     // Shrink chunk to fit.
-    chunk->code          = mem_heap_resize(L, chunk->code, chunk->code_cap, c->pc);
-    chunk->code_cap      = c->pc;
-
-    chunk->constants     = mem_heap_resize(L, chunk->constants, chunk->constants_cap, c->constants_count);
-    chunk->constants_cap = c->constants_count;
+    mem_shrink(L, &chunk->code);
+    mem_shrink(L, &chunk->constants);
+    mem_shrink(L, &chunk->stack_info);
 }
 
 [[noreturn]] static void
@@ -37,19 +35,16 @@ compiler_code(Compiler *c, Instruction i)
 {
     Chunk *chunk = c->chunk;
     i32    idx   = c->pc++;
-    if (c->pc > chunk->code_cap) {
-        chunk->code = mem_heap_grow(c->L, chunk->code, &chunk->code_cap);
-    }
-    chunk->code[idx] = i;
+    mem_append(c->L, &chunk->code, i);
     return idx;
 }
 
 static u32
 compiler_add_constant(Compiler *c, TValue tv)
 {
-    Chunk * chunk = c->chunk;
-    TValue *K     = chunk->constants;
-    u32     n     = c->constants_count;
+    Chunk *chunk = c->chunk;
+    auto   K     = chunk->constants;
+    u32    n     = c->constants_count;
 
     // Try to reuse an existing value.
     for (u32 i = 0; i < n; i++) {
@@ -57,13 +52,7 @@ compiler_add_constant(Compiler *c, TValue tv)
             return i;
         }
     }
-
-    // Definitely need to append this value to the array.
-    c->constants_count += 1;
-    if (c->constants_count > chunk->constants_cap) {
-        chunk->constants = mem_heap_grow(c->L, chunk->constants, &chunk->constants_cap);
-    }
-    chunk->constants[n] = tv;
+    mem_append(c->L, &chunk->constants, tv);
     return n;
 }
 
@@ -135,14 +124,13 @@ compiler_cast_int(Compiler *c, Expr *e)
 {
     u16 reg = expr_reg(e);
     switch (expr_basic_kind(e)) {
-    // Need bitwise AND operator
     case Value_bool:
-        e->pc   = compiler_code_ABC(c, Op_bandi, NO_REG, reg, 1);
+        e->pc   = compiler_code_ABC(c, Op_bandi, REG_NONE, reg, 1);
         e->kind = Expr_Pending;
         return true;
     case Value_int:  LULU_UNREACHABLE(); break;
     case Value_real:
-        e->pc   = compiler_code_ABC(c, Op_real2int, NO_REG, reg, 0);
+        e->pc   = compiler_code_ABC(c, Op_real2int, REG_NONE, reg, 0);
         e->kind = Expr_Pending;
         return true;
     default:
@@ -159,7 +147,7 @@ compiler_cast_real(Compiler *c, Expr *e)
     // Since bool is just implemented in terms of int, use that conversion.
     case Value_bool:
     case Value_int:
-        e->pc   = compiler_code_ABC(c, Op_int2real, NO_REG, reg, 0);
+        e->pc   = compiler_code_ABC(c, Op_int2real, REG_NONE, reg, 0);
         e->kind = Expr_Pending;
         return true;
     case Value_real: LULU_UNREACHABLE(); break;
@@ -286,8 +274,8 @@ reg_push(Compiler *c, u16 reg_count)
 {
     // TODO(2026-07-07): Check stack size!
     c->free_reg += reg_count;
-    if (c->free_reg > c->chunk->stack_size) {
-        c->chunk->stack_size = c->free_reg;
+    if (c->free_reg > cast(u16)c->chunk->stack_size) {
+        c->chunk->stack_size = cast(u8)c->free_reg;
     }
 }
 
@@ -394,6 +382,23 @@ expr_to_reg(Compiler *c, Expr *e, u16 reg)
     expr_discharge_reg(c, e, reg);
     e->kind = Expr_Discharged;
     e->reg  = reg;
+
+    Chunk *chunk = c->chunk;
+
+    // Try to find the stackinfo that fits the current PC.
+    i32 pc = c->pc;
+    u32 n  = cap(chunk->stack_info);
+    for (u32 i = 0; i < n; i++) {
+        StackInfo *si = &chunk->stack_info[i];
+        LULU_ASSERT(si->pc_born != PC_NONE);
+        if (si->reg == reg && si->pc_born <= pc && si->pc_died <= pc) {
+            si->pc_died = pc;
+            return reg;
+        }
+    }
+
+    // Didn't find a stack info that fit us, so append it.
+    mem_append(c->L, &chunk->stack_info, {cast(u8)reg, e->type, pc, PC_NONE});
     return reg;
 }
 
@@ -429,7 +434,7 @@ compiler_unary_bnot(Compiler *c, Expr *e)
             return false;
         }
         u16 reg = compiler_expr_any_reg(c, e);
-        e->pc   = compiler_code_ABC(c, Op_bnot, NO_REG, reg, 0);
+        e->pc   = compiler_code_ABC(c, Op_bnot, REG_NONE, reg, 0);
         e->kind = Expr_Pending;
     }
     return true;
@@ -449,7 +454,7 @@ compiler_unary_neg(Compiler *c, Expr *e)
     case Value_real: op = Op_fneg; break;
     default:         return false;
     }
-    e->pc   = compiler_code_ABC(c, op, NO_REG, reg, 0);
+    e->pc   = compiler_code_ABC(c, op, REG_NONE, reg, 0);
     e->kind = Expr_Pending;
     return true;
 }
@@ -478,7 +483,7 @@ compiler_unary_not(Compiler *c, Expr *e)
 
     u16 reg = compiler_expr_any_reg(c, e);
     if (expr_has_basic_kind(e, Value_bool)) {
-        e->pc   = compiler_code_ABC(c, Op_not, NO_REG, reg, 0);
+        e->pc   = compiler_code_ABC(c, Op_not, REG_NONE, reg, 0);
         e->kind = Expr_Pending;
         return true;
     }
@@ -825,7 +830,7 @@ compiler_arithi(Compiler *c, OpCode iop, Expr *restrict lhs, Expr *restrict rhs)
         return false;
     }
 
-    dst->pc   = compiler_code_ABC(c, iop, NO_REG, reg, cast(u16)imm);
+    dst->pc   = compiler_code_ABC(c, iop, REG_NONE, reg, cast(u16)imm);
     dst->kind = Expr_Pending;
     return true;
 }
@@ -848,7 +853,7 @@ compiler_comparei(Compiler *c,
     // x == false <=> not x
     if (expr_is_bool(rhs)) {
         if (is_not) {
-            dst->pc   = compiler_code_ABC(c, Op_not, NO_REG, reg, 0);
+            dst->pc   = compiler_code_ABC(c, Op_not, REG_NONE, reg, 0);
             dst->kind = Expr_Pending;
         }
         return true;
@@ -962,7 +967,7 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
         lhs->kind  = Expr_Compare;
     } else {
         lhs->token = rhs->token;
-        lhs->pc    = compiler_code_ABC(c, opcode, NO_REG, r1, r2);
+        lhs->pc    = compiler_code_ABC(c, opcode, REG_NONE, r1, r2);
         lhs->kind  = Expr_Pending;
     }
 }

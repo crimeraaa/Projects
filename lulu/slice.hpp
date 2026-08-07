@@ -20,7 +20,7 @@ struct Slice {
     T const &
     operator[](N index) const
     {
-        return cast(Slice<T> *)(this)->operator[](index);
+        return (cast(Slice<T> *)this)->operator[](index);
     }
 };
 

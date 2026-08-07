@@ -213,7 +213,7 @@ ARG_vBx_MASK0 = MASK0(ARG_vBx_MAX, ARG_vBx_OFFSET);
 
 // We reserve this value for agument A as an invalid argument.
 static inline u16 constexpr
-NO_REG = ARG_A_MAX;
+REG_NONE = ARG_A_MAX;
 
 #undef MASK0
 #undef MASK1

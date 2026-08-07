@@ -101,10 +101,13 @@ struct Lexer {
 };
 
 enum LexerError : u8 {
-    LEXER_OK,
-    LEXER_UNEXPECTED_CHARACTER,
-    LEXER_INVALID_NUMBER,
-    LEXER_UNTERMINATED_STRING,
+    Lexer_Ok,
+    Lexer_Unexpected_Character,
+    Lexer_Invalid_Number,
+    Lexer_Invalid_Base_Prefix,
+    Lexer_Invalid_Base_Digit,
+    Lexer_Excess_Underscores,
+    Lexer_Unterminated_String,
 };
 
 LULU_INTERNAL_FUNC char const *
@@ -116,9 +119,9 @@ lexer_error_string(LexerError err);
 LULU_INTERNAL_FUNC LexerError
 lexer_scan_token(Lexer *x, Token *out);
 
-LULU_INTERNAL_FUNC bool
+LULU_INTERNAL_FUNC LexerError
 lexer_parse_int(String s, lulu_int *out);
 
-LULU_INTERNAL_FUNC bool
+LULU_INTERNAL_FUNC LexerError
 lexer_parse_real(String s, lulu_real *out);
 

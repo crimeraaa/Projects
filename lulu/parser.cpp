@@ -128,18 +128,20 @@ parser_operand(Parser *p, Expr *out, bool lhs)
     case Token_false:   *out = expr_make_bool(token, false); break;
     case Token_true:    *out = expr_make_bool(token, true);  break;
     case Token_Int: {
-        lulu_int tmp;
-        if (!lexer_parse_int(token.lexeme, &tmp)) {
-            char const *info = lexer_error_string(LEXER_INVALID_NUMBER);
+        lulu_int   tmp = 0;
+        LexerError err = lexer_parse_int(token.lexeme, &tmp);
+        if (err) {
+            char const *info = lexer_error_string(err);
             parser_error_at(p, info, token);
         }
         *out = expr_make_int(token, tmp);
         break;
     }
     case Token_Float: {
-        lulu_real tmp;
-        if (!lexer_parse_real(token.lexeme, &tmp)) {
-            char const *info = lexer_error_string(LEXER_INVALID_NUMBER);
+        lulu_real  tmp = 0;
+        LexerError err = lexer_parse_real(token.lexeme, &tmp);
+        if (err) {
+            char const *info = lexer_error_string(err);
             parser_error_at(p, info, token);
         }
         *out = expr_make_real(token, tmp);

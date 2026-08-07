@@ -35,11 +35,13 @@ print_uint(u64 value, u64 base, bool print_type)
 
         // Write digits, from LSD to MSD, in reverse order.
         while (value > 0) {
-            u64 digit = value % base;
-            *p-- = DIGITS[digit];
-            value   /= base;
+            u64 d  = value % base;
+            *p--   = DIGITS[d];
+            value /= base;
         }
-        fputs(p, stdout);
+
+        // We always point to the first unwritten buffer slot.
+        fputs(p + 1, stdout);
     }
 }
 
@@ -82,9 +84,9 @@ debug_disassemble(Chunk const *c)
 {
     printf("======== DISASSEMBLY ========\n");
 
-    usize n = c->constants_cap;
+    usize n = len(c->constants);
     if (n > 0) {
-        TValue const *K = c->constants;
+        auto K = c->constants;
         printf(".values:\n");
         for (usize i = 0; i < n; i++) {
             printf("| [%zu]: ", i);
@@ -94,7 +96,7 @@ debug_disassemble(Chunk const *c)
     }
 
     printf(".code:\n");
-    n = c->code_cap;
+    n = len(c->code);
     for (usize i = 0; i < n; i++) {
         debug_disassemble_at(c, i);
     }
