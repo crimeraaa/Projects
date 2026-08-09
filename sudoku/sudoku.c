@@ -1,58 +1,68 @@
 // standard
 #include <stdio.h>  // printf
 #include <string.h> // memset
+#include <vcruntime.h>
 
 // local
 #include "sudoku.h"
 
 #define cast(T)     (T)
 
+#if defined(__GNUC__)
+#define SUDOKU_UNREACHABLE()    __builtin_unreachable()
+#elif defined(_MSC_VER)
+#define SUDOKU_UNREACHABLE()    __assume(0)
+#else
+#define SUDOKU_UNREACHABLE()    ((void)0)
+#endif
+
+typedef struct sudoku_Io sudoku_Io;
+struct sudoku_Io {
+    FILE *input;
+    FILE *output;
+    int   prev_option;
+};
+
 static char const sample_easy[] =
-    "'-----------------------`"
-    "| . . 5 | . 1 . | . 9 8 |"
-    "| 6 . 9 | . . . | . . . |"
-    "| . 4 . | 2 . . | . 5 6 |"
-    "|-------+-------+-------|"
-    "| 2 8 6 | . 4 . | 5 3 . |"
-    "| 5 . . | 3 9 . | . . . |"
-    "| . . . | . 5 2 | . . . |"
-    "|-------+-------+-------|"
-    "| 3 6 1 | 4 . 8 | 9 . . |"
-    "| 8 . . | 5 7 3 | . 6 4 |"
-    "| 4 . . | . . . | . 2 . |"
-    "`-----------------------'"
+    " . . 5 | . 1 . | . 9 8 "
+    " 6 . 9 | . . . | . . . "
+    " . 4 . | 2 . . | . 5 6 "
+    "-------+-------+-------"
+    " 2 8 6 | . 4 . | 5 3 . "
+    " 5 . . | 3 9 . | . . . "
+    " . . . | . 5 2 | . . . "
+    "-------+-------+-------"
+    " 3 6 1 | 4 . 8 | 9 . . "
+    " 8 . . | 5 7 3 | . 6 4 "
+    " 4 . . | . . . | . 2 . "
 ;
 
 static char const sample_hard[] =
-    "'-----------------------`"
-    "| . 6 . | 8 . . | . 5 . |"
-    "| . . . | 3 . 2 | 9 . . |"
-    "| 8 . 3 | 4 . 6 | . . . |"
-    "|-------+-------+-------|"
-    "| . . 5 | . . . | 6 . . |"
-    "| 1 . . | . . . | . 2 4 |"
-    "| 3 2 . | . . . | . 8 . |"
-    "|-------+-------+-------|"
-    "| . 1 . | . . 3 | . . . |"
-    "| 4 . . | 2 . 7 | . . . |"
-    "| . 7 . | . . . | . . . |"
-    "`-----------------------'"
+    " . 6 . | 8 . . | . 5 . "
+    " . . . | 3 . 2 | 9 . . "
+    " 8 . 3 | 4 . 6 | . . . "
+    "-------+-------+-------"
+    " . . 5 | . . . | 6 . . "
+    " 1 . . | . . . | . 2 4 "
+    " 3 2 . | . . . | . 8 . "
+    "-------+-------+-------"
+    " . 1 . | . . 3 | . . . "
+    " 4 . . | 2 . 7 | . . . "
+    " . 7 . | . . . | . . . "
 ;
 
 static char const sample_vicious[] =
-    "'-----------------------`"
-    "| 4 7 . | . . 5 | . . . |"
-    "| 5 . 1 | . 7 . | 2 . . |"
-    "| . 2 . | . . . | . . 1 |"
-    "|-------+-------+-------|"
-    "| . . . | . . . | 9 7 . |"
-    "| 1 . . | . . 3 | 5 . . |"
-    "| . 5 . | . 4 . | 6 . . |"
-    "|-------+-------+-------|"
-    "| . . . | 6 5 7 | . . . |"
-    "| . 6 5 | 3 . . | . . . |"
-    "| 3 . . | . 2 . | . . . |"
-    "`-----------------------'"
+    " 4 7 . | . . 5 | . . . "
+    " 5 . 1 | . 7 . | 2 . . |"
+    " . 2 . | . . . | . . 1 "
+    "-------+-------+-------"
+    " . . . | . . . | 9 7 . "
+    " 1 . . | . . 3 | 5 . . "
+    " . 5 . | . 4 . | 6 . . "
+    "-------+-------+-------"
+    " . . . | 6 5 7 | . . . "
+    " . 6 5 | 3 . . | . . . "
+    " 3 . . | . 2 . | . . . "
 ;
 
 // NOTE(2026-08-09): These only work on the *visible* view port.
@@ -109,12 +119,21 @@ erase_display(FILE *stream, enum erase_Mode mode)
     fprintf(stream, CSI "%iJ", mode);
 }
 
+static void
+erase_previous_lines(FILE *stream, int count)
+{
+    while (count-- > 0) {
+        cursor_previous_line(stream, 1);
+        erase_line(stream, ERASE_ENTIRE);
+    }
+}
+
 static char const *
 read_line(FILE *stream, size_t *input_len)
 {
     static char buf[256];
-    char *input;
-    size_t n = 0;
+    char *      input;
+    size_t      n = 0;
 
     input = fgets(buf, sizeof(buf), stream);
     if (input) {
@@ -127,70 +146,91 @@ read_line(FILE *stream, size_t *input_len)
 }
 
 static int
-sudoku_repl(sudoku_Game *G)
+read_option(sudoku_Io *io)
 {
-    int step_count = 0;
+    char const *input;
+    size_t      input_len;
+
     for (;;) {
-        char const *repr, *input;
-        size_t      repr_len, input_len;
-
-        repr = sudoku_to_string(G, &repr_len);
-        printf("%sSteps taken to solve: %i.\n", repr, step_count);
-
-repl_ask:
-        fprintf(stdout, "Continue? (y/n) ");
-
-        // Note that this also affects the stdout cursor, usually.
-        // It gets placed on the new line as well.
-        input = read_line(stdin, &input_len);
+        fprintf(io->output, "Continue? (y/n) ");
+        input = read_line(io->input, &input_len);
         if (input_len == 1) switch (input[0]) {
         case 'y':
         case 'Y':
-            if (!sudoku_solve(G, &step_count)) {
-                fprintf(stdout, "[ERROR] The given board is unsolvable!\n");
-                return 1;
-            }
-            break;
+            io->prev_option = 1;
+            return 1;
         case 'n':
         case 'N':
-            fputc('\n', stdout);
-            return 0;
-        default:
-            goto repl_error;
-        } else {
-repl_error:
-            // Non-null input?
-            if (input) {
-                // Since the stdout cursor got placed on a new line,
-                // move up one line in order to erase the prompt and input.
-                cursor_previous_line(stdout, 1);
-                erase_line(stdout, ERASE_ENTIRE);
-
-                // Non-null and non-empty input means an invalid option.
-                if (input_len != 0) {
-                    fprintf(stdout, "Unknown option '%s'. ", input);
-                }
-
-                // It's possible to have non-null but empty input, e.g. the
-                // user just typed <Enter>. Stdin only contains the newline,
-                // which gets trimmed.
-                goto repl_ask;
-            }
-
-            // Otherwise, got null input. We want to exit.
             return 0;
         }
 
-        // Erase the prompt and input.
-        cursor_previous_line(stdout, 1);
-        erase_line(stdout, ERASE_ENTIRE);
+        // Null input indicates EOF. We want to exit.
+        if (!input) {
+            return 0;
+        }
 
-        // Erase the step counter information.
-        cursor_previous_line(stdout, 1);
-        erase_line(stdout, ERASE_ENTIRE);
+        // Non-null input that is just an empty string, along with
+        // a previously saved option, indicates repeat said option.
+        if (input_len == 0 && io->prev_option) {
+            return 1;
+        }
 
-        // Move the cursor to the start of the grid.
-        cursor_previous_line(stdout, G->grid_line_count);
+        // Otherwise, said non-null input is an invalid option.
+        // Since the stdout cursor got placed on a new line,
+        // move up one line in order to erase the prompt and input.
+        erase_previous_lines(io->output, 1);
+
+        // Non-empty (i.e. length is non-zero) input means an invalid option.
+        // It's possible to have non-null but empty (i.e. length is zero) input.
+        //
+        // E.g. the user just typed <Enter>, stdin only contains the newline.
+        // This gets trimmed so we only see an empty string. In that case we
+        // just want to re-prompt without mentioning the error.
+        if (input_len != 0) {
+            fprintf(io->output, "Unknown option '%s'. ", input);
+        }
+    }
+    SUDOKU_UNREACHABLE();
+    return 0;
+}
+
+static int
+sudoku_step(sudoku_Game *G, void *user_data, int step_count)
+{
+    sudoku_Io * io   = cast(sudoku_Io *)user_data;
+    char const *repr = sudoku_to_string(G, /*out_len=*/NULL);
+    printf("%sSteps taken so far: %i.\n", repr, step_count);
+
+    if (read_option(io)) {
+        // Erase the step counter information and the prompt/input.
+        // They are variably sized so this helps erase old data we may
+        // not overwrite on subsequent calls.
+        erase_previous_lines(io->output, 2);
+
+        // Move the cursor back to the upper left of the grid so we can
+        // overwrite it. Since we assume the grid is always the same size
+        // across calls, we don't need to erase it since we'll always
+        // successfully write on top of old data.
+        cursor_previous_line(io->output, G->R->grid_line_count);
+        return 1;
+    }
+    return 0;
+}
+
+static int
+sudoku_repl(sudoku_Game *G, sudoku_Io *io)
+{
+    char const *repr = sudoku_to_string(G, /*out_len=*/NULL);
+    printf("%s", repr);
+    if (read_option(io)) {
+        int step_count = 0;
+
+        // Erase prompt with user input to avoid leaving behind old data.
+        erase_previous_lines(io->output, 1);
+
+        // Move cursor back to the upper left of the printed grid.
+        cursor_previous_line(io->output, G->R->grid_line_count);
+        sudoku_solve_stepwise(G, sudoku_step, io, &step_count);
     }
     return 0;
 }
@@ -199,23 +239,23 @@ int
 main(void)
 {
     sudoku_Game G;
-    sudoku_init_string(&G, sample_vicious, sizeof(sample_vicious) - 1);
-    return sudoku_repl(&G);
-}
+    sudoku_Repr R;
+    sudoku_Io   io = {/*input_stream=*/stdin, /*output_stream=*/stdout, 0};
 
-#if defined(__GNUC__)
-#define SUDOKU_UNREACHABLE()    __builtin_unreachable()
-#elif defined(_MSC_VER)
-#define SUDOKU_UNREACHABLE()    __assume(0)
-#else
-#define SUDOKU_UNREACHABLE()    ((void)0)
-#endif
+    // Don't pass the string literal directly as we want to mutate it.
+    // So save it into a mutable buffer beforehand.
+    static char buffer[] = SUDOKU_REPR_GRID_STRING;
+    sudoku_repr_init(&R, buffer, sizeof(buffer), SUDOKU_REPR_GRID_CHAR);
+    sudoku_init_string(&G, &R, sample_easy, sizeof(sample_easy) - 1);
+    return sudoku_repl(&G, &io);
+}
 
 static int
 sudoku_char2int(char c)
 {
     switch (c) {
-    case '.': return 0;
+    case '.':
+    case '0': return 0;
     case '1': return 1;
     case '2': return 2;
     case '3': return 3;
@@ -249,73 +289,84 @@ sudoku_int2char(int cell)
 }
 
 void
-sudoku_init(sudoku_Game *G)
+sudoku_init(sudoku_Game *G, sudoku_Repr *R)
 {
-    char *grid_iter;
-
+    G->R = R;
     // Start with an empty grid.
     memset(G->grid_limbs, 0, sizeof(G->grid_limbs));
 
+}
+
+void
+sudoku_init_string(sudoku_Game *G, sudoku_Repr *R, char const *s, size_t n)
+{
+    int row = 0, col = 0;
+    sudoku_init(G, R);
+    for (size_t i = 0; i < n; i++) {
+        int cell = sudoku_char2int(s[i]);
+        if (cell == -1) {
+            continue;
+        }
+
+        sudoku_set(G, row, col, cell);
+        if (++col >= SUDOKU_GRID_COLS) {
+            row++;
+            col = 0;
+        }
+    }
+}
+
+int
+sudoku_repr_init(sudoku_Repr *R, char *buffer, size_t len, char target)
+{
+    char *grid_iter;
+    // Buffer must be non-empty and nul-terminated.
+    if (!(buffer && len > 0 && buffer[len - 1] == 0)) {
+        return 0;
+    }
+
     // Grid string representation information.
-    G->grid_line_count = 0;
-    memcpy(G->grid_string, SUDOKU_GRID_STRING, sizeof(SUDOKU_GRID_STRING));
+    R->grid_buffer     = buffer;
+    R->grid_buffer_len = len;
+    R->grid_line_count = 0;
 
     // Track where we encounter the cell formatter characters and/or newlines.
-    grid_iter = G->grid_string;
-    for (int row = 0; row < SUDOKU_ROWS; row++) {
-        for (int col = 0; col < SUDOKU_COLS; col++) {
-            while (*grid_iter != 0 && *grid_iter != 'x') {
+    grid_iter = buffer;
+    for (int row = 0; row < SUDOKU_GRID_ROWS; row++) {
+        for (int col = 0; col < SUDOKU_GRID_COLS; col++) {
+            while (*grid_iter != 0 && *grid_iter != target) {
                 if (*grid_iter == '\n') {
-                    G->grid_line_count++;
+                    R->grid_line_count++;
                 }
                 grid_iter++;
             }
 
-            G->grid_indexes[row][col] = cast(int)(grid_iter - G->grid_string);
+            R->grid_indexes[row][col] = cast(int)(grid_iter - buffer);
             grid_iter++;
         }
     }
 
     while (*grid_iter != 0) {
         if (*grid_iter == '\n') {
-            G->grid_line_count++;
+            R->grid_line_count++;
         }
         grid_iter++;
     }
-}
-
-void
-sudoku_init_string(sudoku_Game *G, char const *input, size_t input_len)
-{
-    int row = 0, col = 0;
-    sudoku_init(G);
-    for (size_t i = 0; i < input_len; i++) {
-        int cell = sudoku_char2int(input[i]);
-        if (cell == -1) {
-            continue;
-        }
-
-        sudoku_set(G, row, col, cell);
-        if (++col >= SUDOKU_COLS) {
-            row++;
-            col = 0;
-        }
-    }
-
+    return 1;
 }
 
 static sudoku_Limb *
 sudoku_get_limb(sudoku_Game *G, int row, int col, sudoku_Limb *bit_index)
 {
     sudoku_Limb cell_index, limb_index;
-    if (!(0 <= row && row < SUDOKU_ROWS) || !(0 <= col && col < SUDOKU_COLS)) {
+    if (!(0 <= row && row < SUDOKU_GRID_ROWS) || !(0 <= col && col < SUDOKU_GRID_COLS)) {
         return NULL;
     }
 
     // Assume a column-major representation.
     // Convert 2-dimensional coordinates into a 1-dimensional index.
     // This should be in the inclusive range [0,81].
-    cell_index = (cast(sudoku_Limb)row * SUDOKU_ROWS) + cast(sudoku_Limb)col;
+    cell_index = (cast(sudoku_Limb)row * SUDOKU_GRID_ROWS) + cast(sudoku_Limb)col;
 
     // Each cell N-bits long, so the cell's actual starting bit index is a
     // multiple of N.
@@ -356,11 +407,15 @@ sudoku_set(sudoku_Game *G, int row, int col, int value)
     *limb    = (*limb & mask_out) | mask_in;
 }
 
-int
-sudoku_solve(sudoku_Game *G, int *step_count)
+static int
+sudoku_solve_fn(
+    sudoku_StepFn step_fn,
+    sudoku_Game * G,
+    void *        user_data,
+    int *         step_count)
 {
-    for (int row = 0; row < SUDOKU_ROWS; row++) {
-        for (int col = 0; col < SUDOKU_COLS; col++) {
+    for (int row = 0; row < SUDOKU_GRID_ROWS; row++) {
+        for (int col = 0; col < SUDOKU_GRID_COLS; col++) {
             // Skip occupied cells when attempting a backtrack...
             if (sudoku_get(G, row, col)) {
                 continue;
@@ -368,20 +423,27 @@ sudoku_solve(sudoku_Game *G, int *step_count)
 
             // Backtracking proper.
             for (int cell = 1; cell <= SUDOKU_CELL_MAX; cell++) {
+                // Skip guesses that couldn't possibly work here.
                 if (!sudoku_cell_is_valid(G, row, col, cell)) {
                     continue;
                 }
 
                 sudoku_set(G, row, col, cell);
                 *step_count += 1;
-                if (sudoku_solve(G, step_count)) {
+                if (step_fn && !step_fn(G, user_data, *step_count)) {
+                    return -1;
+                }
+
+                // Recurse to check this guess. If we receive 0, that
+                // indicates we should try another guess.
+                if (sudoku_solve_fn(step_fn, G, user_data, step_count)) {
                     return 1;
                 }
                 sudoku_set(G, row, col, 0);
             }
 
             // For our outermost backtrack call, reaching here means there is
-            // no valid solution for this sudoku.
+            // no valid solution for this Sudoku board.
             //
             // Otherwise, recursive backtrack calls (child) can reach here to
             // indicate that their outer backtrack call (parent) was invalid.
@@ -392,10 +454,30 @@ sudoku_solve(sudoku_Game *G, int *step_count)
 }
 
 int
+sudoku_solve(sudoku_Game *G)
+{
+    return sudoku_solve_stepwise(G, NULL, NULL, NULL);
+}
+
+int
+sudoku_solve_stepwise(sudoku_Game *G,
+    sudoku_StepFn step_fn,
+    void *        user_data,
+    int *         step_count)
+{
+    // Avoid the need to constantly check for null.
+    int tmp = 0;
+    if (!step_count) {
+        step_count = &tmp;
+    }
+    return sudoku_solve_fn(step_fn, G, user_data, step_count);
+}
+
+int
 sudoku_is_valid(sudoku_Game *G)
 {
-    for (int row = 0; row < SUDOKU_ROWS; row++) {
-        for (int col = 0; col < SUDOKU_COLS; col++) {
+    for (int row = 0; row < SUDOKU_GRID_ROWS; row++) {
+        for (int col = 0; col < SUDOKU_GRID_COLS; col++) {
             int cell = sudoku_get(G, row, col);
             if (!sudoku_cell_is_valid(G, row, col, cell)) {
                 return 0;
@@ -409,7 +491,7 @@ int
 sudoku_cell_is_valid(sudoku_Game *G, int row, int col, int value)
 {
     // In this row, check all its child columns for conflicts.
-    for (int i = 0; i < SUDOKU_COLS; i++) {
+    for (int i = 0; i < SUDOKU_GRID_COLS; i++) {
         // Ignore ourselves, because we're obviously equal to it!
         if (i == col) {
             continue;
@@ -422,7 +504,7 @@ sudoku_cell_is_valid(sudoku_Game *G, int row, int col, int value)
     }
 
     // In this column, check all its child rows for conflicts.
-    for (int j = 0; j < SUDOKU_ROWS; j++) {
+    for (int j = 0; j < SUDOKU_GRID_ROWS; j++) {
         if (j == row) {
             continue;
         }
@@ -434,10 +516,10 @@ sudoku_cell_is_valid(sudoku_Game *G, int row, int col, int value)
     }
 
     int box_row_start, box_col_start;
-    box_row_start = SUDOKU_BOX_LENGTH * (row / SUDOKU_BOX_LENGTH);
-    box_col_start = SUDOKU_BOX_HEIGHT * (col / SUDOKU_BOX_HEIGHT);
-    for (int i = 0; i < SUDOKU_BOX_LENGTH; i++) {
-        for (int j = 0; j < SUDOKU_BOX_HEIGHT; j++) {
+    box_row_start = SUDOKU_BOX_ROWS * (row / SUDOKU_BOX_ROWS);
+    box_col_start = SUDOKU_BOX_COLS * (col / SUDOKU_BOX_COLS);
+    for (int i = 0; i < SUDOKU_BOX_ROWS; i++) {
+        for (int j = 0; j < SUDOKU_BOX_COLS; j++) {
             int box_row, box_col, box_cell;
 
             box_row = box_row_start + i;
@@ -456,20 +538,21 @@ sudoku_cell_is_valid(sudoku_Game *G, int row, int col, int value)
 }
 
 char const *
-sudoku_to_string(sudoku_Game *G, size_t *n)
+sudoku_to_string(sudoku_Game *G, size_t *out_len)
 {
-    for (int row = 0; row < SUDOKU_ROWS; row++) {
-        for (int col = 0; col < SUDOKU_COLS; col++) {
-            int  i = G->grid_indexes[row][col];
+    sudoku_Repr *R = G->R;
+    for (int row = 0; row < SUDOKU_GRID_ROWS; row++) {
+        for (int col = 0; col < SUDOKU_GRID_COLS; col++) {
+            int  i = R->grid_indexes[row][col];
             char c = sudoku_int2char(sudoku_get(G, row, col));
-            G->grid_string[i] = c;
+            R->grid_buffer[i] = c;
         }
     }
 
-    if (n) {
-        *n = sizeof(G->grid_string) - 1;
+    if (out_len) {
+        *out_len = R->grid_buffer_len - 1; 
     }
-    return G->grid_string;
+    return R->grid_buffer;
 }
 
 #undef cast
