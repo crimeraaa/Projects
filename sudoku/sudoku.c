@@ -1,7 +1,6 @@
 // standard
-#include <stdio.h>  // printf
+#include <stdio.h>  // fgets, fputc, fputs, fprintf
 #include <string.h> // memset
-#include <vcruntime.h>
 
 // local
 #include "sudoku.h"
@@ -16,11 +15,19 @@
 #define SUDOKU_UNREACHABLE()    ((void)0)
 #endif
 
+
+typedef enum {
+    COMMAND_NONE,
+    COMMAND_QUIT,
+    COMMAND_NEXT,
+    COMMAND_FINISH,
+} Command;
+
 typedef struct sudoku_Io sudoku_Io;
 struct sudoku_Io {
-    FILE *input;
-    FILE *output;
-    int   prev_option;
+    FILE *  input;
+    FILE *  output;
+    Command prev_command;
 };
 
 static char const sample_easy[] =
@@ -53,7 +60,7 @@ static char const sample_hard[] =
 
 static char const sample_vicious[] =
     " 4 7 . | . . 5 | . . . "
-    " 5 . 1 | . 7 . | 2 . . |"
+    " 5 . 1 | . 7 . | 2 . . "
     " . 2 . | . . . | . . 1 "
     "-------+-------+-------"
     " . . . | . . . | 9 7 . "
@@ -88,11 +95,11 @@ cursor_position(FILE *stream, int row, int col)
 }
 
 // Options common to `erase_*()`.
-enum erase_Mode {
+typedef enum {
     ERASE_END,
     ERASE_BEGIN,
     ERASE_ENTIRE,
-};
+} erase_Mode;
 
 /*
  Arguments for `mode`:
@@ -101,7 +108,7 @@ enum erase_Mode {
     ERASE_ENTIRE - Clear the *entire* line.
  */
 static void
-erase_line(FILE *stream, enum erase_Mode mode)
+erase_line(FILE *stream, erase_Mode mode)
 {
     fprintf(stream, CSI "%iK", mode);
 }
@@ -114,7 +121,7 @@ erase_line(FILE *stream, enum erase_Mode mode)
                    the cursor to the upper left.
  */
 static void
-erase_display(FILE *stream, enum erase_Mode mode)
+erase_display(FILE *stream, erase_Mode mode)
 {
     fprintf(stream, CSI "%iJ", mode);
 }
@@ -145,34 +152,39 @@ read_line(FILE *stream, size_t *input_len)
     return input;
 }
 
-static int
-read_option(sudoku_Io *io)
+static Command
+read_command(sudoku_Io *io)
 {
     char const *input;
     size_t      input_len;
+    Command     cmd = COMMAND_NONE;
 
     for (;;) {
-        fprintf(io->output, "Continue? (y/n) ");
+        fprintf(io->output, "Option ([Ff]inish, [Nn]ext, [Qq]uit): ");
         input = read_line(io->input, &input_len);
         if (input_len == 1) switch (input[0]) {
-        case 'y':
-        case 'Y':
-            io->prev_option = 1;
-            return 1;
-        case 'n':
+        case 'F':
+        case 'f': cmd = COMMAND_FINISH; break;
         case 'N':
-            return 0;
+        case 'n': cmd = COMMAND_NEXT;   break;
+        case 'Q':
+        case 'q': cmd = COMMAND_QUIT;   break;
         }
 
         // Null input indicates EOF. We want to exit.
         if (!input) {
-            return 0;
+            cmd = COMMAND_QUIT;
+        }
+
+        if (cmd) {
+            io->prev_command = cmd;
+            return cmd;
         }
 
         // Non-null input that is just an empty string, along with
         // a previously saved option, indicates repeat said option.
-        if (input_len == 0 && io->prev_option) {
-            return 1;
+        if (input_len == 0 && io->prev_command) {
+            return io->prev_command;
         }
 
         // Otherwise, said non-null input is an invalid option.
@@ -194,24 +206,43 @@ read_option(sudoku_Io *io)
     return 0;
 }
 
-static int
-sudoku_step(sudoku_Game *G, void *user_data, int step_count)
+static void
+sudoku_repl_erase(sudoku_Game *G, sudoku_Io *io, int extra_line_count)
 {
-    sudoku_Io * io   = cast(sudoku_Io *)user_data;
-    char const *repr = sudoku_to_string(G, /*out_len=*/NULL);
-    printf("%sSteps taken so far: %i.\n", repr, step_count);
+    // Erase, for example, step counter information and/or prompt with input.
+    // They are variably sized so this helps erase old data we may
+    // not overwrite on subsequent calls.
+    erase_previous_lines(io->output, extra_line_count);
 
-    if (read_option(io)) {
-        // Erase the step counter information and the prompt/input.
-        // They are variably sized so this helps erase old data we may
-        // not overwrite on subsequent calls.
-        erase_previous_lines(io->output, 2);
+    // Move the cursor back to the upper left of the grid so we can
+    // overwrite it. Since we assume the grid is always the same size
+    // across calls, we don't need to erase it since we'll always
+    // successfully write on top of old data.
+    cursor_previous_line(io->output, G->R->grid_line_count);
+}
 
-        // Move the cursor back to the upper left of the grid so we can
-        // overwrite it. Since we assume the grid is always the same size
-        // across calls, we don't need to erase it since we'll always
-        // successfully write on top of old data.
-        cursor_previous_line(io->output, G->R->grid_line_count);
+static int
+sudoku_repl_step(sudoku_Game *G, void *user_data, int step_count)
+{
+    sudoku_Io * io;
+    char const *repr;
+    Command     cmd;
+
+    io = cast(sudoku_Io *)user_data;
+    if (io->prev_command == COMMAND_FINISH) {
+        return 1;
+    }
+
+    repr = sudoku_to_string(G, /*out_len=*/NULL);
+    fprintf(io->output, "%sSteps taken so far: %i.\n", repr, step_count);
+    cmd  = read_command(io);
+    switch (cmd) {
+    case COMMAND_NONE:
+    case COMMAND_QUIT:
+        return 0;
+    case COMMAND_NEXT:
+    case COMMAND_FINISH:
+        sudoku_repl_erase(G, io, 2);
         return 1;
     }
     return 0;
@@ -220,17 +251,38 @@ sudoku_step(sudoku_Game *G, void *user_data, int step_count)
 static int
 sudoku_repl(sudoku_Game *G, sudoku_Io *io)
 {
-    char const *repr = sudoku_to_string(G, /*out_len=*/NULL);
-    printf("%s", repr);
-    if (read_option(io)) {
-        int step_count = 0;
+    char const *repr;
+    Command     cmd;
+    int         step_count = 0;
+    int         status     = 0;
 
-        // Erase prompt with user input to avoid leaving behind old data.
-        erase_previous_lines(io->output, 1);
+    repr = sudoku_to_string(G, /*out_len=*/NULL);
+    fprintf(io->output, "%s", repr);
+    cmd  = read_command(io);
+    switch (cmd) {
+    case COMMAND_NONE:
+    case COMMAND_QUIT: return 0;
+    case COMMAND_NEXT:
+        sudoku_repl_erase(G, io, 1);
+        status = sudoku_solve_stepwise(G, sudoku_repl_step, io, &step_count);
+        break;
+    case COMMAND_FINISH:
+        sudoku_repl_erase(G, io, 1);
+        status = sudoku_solve(G, &step_count);
+        break;
+    }
 
-        // Move cursor back to the upper left of the printed grid.
-        cursor_previous_line(io->output, G->R->grid_line_count);
-        sudoku_solve_stepwise(G, sudoku_step, io, &step_count);
+    switch (status) {
+    case SUDOKU_OK:
+        repr = sudoku_to_string(G, NULL);
+        fprintf(io->output, "%sSteps taken: %i.\n", repr, step_count);
+        break;
+    case SUDOKU_UNSOLVABLE:
+        repr = sudoku_to_string(G, NULL);
+        fprintf(io->output, "%sNo solution found.\n", repr);
+        break;
+    case SUDOKU_TERMINATED:
+        break;
     }
     return 0;
 }
@@ -246,7 +298,10 @@ main(void)
     // So save it into a mutable buffer beforehand.
     static char buffer[] = SUDOKU_REPR_GRID_STRING;
     sudoku_repr_init(&R, buffer, sizeof(buffer), SUDOKU_REPR_GRID_CHAR);
-    sudoku_init_string(&G, &R, sample_easy, sizeof(sample_easy) - 1);
+    if (!sudoku_init_string(&G, &R, sample_easy, sizeof(sample_easy) - 1)) {
+        fprintf(io.output, "Invalid board received.\n");
+        return 1;
+    }
     return sudoku_repl(&G, &io);
 }
 
@@ -291,13 +346,186 @@ sudoku_int2char(int cell)
 void
 sudoku_init(sudoku_Game *G, sudoku_Repr *R)
 {
-    G->R = R;
     // Start with an empty grid.
-    memset(G->grid_limbs, 0, sizeof(G->grid_limbs));
+    memset(G, 0, sizeof(*G));
+    G->R = R;
+}
 
+/*
+ TODO(2026-08-10): Make more generic because I have nothing better to do
+ */
+static int
+sudoku_get_box_neighbors(int row, int *out_box_row2)
+{
+    int box_row1, box_row2;
+    switch (row) {
+    case 0:
+    case 3:
+    case 6:
+        box_row1 = row + 1;
+        box_row2 = row + 2;
+        break;
+    case 1:
+    case 4:
+    case 7:
+        box_row1 = row - 1;
+        box_row2 = row + 1;
+        break;
+    case 2:
+    case 5:
+    case 8:
+        box_row1 = row - 2;
+        box_row2 = row - 1;
+        break;
+    }
+    *out_box_row2 = box_row2;
+    return box_row1;
+}
+
+static sudoku_Limb *
+sudoku_bitset_get_limb(
+    sudoku_Limb *limbs,
+    sudoku_Limb  bit_len,
+    int row, int col,
+    sudoku_Limb *bit_index)
+{
+    sudoku_Limb row_index, cell_index, limb_index;
+    if (!(0 <= row && row < SUDOKU_GRID_ROWS && 0 <= col && col < SUDOKU_GRID_COLS)) {
+        return NULL;
+    }
+
+    // Assume a column-major representation. That is, rows are multipliers
+    // in order to resolve to 1-dimensional index..
+    row_index   = cast(sudoku_Limb)row * SUDOKU_GRID_ROWS;
+    cell_index  = row_index + cast(sudoku_Limb)col;
+
+    // The actuall cell index is a multiple of the bit count since
+    // each element occupies that many bits.
+    cell_index *= bit_len;
+
+    /*
+     Division of the form `n / d` can be summarized as 'how many times does
+     `n` contains `d`?`.
+    
+     Another way to look at it is 'How many times does `d` fit in `n`?'.
+
+     So getting the limb index is just a matter of getting how many times
+     the limb's bit size fits in the cell index.
+    */
+    limb_index  = cell_index / SUDOKU_LIMB_BITS;
+
+    /*
+     Modulo by a power of 2 can be optimized via bitwise AND.
+
+     Modulo is the remainder of division. In other words, what is left over
+     from the division. I.e. in 3 / 2, 1 is left over because 3 can only
+     contain 2 once. This leaves 1 as the remainder.
+
+     LIkewise, the bit index is whatever remains from the division above.
+     */
+    *bit_index  = cell_index & (SUDOKU_LIMB_BITS - 1);
+    return &limbs[limb_index];
+}
+
+static sudoku_Limb
+sudoku_bitset_get(
+    sudoku_Limb *limbs,
+    sudoku_Limb  bit_len,
+    sudoku_Limb  bit_mask,
+    int row, int col)
+{
+    sudoku_Limb *limb, bit_index;
+    limb = sudoku_bitset_get_limb(limbs, bit_len, row, col, &bit_index);
+    return cast(sudoku_Limb)((*limb >> bit_index) & bit_mask);
+}
+
+static void
+sudoku_bitset_set(
+    sudoku_Limb *limbs,
+    sudoku_Limb  bit_len,
+    sudoku_Limb  bit_mask,
+    int row, int col,
+    sudoku_Limb  value)
+{
+    sudoku_Limb *limb, bit_index, mask_in, mask_out;
+    limb     = sudoku_bitset_get_limb(limbs, bit_len, row, col, &bit_index);
+    mask_in  = value << bit_index;
+    mask_out = ~(bit_mask << bit_index);
+    *limb = (*limb & mask_out) | mask_in;
+}
+
+static sudoku_CellSet
+sudoku_get_allowed(sudoku_Game *G, int row, int col)
+{
+    return cast(sudoku_CellSet)sudoku_bitset_get(
+        G->grid_allowed,
+        SUDOKU_CELLSET_BITS,
+        SUDOKU_CELLSET_MASK,
+        row, col);
+}
+
+static void
+sudoku_set_allowed(sudoku_Game *G, int row, int col, sudoku_CellSet value)
+{
+    sudoku_bitset_set(G->grid_allowed,
+        SUDOKU_CELLSET_BITS,
+        SUDOKU_CELLSET_MASK,
+        row, col,
+        cast(sudoku_Limb)value);
+}
+
+int
+sudoku_get(sudoku_Game *G, int row, int col)
+{
+    return cast(int)sudoku_bitset_get(
+        G->grid_cells,
+        SUDOKU_CELL_BITS,
+        SUDOKU_CELL_MASK,
+        row, col);
 }
 
 void
+sudoku_set(sudoku_Game *G, int row, int col, int value)
+{
+    sudoku_bitset_set(G->grid_cells,
+        SUDOKU_CELL_BITS,
+        SUDOKU_CELL_MASK,
+        row, col,
+        cast(sudoku_Limb)value);
+}
+
+
+static void
+sudoku_propagate_allowed_values(sudoku_Game *G, int row, int col, int cell)
+{
+    sudoku_CellSet mask_out = ~(1 << (cell - 1)) & SUDOKU_CELLSET_MAX;
+
+    // Mark this cell as unallowable for this entire column.
+    for (int i = 0; i < SUDOKU_GRID_ROWS; i++) {
+        sudoku_set_allowed(G, i, col, mask_out);
+    }
+
+    // Mark this cell as unallowable for this entire row.
+    for (int j = 0; j < SUDOKU_GRID_COLS; j++) {
+        sudoku_set_allowed(G, row, j, mask_out);
+    }
+
+
+    // Mark this cell as unallowable for the remaining cells within our box.
+    // Since we already marked the entire row and column, that eliminates
+    // four (4) of our neighbors. We only need to worry about the remaining
+    // four (4).
+    int box_row1, box_col1, box_row2, box_col2;
+    box_row1 = sudoku_get_box_neighbors(row, &box_row2);
+    box_col1 = sudoku_get_box_neighbors(col, &box_col2);
+
+    sudoku_set_allowed(G, box_row1, box_col1, mask_out);
+    sudoku_set_allowed(G, box_row1, box_col2, mask_out);
+    sudoku_set_allowed(G, box_row2, box_col1, mask_out);
+    sudoku_set_allowed(G, box_row2, box_col2, mask_out);
+}
+
+int
 sudoku_init_string(sudoku_Game *G, sudoku_Repr *R, char const *s, size_t n)
 {
     int row = 0, col = 0;
@@ -314,14 +542,31 @@ sudoku_init_string(sudoku_Game *G, sudoku_Repr *R, char const *s, size_t n)
             col = 0;
         }
     }
+
+    // Fill in the candidates.
+    for (row = 0; row < SUDOKU_GRID_ROWS; row++) {
+        for (col = 0; col < SUDOKU_GRID_COLS; col++) {
+            int cell = sudoku_get(G, row, col);
+            if (cell) {
+                sudoku_set_allowed(G, row, col, 0);
+                sudoku_propagate_allowed_values(G, row, col, cell);
+                continue;
+            }
+            
+            // Start off by assuming all empty cells can possibly hold all
+            // numbers.
+            sudoku_set_allowed(G, row, col, SUDOKU_CELLSET_MAX);
+        }
+    }
+    return 1;
 }
 
 int
 sudoku_repr_init(sudoku_Repr *R, char *buffer, size_t len, char target)
 {
     char *grid_iter;
-    // Buffer must be non-empty and nul-terminated.
-    if (!(buffer && len > 0 && buffer[len - 1] == 0)) {
+    // Buffer must fit the grid at least and be nul-terminated.
+    if (!(buffer && len > SUDOKU_GRID_SIZE && buffer[len - 1] == 0)) {
         return 0;
     }
 
@@ -341,6 +586,12 @@ sudoku_repr_init(sudoku_Repr *R, char *buffer, size_t len, char target)
                 grid_iter++;
             }
 
+            // Ran out of buffer, indicating we don't have enough space
+            // to format the grid into.
+            if (*grid_iter == 0) {
+                return 0;
+            }
+
             R->grid_indexes[row][col] = cast(int)(grid_iter - buffer);
             grid_iter++;
         }
@@ -355,60 +606,8 @@ sudoku_repr_init(sudoku_Repr *R, char *buffer, size_t len, char target)
     return 1;
 }
 
-static sudoku_Limb *
-sudoku_get_limb(sudoku_Game *G, int row, int col, sudoku_Limb *bit_index)
-{
-    sudoku_Limb cell_index, limb_index;
-    if (!(0 <= row && row < SUDOKU_GRID_ROWS) || !(0 <= col && col < SUDOKU_GRID_COLS)) {
-        return NULL;
-    }
-
-    // Assume a column-major representation.
-    // Convert 2-dimensional coordinates into a 1-dimensional index.
-    // This should be in the inclusive range [0,81].
-    cell_index = (cast(sudoku_Limb)row * SUDOKU_GRID_ROWS) + cast(sudoku_Limb)col;
-
-    // Each cell N-bits long, so the cell's actual starting bit index is a
-    // multiple of N.
-    cell_index *= SUDOKU_CELL_BITS;
-
-    // Since we divide the (N*R*C)-bit array into 'limbs' (i.e. smaller-sized
-    // integers that compose a larger one), determine which one we live in.
-    limb_index  = cell_index / SUDOKU_LIMB_BITS;
-
-    // Of that limb, determine which bit we start at via modulo wrap-around.
-    // Modulo by power of 2 is faster using bitwise AND.
-    *bit_index  = cell_index & (SUDOKU_LIMB_BITS - 1);
-    return &G->grid_limbs[limb_index];
-}
-
-int
-sudoku_get(sudoku_Game *G, int row, int col)
-{
-    sudoku_Limb *limb, bit_index;
-    limb = sudoku_get_limb(G, row, col, &bit_index);
-    return cast(int)((*limb >> bit_index) & SUDOKU_CELL_MASK);
-}
-
-void
-sudoku_set(sudoku_Game *G, int row, int col, int value)
-{
-    sudoku_Limb *limb, bit_index, mask_in, mask_out;
-
-    limb     = sudoku_get_limb(G, row, col, &bit_index);
-    mask_in  = cast(sudoku_Limb)value << bit_index;
-
-    // Use this to clear out the original value without messing up
-    // any of the other bits.
-    mask_out = ~(cast(sudoku_Limb)SUDOKU_CELL_MASK << bit_index);
-
-    // Clear out the original value's bits, without messing up any of the
-    // other ones, before setting the new value into place.
-    *limb    = (*limb & mask_out) | mask_in;
-}
-
 static int
-sudoku_solve_fn(
+sudoku_solve_recurse(
     sudoku_StepFn step_fn,
     sudoku_Game * G,
     void *        user_data,
@@ -422,7 +621,7 @@ sudoku_solve_fn(
             }
 
             // Backtracking proper.
-            for (int cell = 1; cell <= SUDOKU_CELL_MAX; cell++) {
+            for (int cell = SUDOKU_CELL_MIN; cell <= SUDOKU_CELL_MAX; cell++) {
                 // Skip guesses that couldn't possibly work here.
                 if (!sudoku_cell_is_valid(G, row, col, cell)) {
                     continue;
@@ -431,13 +630,13 @@ sudoku_solve_fn(
                 sudoku_set(G, row, col, cell);
                 *step_count += 1;
                 if (step_fn && !step_fn(G, user_data, *step_count)) {
-                    return -1;
+                    return SUDOKU_TERMINATED;
                 }
 
                 // Recurse to check this guess. If we receive 0, that
                 // indicates we should try another guess.
-                if (sudoku_solve_fn(step_fn, G, user_data, step_count)) {
-                    return 1;
+                if (sudoku_solve_recurse(step_fn, G, user_data, step_count)) {
+                    return SUDOKU_OK;
                 }
                 sudoku_set(G, row, col, 0);
             }
@@ -447,16 +646,16 @@ sudoku_solve_fn(
             //
             // Otherwise, recursive backtrack calls (child) can reach here to
             // indicate that their outer backtrack call (parent) was invalid.
-            return 0;
+            return SUDOKU_UNSOLVABLE;
         }
     }
-    return 1;
+    return SUDOKU_OK;
 }
 
 int
-sudoku_solve(sudoku_Game *G)
+sudoku_solve(sudoku_Game *G, int *step_count)
 {
-    return sudoku_solve_stepwise(G, NULL, NULL, NULL);
+    return sudoku_solve_stepwise(G, /*step_fn=*/NULL, /*user_data=*/NULL, step_count);
 }
 
 int
@@ -470,7 +669,7 @@ sudoku_solve_stepwise(sudoku_Game *G,
     if (!step_count) {
         step_count = &tmp;
     }
-    return sudoku_solve_fn(step_fn, G, user_data, step_count);
+    return sudoku_solve_recurse(step_fn, G, user_data, step_count);
 }
 
 int
@@ -515,24 +714,15 @@ sudoku_cell_is_valid(sudoku_Game *G, int row, int col, int value)
         }
     }
 
-    int box_row_start, box_col_start;
-    box_row_start = SUDOKU_BOX_ROWS * (row / SUDOKU_BOX_ROWS);
-    box_col_start = SUDOKU_BOX_COLS * (col / SUDOKU_BOX_COLS);
-    for (int i = 0; i < SUDOKU_BOX_ROWS; i++) {
-        for (int j = 0; j < SUDOKU_BOX_COLS; j++) {
-            int box_row, box_col, box_cell;
-
-            box_row = box_row_start + i;
-            box_col = box_col_start + j;
-            if (box_row == row && box_col == col) {
-                continue;
-            }
-
-            box_cell = sudoku_get(G, box_row, box_col);
-            if (value == box_cell) {
-                return 0;
-            }
-        }
+    int box_row1, box_row2, box_col1, box_col2;
+    box_row1 = sudoku_get_box_neighbors(row, &box_row2);
+    box_col1 = sudoku_get_box_neighbors(col, &box_col2);
+    // Yes, I'm aware this is hot garbage
+    if (sudoku_get(G, box_row1, box_col1) == value
+        || sudoku_get(G, box_row1, box_col2) == value
+        || sudoku_get(G, box_row2, box_col1) == value
+        || sudoku_get(G, box_row2, box_col2) == value) {
+        return 0;
     }
     return 1;
 }

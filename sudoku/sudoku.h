@@ -3,9 +3,21 @@
 
 #include <limits.h>
 
-/*=== BEGIN: CONFIGURABLE ================================================{{{ */
+/* BEGIN: CONFIGURABLE ==================================================={{{ */
 
-#define SUDOKU_LIMB_TYPE    unsigned int
+/* Grid information. */
+#define SUDOKU_LINE_LENGTH          9
+#define SUDOKU_BOX_ROWS             3
+#define SUDOKU_BOX_COLS             3
+#define SUDOKU_GRID_ROWS            SUDOKU_LINE_LENGTH
+#define SUDOKU_GRID_COLS            SUDOKU_LINE_LENGTH
+
+/* Backing type information. */
+#define SUDOKU_LIMB_TYPE        unsigned int
+#define SUDOKU_CELL_BITS        4
+#define SUDOKU_CELL_MIN         1
+#define SUDOKU_CELL_MAX         9
+#define SUDOKU_CELLSET_TYPE     unsigned short
 
 /*
  Description:
@@ -13,7 +25,7 @@
     is to be replaced with the actual value of each cell. It should not appear
     in other contexts within the said representation.
  */
-#define SUDOKU_REPR_GRID_CHAR  'x'
+#define SUDOKU_REPR_GRID_CHAR   'x'
 
 /*
 Refer to: https://en.wikipedia.org/wiki/Box-drawing_characters
@@ -49,48 +61,54 @@ Refer to: https://en.wikipedia.org/wiki/Box-drawing_characters
     "│ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x │\n" \
     "└───┴───┴───┸───┴───┴───┸───┴───┴───┘\n" \
 
-/*=== END:   CONFIGURABLE   ==============================================}}} */
+/* END: CONFIGURABLE   ===================================================}}} */
 
-typedef SUDOKU_LIMB_TYPE sudoku_Limb;
+#define SUDOKU_OK                    1
+#define SUDOKU_UNSOLVABLE            0
+#define SUDOKU_TERMINATED           -1
 
-/* Cells are in the inclusive 4-bit range [0b0000, 0b1001] */
-#define SUDOKU_CELL_BITS    4
-#define SUDOKU_CELL_MIN     0
-#define SUDOKU_CELL_MAX     9
-#define SUDOKU_CELL_MASK    0xf
+/* Non-user-configurable grid information. */
+#define SUDOKU_GRID_SIZE            (SUDOKU_GRID_ROWS * SUDOKU_GRID_COLS)
+#define SUDOKU_GRID_CELL_BITS       (SUDOKU_CELL_BITS * SUDOKU_GRID_SIZE)
+#define SUDOKU_GRID_CELLSET_BITS    (SUDOKU_CELLSET_BITS * SUDOKU_GRID_SIZE)
 
-#define SUDOKU_LINE_LENGTH  9
-#define SUDOKU_BOX_ROWS     3
-#define SUDOKU_BOX_COLS     3
-#define SUDOKU_GRID_ROWS    SUDOKU_LINE_LENGTH
-#define SUDOKU_GRID_COLS    SUDOKU_LINE_LENGTH
-#define SUDOKU_GRID_SIZE    (SUDOKU_GRID_ROWS * SUDOKU_GRID_COLS)
-#define SUDOKU_GRID_BITS    (SUDOKU_GRID_SIZE * SUDOKU_CELL_BITS)
-#define SUDOKU_LIMB_BITS    (sizeof(sudoku_Limb) * CHAR_BIT)
+/* Non-user-configurable backing type information. */
+#define SUDOKU_LIMB_BITS            ((sizeof(SUDOKU_LIMB_TYPE) * CHAR_BIT))
+#define SUDOKU_LIMB_COUNT(N)        (((N) / SUDOKU_LIMB_BITS) + 1)
+#define SUDOKU_LIMB_CELL_COUNT      SUDOKU_LIMB_COUNT(SUDOKU_GRID_CELL_BITS)
+#define SUDOKU_LIMB_CELLSET_COUNT   SUDOKU_LIMB_COUNT(SUDOKU_GRID_CELLSET_BITS)
+#define SUDOKU_CELL_MASK            ((1 << SUDOKU_CELL_BITS) - 1)
+#define SUDOKU_CELLSET_BITS         SUDOKU_CELL_MAX
+#define SUDOKU_CELLSET_MAX          ((1 << SUDOKU_CELLSET_BITS) - 1)
+#define SUDOKU_CELLSET_MASK         SUDOKU_CELLSET_MAX
 
-/*
- We assume that integer division results in a floored quotient,
- so the grid's bit size divided by the limb's bit size is always
- one off. E.g:
+typedef SUDOKU_LIMB_TYPE        sudoku_Limb;
+typedef SUDOKU_CELLSET_TYPE     sudoku_CellSet;
+typedef struct sudoku_Game      sudoku_Game;
+typedef struct sudoku_Repr      sudoku_Repr;
 
- 324 bits /  8 bits = (40 limbs / grid) *  8 bits = 320 bits
- 324 bits / 16 bits = (20 limbs / grid) * 16 bits = 320 bits
- 324 bits / 32 bits = (10 limbs / grid) * 32 bits = 320 bits
- 324 bits / 64 bits =  (5 limbs / grid) * 64 bits = 320 bits
-
- So we always need one more limb to validly store the grid in its entirety.
- */
-#define SUDOKU_LIMB_COUNT   ((SUDOKU_GRID_BITS / SUDOKU_LIMB_BITS) + 1)
-
-typedef struct sudoku_Game sudoku_Game;
-typedef struct sudoku_Repr sudoku_Repr;
 struct sudoku_Game {
     sudoku_Repr *R;
 
     /*
      Cells are stored in a column-major fashion.
      */
-    sudoku_Limb  grid_limbs[SUDOKU_LIMB_COUNT];
+    sudoku_Limb grid_cells[SUDOKU_LIMB_CELL_COUNT];
+
+    /*
+     Each row and column maps to a bit set. Here, each bit represents
+     a particular number. When this bit is `1`, it indicates that said number
+     could be in this cell. Otherwise, a bit of `0` indicates said number
+     could not possibly be in this cell.
+
+     Here is what the 'all' bit-set looks like, in big-endian representation:
+
+     Bit Index          .......8_76543210
+     Represented Value  .......9_87654321
+                        00000001_11111111
+
+     */
+    sudoku_Limb grid_allowed[SUDOKU_LIMB_CELLSET_COUNT];
 };
 
 struct sudoku_Repr {
@@ -102,7 +120,7 @@ struct sudoku_Repr {
      The locations of each character are to be saved. This will enable
      quick modification of the grid.
      */
-    char * grid_buffer;
+    char *grid_buffer;
 
     /*
      Since we assume the buffer is nul-terminated, the actual string length
@@ -115,19 +133,19 @@ struct sudoku_Repr {
      This is mainly useful when working with ANSI escape sequences so that
      this many lines can be erased in order to redraw the grid.
      */
-    int  grid_line_count;
+    int grid_line_count;
 
     /*
      Map each row and column to an index in the string representation.
      This allows us to mutate them easily when updating said representation.
      */
-    int  grid_indexes[SUDOKU_GRID_ROWS][SUDOKU_GRID_COLS];
+    int grid_indexes[SUDOKU_GRID_ROWS][SUDOKU_GRID_COLS];
 };
 
 void
 sudoku_init(sudoku_Game *G, sudoku_Repr *R);
 
-void
+int
 sudoku_init_string(sudoku_Game *G, sudoku_Repr *R, char const *s, size_t n);
 
 int
@@ -144,21 +162,18 @@ sudoku_set(sudoku_Game *G, int row, int col, int value);
     Solves the given Sudoku board in-place.
 
  Returns one of the following statuses:
-    1 - We successfully solved the given board.
-    0 - The given board doesn't have a solution.
+    SUDOKU_OK         - We successfully solved the given board.
+    SUDOKU_UNSOLVABLE - The given board doesn't have a solution.
  */
 int
-sudoku_solve(sudoku_Game *G);
+sudoku_solve(sudoku_Game *G, int *step_count);
 
 /*
  Returns a boolean:
     1 - Keep stepping through.
     0 - Quit immediately regardless of the solution state.
  */
-typedef int (*sudoku_StepFn)(
-    sudoku_Game *G,
-    void *       user_data,
-    int          step_count);
+typedef int (*sudoku_StepFn)(sudoku_Game *G, void *user_data, int step_count);
 
 /*
  Description:
@@ -166,13 +181,12 @@ typedef int (*sudoku_StepFn)(
     during each step-through.
 
  Returns one of the following statuses:
-     1 - We successfully solved the given board.
-     0 - The given board doesn't have a solution.
-    -1 - The callback step function told us to terminate early.
+    SUDOKU_OK         - We successfully solved the given board.
+    SUDOKU_UNSOLVABLE - The given board doesn't have a solution.
+    SUDOKU_TERMINATED - The callback step function told us to terminate early.
  */
 int
-sudoku_solve_stepwise(
-    sudoku_Game * G,
+sudoku_solve_stepwise(sudoku_Game *G,
     sudoku_StepFn step_fn,
     void *        user_data,
     int *         step_count);
