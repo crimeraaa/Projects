@@ -1,9 +1,10 @@
 @echo OFF
 rem The following flags assuming the CWD is the project's.
 set CC=cl.exe
-set CC_FLAGS=/nologo /Zi /std:c11 /fsanitize=address /Fo:obj\ /Fe:bin\
-set SRC=sudoku.c
-set OUT=%~dp0\bin\sudoku.exe
+set SRC=main.c
+set OBJ=obj\sudoku.obj
+set OUT=bin\sudoku.exe
+set CC_FLAGS=/nologo /Zi /std:c11 /fsanitize=address /Fo:%OBJ% /Fe:%OUT%
 
 pushd %~dp0
 if not exist obj (
@@ -17,9 +18,10 @@ if not exist bin (
 %CC% %CC_FLAGS% %SRC%
 popd
 
-%OUT% %*
+%~dp0%OUT% %*
 
 set "CC="
 set "CC_FLAGS="
 set "SRC="
+set "OBJ="
 set "OUT="

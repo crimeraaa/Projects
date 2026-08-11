@@ -1,65 +1,70 @@
 #ifndef SUDOKU_H
 #define SUDOKU_H
 
-#include <limits.h>
+#include <limits.h>  /* CHAR_BIT */
+#include <stdbool.h> /* bool, true, false */
+#include <stdint.h>  /* uint\d+_t */
+#include <stddef.h>  /* size_t   */
 
 /* BEGIN: CONFIGURABLE ==================================================={{{ */
 
 /* Grid information. */
-#define SUDOKU_LINE_LENGTH          9
-#define SUDOKU_BOX_ROWS             3
-#define SUDOKU_BOX_COLS             3
-#define SUDOKU_GRID_ROWS            SUDOKU_LINE_LENGTH
-#define SUDOKU_GRID_COLS            SUDOKU_LINE_LENGTH
+#define SUDOKU_LINE_LENGTH  9
+#define SUDOKU_BOX_ROWS     3
+#define SUDOKU_BOX_COLS     3
+#define SUDOKU_GRID_ROWS    SUDOKU_LINE_LENGTH
+#define SUDOKU_GRID_COLS    SUDOKU_LINE_LENGTH
 
 /* Backing type information. */
-#define SUDOKU_LIMB_TYPE        unsigned int
-#define SUDOKU_CELL_BITS        4
-#define SUDOKU_CELL_MIN         1
-#define SUDOKU_CELL_MAX         9
-#define SUDOKU_CELLSET_TYPE     unsigned short
+#define SUDOKU_DIGIT_BITS   4
+#define SUDOKU_DIGIT_MIN    1
+#define SUDOKU_DIGIT_MAX    9
 
 /*
  Description:
-    This is the template character in the default string representation that
-    is to be replaced with the actual value of each cell. It should not appear
-    in other contexts within the said representation.
+    Digit type. An unsigned integer type that can at least hold the minimum
+    up to the maximum Sudoku digit values in binary.
+
+    E.g. if our Sudoku digits go from 1 to 9, then we need at least 4 bits
+    (0b0001 to 0b1001) to represent them all. The zero value (0b0000)
+    represents an empty cell.
  */
-#define SUDOKU_REPR_GRID_CHAR   'x'
+#define SUDOKU_DIGIT_TYPE    uint8_t
+
+/*'
+ Description:
+    Bit set that can hold all a combination of all possible digit values as
+    bits to indicate their presence or absence for a particular cell.
+
+    It should at least contain a number of bits equivalent to the number of
+    possible digit values. E.g. if our Suduoku digits go from 1 to 9, then
+    each digit set must be 9 bits. The zero value (0b0_00000000) represents
+    no possible values for this cell. The complement thereof (0b1_1111111)
+    represents a cell that can take on lala possible digit values.
+
+    The C standard guarantees that `short` and its counterparts are at least
+    16 bits, so for Sudoku up to 16x16 this is a safe bet.
+ */
+#define SUDOKU_DIGITSET_TYPE uint16_t
 
 /*
-Refer to: https://en.wikipedia.org/wiki/Box-drawing_characters
+ Description:
+    Bit set backing type. An unsigned integer type that can at least contain
+    either all possible digit value.
 
-             0   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
-    U+2500   ─   ━ 	 │	 ┃ 	 ┄	 ┅	 ┆	 ┇	 ┈	 ┉	 ┊	 ┋	 ┌	 ┍	 ┎	 ┏ 
-    U+251x	 ┐	 ┑	 ┒	 ┓	 └	 ┕	 ┖	 ┗	 ┘	 ┙	 ┚	 ┛	 ├	 ┝	 ┞	 ┟
-    U+252x	 ┠	 ┡	 ┢	 ┣	 ┤	 ┥	 ┦	 ┧	 ┨	 ┩	 ┪	 ┫	 ┬	 ┭	 ┮	 ┯
-    U+253x	 ┰	 ┱	 ┲	 ┳	 ┴	 ┵	 ┶	 ┷	 ┸	 ┹	 ┺	 ┻	 ┼	 ┽	 ┾	 ┿
-    U+254x	 ╀	 ╁	 ╂	 ╃	 ╄	 ╅	 ╆	 ╇	 ╈	 ╉	 ╊	 ╋	 ╌	 ╍	 ╎	 ╏
-    U+255x	 ═	 ║	 ╒	 ╓	 ╔	 ╕	 ╖	 ╗	 ╘	 ╙	 ╚	 ╛	 ╜	 ╝	 ╞	 ╟
-    U+256x	 ╠	 ╡	 ╢	 ╣	 ╤	 ╥	 ╦	 ╧	 ╨	 ╩	 ╪	 ╫	 ╬	 ╭	 ╮	 ╯
-    U+257x	 ╰	 ╱	 ╲	 ╳	 ╴	 ╵	 ╶	 ╷	 ╸	 ╹	 ╺	 ╻	 ╼	 ╽	 ╾	 ╿
+    E.g. for a 9x9 Sudoku, we have 4-bit digits we need at least 8 digits
+    per limb. However it's usually better to have a backing type that can
+    store multiple of them, e.g. a 32-bit integer can store 8 digits.
+
+    The C standard guarantees that `int` and its counterparts are at least
+    16 bits in size, so this is a safe bet to store both digit and digit sets.
+
+ NOTE(2026-08-10):
+    Ensure that the size of this type is a multiple of the digit bit count!
+    Otherwise, digits will have to be 'split' across multiple limbs, which
+    we do not handle at all.
  */
-#define SUDOKU_REPR_GRID_STRING               \
-    "┌───┬───┬───┰───┬───┬───┰───┬───┬───┐\n" \
-    "│ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x │\n" \
-    "├───┼───┼───╂───┼───┼───╂───┼───┼───┤\n" \
-    "│ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x │\n" \
-    "├───┼───┼───╂───┼───┼───╂───┼───┼───┤\n" \
-    "│ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x │\n" \
-    "┝━━━┿━━━┿━━━╋━━━┿━━━┿━━━╋━━━┿━━━┿━━━┥\n" \
-    "│ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x │\n" \
-    "├───┼───┼───╂───┼───┼───╂───┼───┼───┤\n" \
-    "│ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x │\n" \
-    "├───┼───┼───╂───┼───┼───╂───┼───┼───┤\n" \
-    "│ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x │\n" \
-    "┝━━━┿━━━┿━━━╋━━━┿━━━┿━━━╋━━━┿━━━┿━━━┥\n" \
-    "│ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x │\n" \
-    "├───┼───┼───╂───┼───┼───╂───┼───┼───┤\n" \
-    "│ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x │\n" \
-    "├───┼───┼───╂───┼───┼───╂───┼───┼───┤\n" \
-    "│ x │ x │ x ┃ x │ x │ x ┃ x │ x │ x │\n" \
-    "└───┴───┴───┸───┴───┴───┸───┴───┴───┘\n" \
+#define SUDOKU_LIMB_TYPE    uint32_t
 
 /* END: CONFIGURABLE   ===================================================}}} */
 
@@ -68,94 +73,67 @@ Refer to: https://en.wikipedia.org/wiki/Box-drawing_characters
 #define SUDOKU_TERMINATED           -1
 
 /* Non-user-configurable grid information. */
-#define SUDOKU_GRID_SIZE            (SUDOKU_GRID_ROWS * SUDOKU_GRID_COLS)
-#define SUDOKU_GRID_CELL_BITS       (SUDOKU_CELL_BITS * SUDOKU_GRID_SIZE)
-#define SUDOKU_GRID_CELLSET_BITS    (SUDOKU_CELLSET_BITS * SUDOKU_GRID_SIZE)
+#define SUDOKU_BOX_SIZE              (SUDOKU_BOX_ROWS      * SUDOKU_BOX_COLS)
+#define SUDOKU_GRID_SIZE             (SUDOKU_GRID_ROWS     * SUDOKU_GRID_COLS)
+#define SUDOKU_GRID_DIGIT_BITS       (SUDOKU_DIGIT_BITS    * SUDOKU_GRID_SIZE)
+#define SUDOKU_GRID_DIGITSET_BITS    (SUDOKU_DIGITSET_BITS * SUDOKU_GRID_SIZE)
 
 /* Non-user-configurable backing type information. */
-#define SUDOKU_LIMB_BITS            ((sizeof(SUDOKU_LIMB_TYPE) * CHAR_BIT))
-#define SUDOKU_LIMB_COUNT(N)        (((N) / SUDOKU_LIMB_BITS) + 1)
-#define SUDOKU_LIMB_CELL_COUNT      SUDOKU_LIMB_COUNT(SUDOKU_GRID_CELL_BITS)
-#define SUDOKU_LIMB_CELLSET_COUNT   SUDOKU_LIMB_COUNT(SUDOKU_GRID_CELLSET_BITS)
-#define SUDOKU_CELL_MASK            ((1 << SUDOKU_CELL_BITS) - 1)
-#define SUDOKU_CELLSET_BITS         SUDOKU_CELL_MAX
-#define SUDOKU_CELLSET_MAX          ((1 << SUDOKU_CELLSET_BITS) - 1)
-#define SUDOKU_CELLSET_MASK         SUDOKU_CELLSET_MAX
+#define SUDOKU_LIMB_BITS             ((sizeof(SUDOKU_LIMB_TYPE) * CHAR_BIT))
+#define SUDOKU_LIMB_COUNT(N)         (((N) / SUDOKU_LIMB_BITS) + 1)
+#define SUDOKU_LIMB_DIGIT_COUNT      SUDOKU_LIMB_COUNT(SUDOKU_GRID_DIGIT_BITS)
+#define SUDOKU_LIMB_DIGITSET_COUNT   SUDOKU_LIMB_COUNT(SUDOKU_GRID_DIGITSET_BITS)
+#define SUDOKU_DIGIT_MASK            ((1 << SUDOKU_DIGIT_BITS) - 1)
+#define SUDOKU_DIGITSET_BITS         SUDOKU_DIGIT_MAX
+#define SUDOKU_DIGITSET_ALL          ((1 << SUDOKU_DIGITSET_BITS) - 1)
 
-typedef SUDOKU_LIMB_TYPE        sudoku_Limb;
-typedef SUDOKU_CELLSET_TYPE     sudoku_CellSet;
-typedef struct sudoku_Game      sudoku_Game;
-typedef struct sudoku_Repr      sudoku_Repr;
+typedef SUDOKU_DIGIT_TYPE           sudoku_Digit;
+typedef SUDOKU_DIGITSET_TYPE        sudoku_DigitSet;
+typedef SUDOKU_LIMB_TYPE            sudoku_Limb;
+typedef struct sudoku_Game          sudoku_Game;
 
 struct sudoku_Game {
-    sudoku_Repr *R;
+    /*
+     The Sudokua grid's digits are stored, bitwise, in a column-major fashion.
+     Row and column indices must be adjusted as such.
+     */
+    sudoku_Limb grid_digits[SUDOKU_LIMB_DIGIT_COUNT];
 
     /*
-     Cells are stored in a column-major fashion.
+     Each row and column maps to a bit set. For simplicity we use a plain
+     2-dimensional array to avoid dealing with bit fields split across limbs.
      */
-    sudoku_Limb grid_cells[SUDOKU_LIMB_CELL_COUNT];
-
-    /*
-     Each row and column maps to a bit set. Here, each bit represents
-     a particular number. When this bit is `1`, it indicates that said number
-     could be in this cell. Otherwise, a bit of `0` indicates said number
-     could not possibly be in this cell.
-
-     Here is what the 'all' bit-set looks like, in big-endian representation:
-
-     Bit Index          .......8_76543210
-     Represented Value  .......9_87654321
-                        00000001_11111111
-
-     */
-    sudoku_Limb grid_allowed[SUDOKU_LIMB_CELLSET_COUNT];
-};
-
-struct sudoku_Repr {
-    /*
-     Fixed-size, nul-terminated buffer for the string representation of the
-     grid. On initialization, it should contain a single unique character that
-     represents a cell, e.g. `x`.
-
-     The locations of each character are to be saved. This will enable
-     quick modification of the grid.
-     */
-    char *grid_buffer;
-
-    /*
-     Since we assume the buffer is nul-terminated, the actual string length
-     is this minus one (1).
-     */
-    size_t grid_buffer_len;
-
-    /*
-     Save how many newlines are stored in the string representation.
-     This is mainly useful when working with ANSI escape sequences so that
-     this many lines can be erased in order to redraw the grid.
-     */
-    int grid_line_count;
-
-    /*
-     Map each row and column to an index in the string representation.
-     This allows us to mutate them easily when updating said representation.
-     */
-    int grid_indexes[SUDOKU_GRID_ROWS][SUDOKU_GRID_COLS];
+    sudoku_DigitSet grid_allowed[SUDOKU_GRID_ROWS][SUDOKU_GRID_COLS];
 };
 
 void
-sudoku_init(sudoku_Game *G, sudoku_Repr *R);
+sudoku_init(sudoku_Game *G);
 
-int
-sudoku_init_string(sudoku_Game *G, sudoku_Repr *R, char const *s, size_t n);
+bool
+sudoku_init_string(sudoku_Game *G, char const *s, size_t n);
 
-int
-sudoku_repr_init(sudoku_Repr *R, char *buffer, size_t len, char target);
-
-int
+/*
+ Description:
+    Retrieves the digit at the given row and column. Note that zero (0)
+    indicates an absence of any value.
+ */
+sudoku_Digit
 sudoku_get(sudoku_Game *G, int row, int col);
 
-void
-sudoku_set(sudoku_Game *G, int row, int col, int value);
+sudoku_DigitSet
+sudoku_candidates(sudoku_Game *G, int row, int col);
+
+/*
+ Description:
+    Sets the given row and column to the given digit and updates the
+    state of possible candidates aross the board.
+
+ Returns:
+    `true` if nothing wrong occurred, else `false` if said candidate
+    resulted in an unsolvable board.
+ */
+bool
+sudoku_fill(sudoku_Game *G, int row, int col, sudoku_Digit cell);
 
 /*
  Description:
@@ -166,15 +144,14 @@ sudoku_set(sudoku_Game *G, int row, int col, int value);
     SUDOKU_UNSOLVABLE - The given board doesn't have a solution.
  */
 int
-sudoku_solve(sudoku_Game *G, int *step_count);
+sudoku_solve(sudoku_Game *G);
 
 /*
  Returns a boolean:
     1 - Keep stepping through.
     0 - Quit immediately regardless of the solution state.
  */
-typedef int (*sudoku_StepFn)(sudoku_Game *G, void *user_data, int step_count);
-
+typedef bool (*sudoku_StepFn)(sudoku_Game *G, void *user_data, int row, int col);
 /*
  Description:
     Solves the given Sudoku board in-place while tracking some information
@@ -186,18 +163,12 @@ typedef int (*sudoku_StepFn)(sudoku_Game *G, void *user_data, int step_count);
     SUDOKU_TERMINATED - The callback step function told us to terminate early.
  */
 int
-sudoku_solve_stepwise(sudoku_Game *G,
-    sudoku_StepFn step_fn,
-    void *        user_data,
-    int *         step_count);
+sudoku_solve_stepwise(sudoku_Game *G, sudoku_StepFn step_fn, void *user_data);
 
-int
-sudoku_is_valid(sudoku_Game *G);
+bool
+sudoku_grid_is_valid(sudoku_Game *G);
 
-int
-sudoku_cell_is_valid(sudoku_Game *G, int row, int col, int value);
-
-char const *
-sudoku_to_string(sudoku_Game *G, size_t *out_len);
+bool
+sudoku_digit_is_valid(sudoku_Game *G, int row, int col, sudoku_Digit value);
 
 #endif /* SUDOKU_H */
