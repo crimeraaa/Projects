@@ -1,4 +1,8 @@
-#include <stdio.h>  // fgets, fputc, fputs, fprintf
+#include <consoleapi.h>
+#include <consoleapi2.h>
+#define _CRT_SECURE_NO_WARNINGS
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
 
 #include "sudoku.h"
 #include "sudoku.c"
@@ -48,6 +52,9 @@ Refer to: https://en.wikipedia.org/wiki/Box-drawing_characters
     "└───┴───┴───┸───┴───┴───┸───┴───┴───┘\n" \
 
 
+#define REPR_ASCII_ROW_BLANK \
+    "                                                                               \n"
+
 #define REPR_ASCII_ROW_SEP \
     "                         |                           |                         \n"
 
@@ -93,20 +100,25 @@ typedef enum {
 
 typedef struct repl_State repl_State;
 struct repl_State {
-    FILE *   input;
-    FILE *   output;
+    HANDLE   handle;
     repl_Cmd prev_cmd;
     int      step_count;
 
     // Representation information.
     int      line_count;
-    char *   grid_buffer;
-    size_t   grid_len;
+    char *   buffer;
+    size_t   buffer_len;
+
+    /*
+     Portion of the buffer that is reserved for the prompt and/or messages.
+     */
+    char *   user_start;
+    size_t   user_len;
 
     /*
      Each row and column maps to a box of candidates.
      */
-    short    grid_indexes[SUDOKU_GRID_ROWS][SUDOKU_GRID_COLS][SUDOKU_BOX_SIZE];
+    short    indexes[SUDOKU_GRID_ROWS][SUDOKU_GRID_COLS][SUDOKU_BOX_SIZE];
 };
 
 static char const sample_easy[] =
@@ -151,77 +163,22 @@ static char const sample_vicious[] =
     "3 . . | . 2 . | . . ."
 ;
 
-// NOTE(2026-08-09): These only work on the *visible* view port.
-// https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
-#define ESC "\x1b"
-#define CSI ESC "["
-
-static void
-cursor_previous_line(FILE *stream, int count)
-{
-    fprintf(stream, CSI "%iF", count);
-}
-
-/*
- Arguments
-    row - 1-based index. 1 refers to the upper-most row.
-    col - 1-based index. 1 refers to the left-most column.
- */
-static void
-cursor_position(FILE *stream, int row, int col)
-{
-    fprintf(stream, CSI "%i;%iH", row, col);
-}
-
-// Options common to `erase_*()`.
-typedef enum {
-    ERASE_END,
-    ERASE_BEGIN,
-    ERASE_ENTIRE,
-} erase_Mode;
-
-/*
- Arguments for `mode`:
-    ERASE_END    - Clear from cursor to the *end* of the line.
-    ERASE_BEGIN  - Clear from cursor to the *beginning* of the line.
-    ERASE_ENTIRE - Clear the *entire* line.
- */
-static void
-erase_line(FILE *stream, erase_Mode mode)
-{
-    fprintf(stream, CSI "%iK", mode);
-}
-
-/*
- Arguments for `mode`:
-    ERASE_END    - Clear from cursor to *end* of the screen.
-    ERASE_BEGIN  - Clear from cursor to the *beginning* of the screen.
-    ERASE_ENTIRE - Clear the *entire* screen. On DOS ANSI.SYS, this also moves
-                   the cursor to the upper left.
- */
-static void
-erase_display(FILE *stream, erase_Mode mode)
-{
-    fprintf(stream, CSI "%iJ", mode);
-}
-
-static void
-erase_previous_lines(FILE *stream, int count)
-{
-    while (count-- > 0) {
-        cursor_previous_line(stream, 1);
-        erase_line(stream, ERASE_ENTIRE);
-    }
-}
-
 static char const *
-read_line(FILE *stream, size_t *input_len)
+repl_read_line(repl_State *R, size_t *input_len)
 {
     static char buf[256];
-    char *      input;
-    size_t      n = 0;
+    char *      input = NULL;
+    size_t      n     = 0;
 
-    input = fgets(buf, sizeof(buf), stream);
+    DWORD hack = 0;
+    CONSOLE_READCONSOLE_CONTROL ctrl;
+
+    ctrl.nLength           = sizeof(ctrl);
+    ctrl.nInitialChars     = 0;
+    ctrl.dwCtrlWakeupMask  = (1 << 3) | (1 << 4) | (1 << 26); // <Ctrl-{CDZ}>
+    ctrl.dwControlKeyState = 0;
+
+    ReadConsoleA(R->handle, buf, sizeof(buf), &hack, &ctrl);
     if (input) {
         n        = strcspn(input, "\r\n");
         input[n] = 0;
@@ -233,6 +190,32 @@ read_line(FILE *stream, size_t *input_len)
     return input;
 }
 
+static void
+repl_draw(repl_State *R)
+{
+    DWORD n_bytes  = 0;
+    COORD top_left = {0, 0};
+    WriteConsoleOutputCharacterA(R->handle,
+        R->buffer, R->buffer_len,
+        top_left,
+        &n_bytes);
+}
+
+static void
+repl_write_string(repl_State *R, char const *s, size_t n, DWORD *x_offset)
+{
+    DWORD n_bytes = 0;
+    if (!x_offset) {
+        x_offset = &n_bytes;
+    }
+
+    COORD bottom_left = {*x_offset, R->line_count};
+    WriteConsoleOutputCharacterA(R, s, n, bottom_left, &n_bytes);
+    *x_offset += n_bytes;
+}
+
+#define repl_write_string(R, s, ofs) (repl_write_string)(R, s, sizeof(s) - 1, ofs)
+
 static repl_Cmd
 read_command(repl_State *R)
 {
@@ -240,9 +223,10 @@ read_command(repl_State *R)
     size_t      input_len;
     repl_Cmd    cmd = CMD_NONE;
 
+    DWORD x_offset = 0;
     for (;;) {
-        fprintf(R->output, "Option ([Ff]inish, [Nn]ext, [Qq]uit): ");
-        input = read_line(R->input, &input_len);
+        repl_write_string(R, "Option ([Ff]inish, [Nn]ext, [Qq]uit): ", &x_offset);
+        input = repl_read_line(R, &input_len);
         if (input_len == 1) switch (input[0]) {
         case 'F':
         case 'f': cmd = CMD_FINISH; break;
@@ -268,11 +252,6 @@ read_command(repl_State *R)
             return R->prev_cmd;
         }
 
-        // Otherwise, said non-null input is an invalid option.
-        // Since the stdout cursor got placed on a new line,
-        // move up one line in order to erase the prompt and input.
-        erase_previous_lines(R->output, 1);
-
         // Non-empty (i.e. length is non-zero) input means an invalid option.
         // It's possible to have non-null but empty (i.e. length is zero) input.
         //
@@ -280,25 +259,11 @@ read_command(repl_State *R)
         // This gets trimmed so we only see an empty string. In that case we
         // just want to re-prompt without mentioning the error.
         if (input_len != 0) {
-            fprintf(R->output, "Unknown option '%s'. ", input);
+            x_offset = 0;
+            repl_write_string(R, "Unknown option. ", &x_offset);
         }
     }
     return 0;
-}
-
-static void
-repl_erase(sudoku_Game *G, repl_State *R, int extra_line_count)
-{
-    // Erase, for example, step counter information and/or prompt with input.
-    // They are variably sized so this helps erase old data we may
-    // not overwrite on subsequent calls.
-    erase_previous_lines(R->output, R->line_count + extra_line_count);
-
-    // Move the cursor back to the upper left of the grid so we can
-    // overwrite it. Since we assume the grid is always the same size
-    // across calls, we don't need to erase it since we'll always
-    // successfully write on top of old data.
-    // cursor_previous_line(R->output, R->line_count);
 }
 
 static char
@@ -322,8 +287,8 @@ sudoku_digit2char(sudoku_Digit digit)
 static void
 repl_write_digit(repl_State *R, int row, int col, sudoku_Digit digit)
 {
-    short i = R->grid_indexes[row][col][digit - 1];
-    char *p = &R->grid_buffer[i];
+    short i = R->indexes[row][col][digit - 1];
+    char *p = &R->buffer[i];
     *p = sudoku_digit2char(digit);
 }
 
@@ -353,7 +318,7 @@ repl_to_string(sudoku_Game *G, repl_State *R)
             }
         }
     }
-    return R->grid_buffer;
+    return R->buffer;
 }
 
 static bool
@@ -376,48 +341,40 @@ repl_step(sudoku_Game *G, void *user_data, int row, int col)
     case CMD_FINISH: break;
     }
 
-    if (R->step_count++ > 0) {
-        // Erase the previous grid, step counter, candidate info.
-        // Also erase the prompt/input we just got.
-        repl_erase(G, R, 4);
-    } else {
-        // Erase the previous grid along with the prompt/input we just got.
-        repl_erase(G, R, 2);
-    }
-
+    R->step_count++;
     repr = repl_to_string(G, R);
-    fprintf(R->output, "%sSteps taken so far: %i.\n", repr, R->step_count);
+
+    repl_draw(R);
+    fprintf(R->handle, "Steps taken so far: %i.\n", R->step_count);
 
     sudoku_DigitSet cand_set     = sudoku_candidates(G, row, col);
     int             cand_written = 0;
-    fprintf(R->output, "[%i,%i] = 0x%02x{", row, col, cand_set);
+    fprintf(R->handle, "[%i,%i] = 0x%02x{", row, col, cand_set);
     for (sudoku_Digit d = SUDOKU_DIGIT_MIN; d <= SUDOKU_DIGIT_MAX; d++) {
         if (cand_set & (1 << cast(sudoku_DigitSet)(d - 1))) {
             if (cand_written++ > 0) {
-                fputc(',', R->output);
+                fputc(',', R->handle);
             }
-            fputc(sudoku_digit2char(d), R->output);
+            fputc(sudoku_digit2char(d), R->handle);
         }
     }
-    fputs("}\n", R->output);
+    fputs("}\n", R->handle);
     return true;
 }
 
 static int
 repl_run(sudoku_Game *G, repl_State *R)
 {
-    char const *repr;
-    int         status     = 0;
+    int status     = 0;
 
-    repr   = repl_to_string(G, R);
-    fprintf(R->output, "%s", repr);
+    repl_draw(R);
     status = sudoku_solve_stepwise(G, repl_step, R);
     switch (status) {
     case SUDOKU_OK:
-        fprintf(R->output, "Steps taken: %i.\n", R->step_count);
+        fprintf(R->handle, "Steps taken: %i.\n", R->step_count);
         break;
     case SUDOKU_UNSOLVABLE:
-        fprintf(R->output, "No solution found after %i steps.\n",
+        fprintf(R->handle, "No solution found after %i steps.\n",
             R->step_count);
         break;
     case SUDOKU_TERMINATED:
@@ -426,40 +383,73 @@ repl_run(sudoku_Game *G, repl_State *R)
     return 0;
 }
 
+typedef enum {
+    LINE_BLANK,
+    LINE_SEP,
+    LINE_CELLS,
+} repl_LineKind;
+
+typedef struct repl_Line repl_Line;
+struct repl_Line {
+    repl_LineKind kind;
+    char *        start;
+    char *        stop;
+};
+
 static bool
-repl_lines(char **out_start, char **out_stop, char **state)
+repl_lines(repl_State *R, repl_Line *line, char **state)
 {
     char *p = *state;
     char *q = p;
-    for (; *q != 0; q++) {
-        if (*q == '\n') {
+    line->kind = LINE_BLANK;
+    while (*q != 0) {
+        switch (*q++) {
+        case '\n':
+            R->line_count++;
+            goto loop_done;
+        case '|':
+            line->kind = LINE_SEP;
+            break;
+        case REPR_GRID_CHAR:
+            line->kind = LINE_CELLS;
+            break;
+        default:
             break;
         }
     }
 
+loop_done:
     if (*q == 0) {
         return false;
     }
 
-    *out_start = p;
-    *out_stop  = q;
-    *state     = q + 1;
+    line->start = p;
+    line->stop  = q;
+    *state      = q + 1;
     return true;
 }
 
 static bool
-repl_init(repl_State *R, FILE *input, FILE *output, char *buffer, size_t len)
+repl_init(repl_State *R, char *buffer, size_t len)
 {
     if (!(buffer && len > SUDOKU_GRID_SIZE && buffer[len - 1] == 0)) {
         return false;
     }
 
-    R->input           = input;
-    R->output          = output;
-    R->prev_cmd        = CMD_NONE;
-    R->step_count      = 0;
-    R->grid_buffer     = buffer;
-    R->grid_len        = len;
+    HANDLE h = CreateConsoleScreenBuffer(
+        /*dwDesiredAccess     =*/GENERIC_READ | GENERIC_WRITE,
+        /*dwShareMode         =*/0,
+        /*lpSecurityAttributes=*/NULL,
+        /*dwFlags             =*/CONSOLE_TEXTMODE_BUFFER,
+        /*lpScreenBufferData  =*/NULL
+    );
+
+    SetConsoleActiveScreenBuffer(h);
+    R->handle     = h;
+    R->prev_cmd   = CMD_NONE;
+    R->step_count = 0;
+    R->buffer     = buffer;
+    R->buffer_len = len;
     R->line_count = 0;
 
     // Index of the grid cell we are at.
@@ -472,10 +462,19 @@ repl_init(repl_State *R, FILE *input, FILE *output, char *buffer, size_t len)
     // This makes us slower as we now traverse (line-count * (line-length * 2))
     // times through the format buffer, but it makes line handling easier.
     char *state = buffer;
-    for (char *start, *stop; repl_lines(&start, &stop, &state); R->line_count++) {
-        int grid_col = 0;
-        int cand_col = 0;
-        for (char *p = start; p < stop; p++) {
+    repl_Line line;
+    while (repl_lines(R, &line, &state)) {
+        int grid_col = 0, cand_col = 0;
+        switch (line.kind) {
+        case LINE_BLANK:
+            R->user_start = line.start;
+            R->user_len   = cast(size_t)(line.stop - line.start);
+            continue;
+        case LINE_SEP:   continue;
+        case LINE_CELLS: break;
+        }
+
+        for (char *p = line.start; p < line.stop; p++) {
             short buf_index, cand_index;
             if (*p != REPR_GRID_CHAR) {
                 continue;
@@ -484,7 +483,7 @@ repl_init(repl_State *R, FILE *input, FILE *output, char *buffer, size_t len)
             buf_index  = cast(short)(p - buffer);
             cand_index = (cand_row * SUDOKU_BOX_ROWS) + cand_col;
 
-            R->grid_indexes[grid_row][grid_col][cand_index] = buf_index;
+            R->indexes[grid_row][grid_col][cand_index] = buf_index;
             buffer[buf_index] = '.';
 
             // Exhausted the candidate columns for this cell?
@@ -500,12 +499,6 @@ repl_init(repl_State *R, FILE *input, FILE *output, char *buffer, size_t len)
                 }
                 cand_col = 0;
             }
-        }
-
-        // If no grids were written, then we must be in a separator line.
-        // Don't update the row counters.
-        if (grid_col == 0) {
-            continue;
         }
 
         // After each candidate cell row, we know we want to move on to the
@@ -531,9 +524,9 @@ main(void)
     // Don't pass the string literal directly as we want to mutate it.
     // So save it into a mutable buffer beforehand.
     static char buffer[] = REPR_ASCII;
-    repl_init(&R, stdin, stdout, buffer, sizeof(buffer));
+    repl_init(&R, buffer, sizeof(buffer));
     if (!sudoku_init_string(&G, sample_easy, sizeof(sample_easy) - 1)) {
-        fprintf(R.output, "Invalid board received.\n");
+        repl_write_string(&R, "Invalid board received.\n", NULL);
         return 1;
     }
     return repl_run(&G, &R);
