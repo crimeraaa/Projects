@@ -1,6 +1,5 @@
 #include "tui_win.h"
 #include <consoleapi2.h>
-#include <winbase.h>
 
 #define cast(T)             (T)
 #define count_of(array)     (sizeof(array) / sizeof((array)[0]))
@@ -11,24 +10,34 @@ typedef struct repl_State repl_State;
 struct repl_State {
     tui_Windows T;
     CHAR_INFO * user_buffer;
+
+    /*
+     2-dimensional coordinates of the first valid character we can write to
+     in the user buffer. That is, it is beyond the reserved range but before
+     the end range.
+     */
     COORD       user_cursor;
 
     /*
-     Track many characters are available to be written in the user buffer.
-     In other words, this is the maximum x-offset for the user buffer.
+     2-dimensional coordinates of the last valid character we can write in
+     the user buffer. Use the x-offset to determine the maximum length for
+     a line.
 
      This is necessary to prevent buffer overflows as our grid buffer is
      NOT nul-terminated.
      */
-    i16         user_len;
+    COORD       user_end;
 
 
     /*
-     Index of the first character in the user buffer not reserved for
-     messages. This enables us to preserve prompts when handling
-     interactive input.
+     2-dimensional coordinates of the last character in the user buffer
+     reserved for messages. This enables us to preserve, say, prompts
+     when handling interactive input.
+
+     All coordinates beyond this one are assumed to be valid for mutation by
+     the interactive input.
      */
-    i16         user_reserved;
+    COORD       user_reserved;
 };
 
 typedef struct repl_Line repl_Line;
@@ -51,7 +60,7 @@ repl_lines(repl_State *R, repl_Line *const s, CHAR_INFO **const state)
         return false;
     }
 
-    len   = T->grid_size.X;
+    len   = R->user_end.X;
     stop  = start + len;
 
     // Loop state.
@@ -61,18 +70,96 @@ repl_lines(repl_State *R, repl_Line *const s, CHAR_INFO **const state)
     return true;
 }
 
+#if 0
+#include <stdio.h>
+#define repl_logf(format, ...) \
+    fprintf(stderr, "[INFO] %s:%i: " format "\n", \
+        __func__, __LINE__, __VA_ARGS__)
+#else
+#define repl_logf(format, ...)  ((void)0)
+#endif
 
+#define repl_log(message, pos) \
+    repl_logf("%s [x = %2i, y = %2i]", message, (pos).X, (pos).Y)
+
+#define repl_logln(message) \
+    repl_logf("%s", message)
+
+/*
+ Description:
+    Sets the current user cursor to the given 2-dimensional coordinates.
+    This function assumes you know what you are doing; it does not
+    bounds-check!
+ */
 static void
-repl_update_user_cursor(repl_State *R, i16 x)
+repl_update_user_cursor(repl_State *R, COORD pos)
 {
-    R->user_cursor.X = x;
-    SetConsoleCursorPosition(R->T.handle, R->user_cursor);
+    R->user_cursor = pos;
+    SetConsoleCursorPosition(R->T.handle, pos);
 }
 
-static void
-repl_update_user_buffer(repl_State *R, i16 i, char c)
+/*
+ Description:
+    Converts the absolute 2-dimensional coordinates into an absolute
+    1-dimensional index. This function assumes you know what you are
+    doing!
+ */
+static u32
+repl_make_index(repl_State *R, COORD pos)
 {
-    R->user_buffer[i].Char.AsciiChar = c;
+    u32 x, y, k;
+
+    x = cast(u32)pos.X;
+    y = cast(u32)pos.Y;
+    k = cast(u32)R->T.grid_size.X;
+    return x + (y * k);
+}
+
+static char *
+repl_get_user_buffer(repl_State *R, COORD pos)
+{
+    u32 i = repl_make_index(R, pos);
+    return &R->user_buffer[i].Char.AsciiChar;
+}
+
+/*
+ Description:
+    Unconditionally writes the given character to the TUI grid location,
+    specified by the asolute x and y coordinates. This function assumes
+    you know what you are doing as it does not bounds-check!
+ */
+static void
+repl_update_user_buffer(repl_State *R, COORD pos, char c)
+{
+    *repl_get_user_buffer(R, pos) = c;
+    repl_logf("Wrote character '%c'", c);
+}
+
+static bool
+repl_coords(COORD *out, COORD *state, COORD stop)
+{
+    repl_log("state = ", *state);
+    repl_log("stop  = ", stop);
+    *out = *state;
+    // Innermost loop: column-wise.
+    if (state->X + 1 <= stop.X) {
+        state->X++;
+        return true;
+    }
+
+    // Exhausted the columns for this current line, so prepare to move onto
+    // the next line.
+    state->X = 0;
+    out->X   = 0;
+
+    // Outermost loop: line-wise.
+    if (state->Y + 1 <= stop.Y) {
+        state->Y++;
+        return true;
+    }
+
+    // We've run out of lines.
+    return false;
 }
 
 /*
@@ -83,10 +170,12 @@ repl_update_user_buffer(repl_State *R, i16 i, char c)
 static void
 repl_reset_user_buffer(repl_State *R)
 {
-    for (i16 i = R->user_reserved, n = R->user_cursor.X; i < n; i++) {
-        repl_update_user_buffer(R, i, ' ');
+    COORD start = R->user_reserved;
+    COORD stop  = R->user_cursor;
+    for (COORD pos, state = start; repl_coords(&pos, &state, stop);) {
+        repl_update_user_buffer(R, pos, ' ');
     }
-    repl_update_user_cursor(R, R->user_reserved);
+    repl_update_user_cursor(R, start);
 }
 
 /*
@@ -95,73 +184,106 @@ repl_reset_user_buffer(repl_State *R)
      as immutable.
  */
 static void
-repl_set_user_reserved(repl_State *R)
+repl_reserve_current(repl_State *R)
 {
-    R->user_reserved = R->user_cursor.X;
+    R->user_reserved = R->user_cursor;
 }
 
-static void
+/*
+ Description:
+    'Increments' the given coordinates, wrapping it in accordance to the
+    given stop coordinate.
+ */
+static bool
+repl_coord_incr(COORD *pos, COORD stop)
+{
+    // Don't add 1; we still want to increment to go *over* so
+    // that we can proceed to the last, reserved, line. Subsequent
+    // calls, however, won't be able to write into it.
+    if (pos->Y <= stop.Y) {
+        // We can keep writing to the current line?
+        if (pos->X + 1 <= stop.X) {
+            pos->X++;
+        }
+        // We can write to the *next* line, excluding the last one?
+        else {
+            pos->X = 0;
+            pos->Y++;
+        }
+        return true;
+    }
+    // We would overflow the buffer otherwise.
+    return false;
+}
+
+
+static bool
 repl_write_char(repl_State *R, char c)
 {
-    // Otherwise, if we'd overflow, don't write anymore.
-    int x = R->user_cursor.X + 1;
-    if (x <= R->user_len) {
-        repl_update_user_buffer(R, x - 1, c);
-        repl_update_user_cursor(R, x);
+    COORD curr = R->user_cursor;
+    COORD next = curr;
+    bool  ok   = repl_coord_incr(&next, R->user_end);
+    if (ok) {
+        repl_update_user_buffer(R, curr, c);
+        repl_update_user_cursor(R, next);
     }
+    return ok;
+}
+
+static bool
+repl_coord_decr(COORD *pos, COORD start, COORD stop)
+{
+    // If we're on the same line as the reserved region, then clamp to
+    // their x-offset. Otherwise we're on a line we have full free reign
+    // over.
+    i16 x_check = (pos->Y == start.Y) ? start.X : 0;
+    if (pos->X - 1 >= x_check) {
+        pos->X--;
+    } else if (pos->Y - 1 >= start.Y) {
+        pos->X = stop.X;
+        pos->Y--;
+    } else {
+        return false;
+    }
+    return true;
 }
 
 static char
 repl_pop_char(repl_State *R)
 {
     char *p;
-    char  c = 0;
-    int   x = R->user_cursor.X - 1;
-    if (x >= R->user_reserved) {
-        p  = &R->user_buffer[x].Char.AsciiChar;
+    char  c    = 0;
+    COORD prev = R->user_cursor;
+    if (repl_coord_decr(&prev, R->user_reserved, R->user_end)) {
+        p  = repl_get_user_buffer(R, prev);
         c  = *p;
         *p = ' ';
-    } else {
-        x = R->user_reserved;
+        repl_update_user_cursor(R, prev);
     }
-    repl_update_user_cursor(R, x);
     return c;
 }
 
 /*
  Description:
     Writes the given string, of specified length, to the user buffer.
-    If the length would overflow the remainder of the buffer, then it
-    is clamped. The user buffer x-offset is incremented accordingly.
+    Said string may be split across multiple lines.
  */
 static void
 repl_write_string(repl_State *R, char const *s, i16 n)
 {
-    i16 x_offset = R->user_cursor.X;
-    i16 n_writes = n;
-
-    // Ensure that if we were to write this string starting at the current
-    // offset then we don't overflow the buffer. This means we may not write
-    // the entire string- we'll report how many bytes we actually wrote.
-    if (n_writes > R->user_len - x_offset) {
-        // We assume that this will never become negative.
-        n_writes = R->user_len - x_offset;
+    for (i16 i = 0; i < n; i++) {
+        repl_logf("Wrote char %i '%c'", i, s[i]);
+        if (!repl_write_char(R, s[i])) {
+            break;
+        }
     }
-
-    for (i16 i = 0; i < n_writes; i++) {
-        repl_update_user_buffer(R, i + x_offset, s[i]);
-    }
-
-    // Could have written 0 bytes (e.g. at end of visible buffer)
-    repl_update_user_cursor(R, x_offset + n_writes);
 }
 
 static bool
-repl_init(repl_State *R, CHAR_INFO *grid,  i16 x, i16 y)
+repl_init(repl_State *R, CHAR_INFO *grid, i16 x, i16 y)
 {
     tui_Windows *T    = &R->T;
-    COORD const  dims = {x, y};
-
+    COORD const  size = {x, y};
 #if 1
     // https://learn.microsoft.com/en-us/windows/console/createconsolescreenbuffer
     T->handle = CreateConsoleScreenBuffer(
@@ -179,33 +301,31 @@ repl_init(repl_State *R, CHAR_INFO *grid,  i16 x, i16 y)
         return false;
     }
 
-    // if (!SetConsoleScreenBufferSize(T->handle, dims)) {
-    //     return false;
-    // }
-
+    // May fail- that's fine. This is just a precaution in case our grid is
+    // larger than the current buffer. Otherwise, we'd potentially overrun
+    // said internal buffer without realizing.
+    SetConsoleScreenBufferSize(T->handle, size);
 #else
     // Debug only when we need ASAN reports. Otherwise, our console screen
     // buffer will cause terminal to crash upon ASAN trying to load in!
     T->handle = GetStdHandle(STD_OUTPUT_HANDLE);
 #endif
 
-    T->grid        = grid;
-    T->grid_end    = grid + (cast(u32)y * cast(u32)x);
-    T->grid_size   = dims;
-    R->user_buffer = NULL;
-    R->user_len    = 0;
-    R->user_reserved = 0;
+    T->grid          = grid;
+    T->grid_end      = grid + (cast(u32)x * cast(u32)y);
+    T->grid_size     = size;
 
     CHAR_INFO *state = grid;
     repl_Line  line;
     while (repl_lines(R, &line, &state)) {}
 
 
-    // We assume that the last line *is* the user buffer.
-    COORD last_loc = {0, y - 1};
-    R->user_cursor = last_loc;
-    R->user_buffer = line.data;
-    R->user_len    = line.len;
+    // We assume that the last 3 lines *are* the user buffer,
+    // but only first 2 of these lines can actually be written to.
+    R->user_cursor   = (COORD){0, y - 3};
+    R->user_buffer   = line.data;
+    R->user_end      = (COORD){x - 1, y - 2};
+    R->user_reserved = R->user_cursor;
     return true;
 }
 
@@ -219,8 +339,8 @@ repl_draw(repl_State *R)
     SMALL_RECT write_region = {
         /*Left  =*/0,
         /*Top   =*/0,
-        /*Right =*/T->grid_size.X,
-        /*Bottom=*/T->grid_size.Y};
+        /*Right =*/R->user_end.X,
+        /*Bottom=*/R->user_end.Y};
 
     WriteConsoleOutputA(T->handle,
         /*lpBuffer      =*/T->grid,
@@ -229,6 +349,11 @@ repl_draw(repl_State *R)
         /*lpWriteRegion =*/&write_region);
 }
 
+/*
+ TODO(2026-08-13)
+    Add arrow key movement through the buffer? This will require a LOT of
+    handling...
+ */
 static bool
 repl_handle_key_event(repl_State *R, KEY_EVENT_RECORD key)
 {
@@ -239,6 +364,11 @@ repl_handle_key_event(repl_State *R, KEY_EVENT_RECORD key)
     }
 
     switch (key.wVirtualKeyCode) {
+    /*
+     TODO(2026-08-13):
+        Add <Ctrl><Backspace> support to erase entire alphanumeric sequences
+        at a time?
+     */
     case VK_BACK:
         // Don't literally write the '\b' byte!
         repl_pop_char(R);
@@ -272,12 +402,16 @@ repl_handle_key_event(repl_State *R, KEY_EVENT_RECORD key)
     case VK_OEM_PERIOD: // '.' for any country
     case VK_OEM_2:      // '/' and '?' for US keyboards
     case VK_OEM_3:      // '`' and '~' for US keyboards
-
+    case VK_OEM_4:
+    case VK_OEM_5:
+    case VK_OEM_6:
+    case VK_OEM_7:
+    case VK_OEM_8:
+    case VK_OEM_102:
         // Mirror the input character into the user buffer.
         repl_write_char(R, key.uChar.AsciiChar);
         break;
     }
-
     repl_draw(R);
     return true;
 }
@@ -308,22 +442,10 @@ repl_write_error(void)
 }
 
 static void
-repl_read(repl_State *R)
+repl_read(repl_State *R, HANDLE input_handle)
 {
-    static char const prompt[] = "Input: ";
     tui_Windows *T = &R->T;
 
-    repl_reset_user_buffer(R);
-    repl_write_string(R, prompt, sizeof(prompt) - 1);
-    repl_set_user_reserved(R);
-    repl_draw(R);
-
-    /*
-     TODO(2026-08-12):
-        Can we figure out a way to NOT use this handle, and instead
-        use *OUR* own damn handle?
-     */
-    HANDLE input_handle = GetStdHandle(STD_INPUT_HANDLE);
     bool is_reading = true;
     while (is_reading) {
         /*
@@ -336,10 +458,11 @@ repl_read(repl_State *R)
         if (!ReadConsoleInputA(input_handle, inputs, count_of(inputs), &n_read)) {
             repl_write_error();
             is_reading = false;
+            break;
         }
 
-
         for (u32 i = 0; i < n_read; i++) {
+            // Discard all non-key events.
             if (n_read && inputs[i].EventType != KEY_EVENT) {
                 continue;
             }
@@ -362,9 +485,18 @@ repl_run(repl_State *R)
     repl_pop_char(R);
     repl_write_char(R, '!');
     repl_draw(R);
+
+    // Let it simmer
     Sleep(1000);
 
-    repl_read(R);
+    static char const prompt[] = "Input: ";
+    repl_reset_user_buffer(R);
+    repl_write_string(R, prompt, sizeof(prompt) - 1);
+    repl_reserve_current(R);
+    repl_draw(R);
+
+    HANDLE h_input = GetStdHandle(STD_INPUT_HANDLE);
+    repl_read(R, h_input);
     return 0;
 }
 
@@ -398,7 +530,9 @@ main(void)
         BROW_STR
         BSEP_STR
         BROW_STR
-        BUFR_STR // User buffer mirror.
+        BUFR_STR // User buffer mirror line 1.
+        BUFR_STR // User buffer mirror line 2.
+        BUFR_STR // User buffer mirror line 3- reserved for cursor wrapping only.
     };
 
     // Sans nul terminators.
