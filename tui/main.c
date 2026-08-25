@@ -1,4 +1,3 @@
-#include "tui_win.h"
 #include "tui_win.c"
 
 typedef struct repl_State repl_State;
@@ -8,17 +7,23 @@ struct repl_State {
     FILE *    log_file;
 };
 
+// The 'W' business was taken from Casey Muratori. It's actually a virtual
+// drive to the repo, i.e. instead of typing "C:\\Users\\...\\Projects\\tui"
+// you can just type "W:\\tui".
+//
+// On Windows CMD, use the `subst` command like so: `subst W: <path>`
+#define LOG_FILE_NAME   "W:\\tui\\log.txt"
+
 static bool
-repl_init(repl_State *R, CHAR_INFO *grid, i16 x, i16 y)
+repl_init(repl_State *R, tui_Cell *grid, i16 x, i16 y)
 {
-    tui_State * T             = &R->T;
-    char const *log_file_name = "W:\\tui\\log.txt";
-    R->log_file = freopen(log_file_name, "w", stderr);
+    tui_State *T = &R->T;
+    R->log_file = freopen(LOG_FILE_NAME, "w", stderr);
     if (!R->log_file) {
-        tui_log_errorf("Failed to redirect stderr to file '%s'.", log_file_name);
+        tui_log_errorf("Failed to redirect stderr to file '%s'.", TUI_TEXT(LOG_FILE_NAME));
         return false;
     }
-    tui_log_infof("Redirected stderr to file '%hs'.", log_file_name);
+    tui_log_infof("Redirected stderr to file '%s'.", TUI_TEXT(LOG_FILE_NAME));
     tui_log_info("REPL is initializing TUI...");
     if (!tui_init(T, grid, x, y)) {
         tui_log_info("...failed to initialize TUI.");
@@ -66,7 +71,7 @@ repl_run(repl_State *R)
     tui_append_string(T, bounds, msg, sizeof(msg) - 1);
 
     // Check if cursor manipulation is working correctly
-    tui_remove_prev_char(T, bounds);
+    tui_delete_left_char(T, bounds);
     tui_append_char(T, bounds, '!');
     tui_draw(T);
 
@@ -77,7 +82,7 @@ repl_run(repl_State *R)
     static i16  const prompt_len = sizeof(prompt) - 1;
 
     // Remove the previous string we wrote.
-    tui_remove_chars(T, bounds);
+    tui_delete_all_chars(T, bounds);
     tui_append_string(T, bounds, prompt, prompt_len);
 
     // Prevent the prompt from being overridden.
@@ -127,17 +132,15 @@ main(void)
     };
 
     // Sans nul terminators.
-    static CHAR_INFO info[count_of(grid) - 1];
+    static tui_Cell info[count_of(grid) - 1];
     for (short i = 0; i < count_of(info); i++) {
-        CHAR_INFO *p        = &info[i];
+        tui_Cell *p         = &info[i];
         p->Char.UnicodeChar = grid[i];
         p->Attributes       = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
     }
 
     short const x = count_of(CROW_STR) - 1;
     short const y = count_of(grid) / x;
-
-    freopen("log.txt", "w", stderr);
     if (!repl_init(&R, info, x, y)) {
         return repl_write_error();
     }

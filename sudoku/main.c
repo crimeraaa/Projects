@@ -1,11 +1,7 @@
-#include <consoleapi.h>
-#include <consoleapi2.h>
-#define _CRT_SECURE_NO_WARNINGS
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
-
 #include "sudoku.h"
 #include "sudoku.c"
+
+#include "../tui/tui_win.c"
 
 #define cast(T) (T)
 
@@ -100,20 +96,12 @@ typedef enum {
 
 typedef struct repl_State repl_State;
 struct repl_State {
-    HANDLE   handle;
+    tui_State T;
     repl_Cmd prev_cmd;
     int      step_count;
 
     // Representation information.
     int      line_count;
-    char *   buffer;
-    size_t   buffer_len;
-
-    /*
-     Portion of the buffer that is reserved for the prompt and/or messages.
-     */
-    char *   user_start;
-    size_t   user_len;
 
     /*
      Each row and column maps to a box of candidates.
@@ -436,6 +424,8 @@ repl_init(repl_State *R, char *buffer, size_t len)
         return false;
     }
 
+    tui_init(&R->T, )
+
     HANDLE h = CreateConsoleScreenBuffer(
         /*dwDesiredAccess     =*/GENERIC_READ | GENERIC_WRITE,
         /*dwShareMode         =*/0,
@@ -524,6 +514,12 @@ main(void)
     // Don't pass the string literal directly as we want to mutate it.
     // So save it into a mutable buffer beforehand.
     static char buffer[] = REPR_ASCII;
+    tui_Cell buffer2[sizeof(REPR_ASCII)];
+    for (size_t i = 0; i < sizeof(REPR_ASCII); i++) {
+        buffer2[i].Char.UnicodeChar = buffer2[i];
+        buffer2[i].Attributes       = 0;
+    }
+
     repl_init(&R, buffer, sizeof(buffer));
     if (!sudoku_init_string(&G, sample_easy, sizeof(sample_easy) - 1)) {
         repl_write_string(&R, "Invalid board received.\n", NULL);

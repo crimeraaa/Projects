@@ -94,7 +94,7 @@ typedef struct sudoku_Game          sudoku_Game;
 
 struct sudoku_Game {
     /*
-     The Sudokua grid's digits are stored, bitwise, in a column-major fashion.
+     The Sudoku grid's digits are stored, bitwise, in a column-major fashion.
      Row and column indices must be adjusted as such.
      */
     sudoku_Limb grid_digits[SUDOKU_LIMB_DIGIT_COUNT];

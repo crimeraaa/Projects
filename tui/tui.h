@@ -1,14 +1,51 @@
-#ifndef TUI_WINDOWS_H
-#define TUI_WINDOWS_H
+#ifndef TUI_H
+#define TUI_H
 
-/* stfu microslop */
+#ifdef _WIN32 /* PLATFORM-SPECIFIC {{{ */
+#define TUI_IS_WINDOWS 1
+#define TUI_IS_LINUX   0
+#define TUI_IS_MACOS   0
+#else
+#error Unknown platform!
+#endif
+
+
+#if TUI_IS_WINDOWS
+/* stdu microslop */
 #define _CRT_SECURE_NO_WARNINGS
 #define WIN32_LEAN_AND_MEAN
+
+#define UNICODE      /* Use the W versions of Win32 functions where available */
+#define _UNICODE     /* Use the wide character set for C runtime files. */
 #include <Windows.h> /* BYTE, DWORD, COORD, HANDLE, WORD */
+#include <wchar.h>   /* wchar_t */
+
+/*
+ On Windows, it is better to use their version of Unicode, which is UTF-16.
+ This will avoid the need for conversions from ASCII to UTF-16 and back.
+ */
+typedef wchar_t tui_char;
+
+/*
+ On Windows, this contains the data about each display character in some
+ output handle buffer. It includes the character value itself and some
+ attributes, like 3-bit RGB color, dimming/fading, among other effects.
+ */
+typedef CHAR_INFO tui_Cell;
+
+typedef HANDLE tui_Handle;
+
+#define TUI_TEXT_(s) L ## s
+#define TUI_TEXT(s)  TUI_TEXT_(s)
+
+#else
+#error Unsupported platform!
+#endif /* END: PLATFORM SPECIFIC }}} */
+
 #include <limits.h>  /* CHAR_BIT */
 #include <stddef.h>  /* size_t */
 #include <stdbool.h> /* bool, false, true */
-#include <stdio.h>   /* fprintf, stderr */
+#include <stdio.h>   /* [fs][w]printf, stderr */
 #include <stdint.h>  /* [u]int\d+_t */
 #include <wchar.h>   /* wchar_t */
 
@@ -27,45 +64,6 @@ typedef int16_t  i16;
 typedef int32_t  i32;
 typedef int64_t  i64;
 
-#if 1
-
-#define LOG_INFO  0
-#define LOG_WARN  1
-#define LOG_ERROR 2
-#define LOG_FATAL 3
-#define LOG_PANIC 4
-
-int
-(tui_logf)(int level, wchar_t const *path, int line, wchar_t const *format, ...);
-
-#define WIDE2(x)    L ## x
-#define WIDE1(x)    WIDE2(x)
-#define WFILE       WIDE1(__FILE__)
-
-#define tui_logf2(level, format, ...) \
-    (tui_logf)(level, WFILE, __LINE__, L ## format "\n", __VA_ARGS__)
-
-#else
-#define tui_logf2(format, ...)  ((void)0)
-#endif
-
-#define tui_log_infof(format, ...)  tui_logf2(LOG_INFO,  format, __VA_ARGS__)
-#define tui_log_warnf(format, ...)  tui_logf2(LOG_WARN,  format, __VA_ARGS__)
-#define tui_log_errorf(format, ...) tui_logf2(LOG_ERROR, format, __VA_ARGS__)
-#define tui_log_fatalf(format, ...) tui_logf2(LOG_FATAL, format, __VA_ARGS__)
-#define tui_log_panicf(format, ...) tui_logf2(LOG_PANIC, format, __VA_ARGS__)
-
-#define tui_logf_point(pos, format, ...) \
-    tui_log_infof("[x = %2i, y = %2i] " format, (pos).x, (pos).y, __VA_ARGS__)
-
-#define tui_log_point(pos, message) tui_logf_point(pos, "%s", L ## message)
-
-#define tui_log_info(message)   tui_log_infof ("%s", L ## message)
-#define tui_log_warn(message)   tui_log_warnf ("%s", L ## message)
-#define tui_log_error(message)  tui_log_errorf("%s", L ## message)
-#define tui_log_fatal(message)  tui_log_fatalf("%s", L ## message)
-#define tui_log_panic(message)  tui_log_panicf("%s", L ## message)
-
 /*
  Description:
     Representation of 2-dimensional coordinates, in terms of character cells.
@@ -80,18 +78,21 @@ struct tui_Point {
     i16 x, y;
 };
 
+/*
+ Description:
+    Representation of a 2-dimensional, (almost) rectangular region within
+    the buffer. Note that the starting point can have a nonzero x offset,
+    e.g. to make space for an input prompt.
+ */
 typedef struct tui_Box tui_Box;
 struct tui_Box {
     tui_Point start, stop;
 };
 
-
 typedef struct tui_State tui_State;
 struct tui_State {
-    HANDLE     h_output;
-    HANDLE     h_input;
-    HANDLE     h_saved;
-    CHAR_INFO *grid;
+    tui_Handle h_output, h_input, h_saved;
+    tui_Cell * grid;
 
     /*
      Description: 
@@ -101,8 +102,9 @@ struct tui_State {
         The x-offset refers to how many columns, while  the y-offset refers
         to how many rows there are in the grid that was given to us.
 
-        Note that the last valid coordinate is given by 'decrementing' this
-        by one (1).
+        Note that the last valid coordinate is given by both coordinates
+        minus 1. E.g. a 80 x 24 grid would have the last valid coordinate at
+        {79, 23}.
      */
     tui_Point grid_size;
 
@@ -116,13 +118,52 @@ struct tui_State {
     tui_Point cursor;
 };
 
+
+#if 1 /* LOGGING IMPLEMENTATION {{{ */
+
+typedef enum {
+    LOG_INFO,
+    LOG_WARN,
+    LOG_ERROR,
+    LOG_FATAL,
+    LOG_PANIC,
+} tui_LogLevel;
+
+int
+(tui_logf)(tui_LogLevel level, tui_char const *path, int line, tui_char const *format, ...);
+
+#define tui_logf2(level, format, ...) \
+    (tui_logf)(level, TUI_TEXT(__FILE__), __LINE__, TUI_TEXT(format) "\n", __VA_ARGS__)
+
+#else
+#define tui_logf2(format, ...)  ((void)0)
+#endif
+
+#define tui_log_infof(format, ...)  tui_logf2(LOG_INFO,  format, __VA_ARGS__)
+#define tui_log_warnf(format, ...)  tui_logf2(LOG_WARN,  format, __VA_ARGS__)
+#define tui_log_errorf(format, ...) tui_logf2(LOG_ERROR, format, __VA_ARGS__)
+#define tui_log_fatalf(format, ...) tui_logf2(LOG_FATAL, format, __VA_ARGS__)
+#define tui_log_panicf(format, ...) tui_logf2(LOG_PANIC, format, __VA_ARGS__)
+
+#define tui_logf_point(pos, format, ...) \
+    tui_log_infof("[x = %2i, y = %2i] " format, (pos).x, (pos).y, __VA_ARGS__)
+
+#define tui_log_point(pos, msg) tui_logf_point(pos, "%s", TUI_TEXT(msg))
+
+#define tui_log_info(msg)   tui_log_infof ("%s", TUI_TEXT(msg))
+#define tui_log_warn(msg)   tui_log_warnf ("%s", TUI_TEXT(msg))
+#define tui_log_error(msg)  tui_log_errorf("%s", TUI_TEXT(msg))
+#define tui_log_fatal(msg)  tui_log_fatalf("%s", TUI_TEXT(msg))
+#define tui_log_panic(msg)  tui_log_panicf("%s", TUI_TEXT(msg))
+/* LOGGING IMPLEMENTATION }}} */
+
 /*
  Description:
     Initializes the given TUI with the given 2-dimensional screen buffer.
     Said buffer is assumed to be row-major, i.e. C-style matrices.
  */
 bool
-tui_init(tui_State *T, CHAR_INFO *grid, i16 x, i16 y);
+tui_init(tui_State *T, tui_Cell *grid, i16 x, i16 y);
 
 bool
 tui_destroy(tui_State *T);
@@ -164,7 +205,7 @@ tui_peek_at(tui_State *T, tui_Point pos);
     console cursor's position updated.
  */
 void
-tui_poke_at(tui_State *T, tui_Point pos, wchar_t c);
+tui_poke_at(tui_State *T, tui_Point pos, tui_char c);
 
 
 /*
@@ -188,7 +229,7 @@ tui_draw(tui_State *T);
     no more space in the buffer to do so.
  */
 bool
-tui_append_char(tui_State *T, tui_Box bounds, wchar_t c);
+tui_append_char(tui_State *T, tui_Box bounds, tui_char c);
 
 /*
  Description:
@@ -215,7 +256,7 @@ tui_append_string(tui_State *T, tui_Box bounds, char const *s, i16 n);
     The character value that was removed, else 0.
  */
 wchar_t
-tui_remove_prev_char(tui_State *T, tui_Box bounds);
+tui_delete_left_char(tui_State *T, tui_Box bounds);
 
 /*
  Description:
@@ -226,7 +267,7 @@ tui_remove_prev_char(tui_State *T, tui_Box bounds);
     The number of characters successfully deleted.
  */
 u32
-tui_remove_chars(tui_State *T, tui_Box bounds);
+tui_delete_all_chars(tui_State *T, tui_Box bounds);
 
 /*
  Description:
@@ -250,4 +291,4 @@ tui_remove_chars(tui_State *T, tui_Box bounds);
 u32
 tui_read_line(tui_State *T, tui_Box bounds);
 
-#endif // !TUI_WINDOWS_H
+#endif /* TUI_H */

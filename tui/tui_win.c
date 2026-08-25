@@ -1,13 +1,12 @@
-#include "tui_win.h"
-
+#include "tui.h"
 #include <stdarg.h>
 #include <time.h>
 
 int
-(tui_logf)(int level, wchar_t const *path, int line, wchar_t const *format, ...)
+(tui_logf)(tui_LogLevel level, tui_char const *path, int line, tui_char const *format, ...)
 {
     va_list        args;
-    wchar_t const *file;
+    tui_char const *file;
     int            n_written = 0;
 
     // Point to just the file name, ignore directories and such
@@ -18,7 +17,7 @@ int
         file = path;
     }
 
-    static wchar_t const LOG_LEVELS[][8] = {
+    static tui_char const LOG_LEVELS[][8] = {
         L"[INFO ]",
         L"[WARN ]",
         L"[ERROR]",
@@ -26,15 +25,15 @@ int
         L"[PANIC]",
     };
 
-    time_t     now = time(NULL);
-    struct tm *t   = localtime(&now);
-    wchar_t    head[64];
+    time_t    now  = time(NULL);
+    struct tm tnow = *localtime(&now);
+    tui_char  head[64];
     swprintf(head, count_of(head), L"%s:%i ", file, line);
     head[63] = 0;
 
     n_written += fwprintf(stderr,
         L"%02i:%02i:%02i %s %16s",
-        t->tm_hour, t->tm_min, t->tm_sec,
+        tnow.tm_hour, tnow.tm_min, tnow.tm_sec,
         LOG_LEVELS[level],
         head);
 
@@ -55,7 +54,7 @@ tui_point_to_coord(tui_Point pos)
 }
 
 bool
-tui_init(tui_State *T, CHAR_INFO *grid, i16 x, i16 y)
+tui_init(tui_State *T, tui_Cell *grid, i16 x, i16 y)
 {
     tui_Point size = {x, y};
     tui_log_point(size, "Received TUI grid size");
@@ -139,24 +138,29 @@ tui_set_cursor(tui_State *T, tui_Point pos)
     return SetConsoleCursorPosition(T->h_output, tui_point_to_coord(pos));
 }
 
-static wchar_t *
+static tui_char *
 tui_resolve_point(tui_State *T, tui_Point pos)
 {
     u32 x, y, k;
     x = cast(u32)pos.x;
     y = cast(u32)pos.y;
     k = cast(u32)T->grid_size.x;
+
+    // In a row-major represntation, the x-offset is the more-frequently
+    // changing one. This is a little more cache-friendly as the processor
+    // can read multiple elements from a particular row address and access
+    // sequential columns from there.
     return &T->grid[x + (y * k)].Char.UnicodeChar;
 }
 
-wchar_t
+tui_char
 tui_peek_at(tui_State *T, tui_Point pos)
 {
     return *tui_resolve_point(T, pos);
 }
 
 void
-tui_poke_at(tui_State *T, tui_Point pos, wchar_t c)
+tui_poke_at(tui_State *T, tui_Point pos, tui_char c)
 {
     *tui_resolve_point(T, pos) = c;
 }
@@ -179,6 +183,13 @@ tui_draw(tui_State *T)
         /*dwBufferSize  =*/tui_point_to_coord(size),
         /*dwBufferCoord =*/(COORD){0, 0},
         /*lpWriteRegion =*/&write_region);
+}
+
+
+static bool
+tui_point_eq(tui_Point a, tui_Point b)
+{
+    return (a.x == b.x) && (a.y == b.y);
 }
 
 /*
@@ -207,36 +218,6 @@ tui_point_decr(tui_Point *pos, tui_Box bounds)
         return true;
     }
     return false;
-}
-
-wchar_t
-tui_remove_prev_char(tui_State *T, tui_Box bounds)
-{
-    tui_Point prev = T->cursor;
-    if (tui_point_decr(&prev, bounds)) {
-        wchar_t c = tui_peek_at(T, prev);
-        tui_poke_at(T, prev, ' ');
-
-        tui_logf_point(prev, "Removed char '%c'", c);
-        tui_set_cursor(T, prev);
-        return c;
-    }
-    return 0;
-}
-
-u32
-tui_remove_chars(tui_State *T, tui_Box bounds)
-{
-    u32 n = 0;
-    for (tui_Point pos = bounds.start; pos.y <= bounds.stop.y; pos.y++) {
-        for (; pos.x <= bounds.stop.x; pos.x++) {
-            tui_poke_at(T, pos, L' ');
-            n++;
-        }
-        pos.x = 0;
-    }
-    tui_set_cursor(T, bounds.start);
-    return n;
 }
 
 /*
@@ -269,15 +250,85 @@ tui_point_incr(tui_Point *pos, tui_Box bounds)
     return false;
 }
 
+/*
+ Shifts all cells to the right of the given point by 1 cell to the left.
+ */
+static void
+tui_shift_left(tui_State *T, tui_Point pos, tui_Box bounds)
+{
+    // Iterate from left to right.
+    tui_Point curr = pos;
+    for (tui_Point next = curr; !tui_point_eq(curr, bounds.stop); curr = next) {
+        // We assume this will never fail.
+        tui_point_incr(&next, bounds);
+        tui_char c = tui_peek_at(T, next);
+        tui_poke_at(T, curr, c);
+    }
+
+    // No matter what, when deleting a character, the last valid input position
+    // is going to be erased.
+    tui_poke_at(T, bounds.stop, ' ');
+}
+
+tui_char
+tui_delete_left_char(tui_State *T, tui_Box bounds)
+{
+    tui_Point prev = T->cursor;
+    if (tui_point_decr(&prev, bounds)) {
+        tui_char c = tui_peek_at(T, prev);
+        tui_shift_left(T, prev, bounds);
+        tui_logf_point(prev, "Removed char '%c'", c);
+        tui_set_cursor(T, prev);
+        return c;
+    }
+    return 0;
+}
+
+u32
+tui_delete_all_chars(tui_State *T, tui_Box bounds)
+{
+    u32 n = 0;
+    // It's important to iterate row-column (y-x) wise as `x` is our more
+    // frequently changing index, so we can make better use of the cache
+    // for each `y` iteration.
+    for (tui_Point pos = bounds.start; pos.y <= bounds.stop.y; pos.y++) {
+        for (; pos.x <= bounds.stop.x; pos.x++) {
+            tui_poke_at(T, pos, L' ');
+            n++;
+        }
+        pos.x = 0;
+    }
+    tui_set_cursor(T, bounds.start);
+    return n;
+}
+
+/*
+ Shifts all cells to the right of the given position by 1 cell to the right.
+ */
+static void
+tui_shift_right(tui_State *T, tui_Point pos, tui_Box bounds)
+{
+    tui_Point curr = bounds.stop;
+    for (tui_Point prev = curr; !tui_point_eq(prev, pos); curr = prev) {
+        tui_point_decr(&prev, bounds);
+
+        tui_char c = tui_peek_at(T, prev);
+        tui_poke_at(T, curr, c);
+    }
+}
+
 bool
-tui_append_char(tui_State *T, tui_Box bounds, wchar_t c)
+tui_append_char(tui_State *T, tui_Box bounds, tui_char c)
 {
     tui_Point curr = T->cursor;
     tui_Point next = curr;
 
-    bool ok = tui_point_incr(&next, bounds);
+    // Ensure that the cursor could be incremented and that the last input
+    // buffer cell can be overwritten.
+    bool ok = tui_point_incr(&next, bounds) && tui_peek_at(T, bounds.stop) == ' ';
     if (ok) {
         tui_logf_point(curr, "Wrote char '%c'", c);
+        tui_shift_right(T, curr, bounds);
         tui_poke_at(T, curr, c);
         tui_set_cursor(T, next);
     } else {
@@ -291,7 +342,7 @@ tui_append_string(tui_State *T, tui_Box bounds, char const *s, i16 n)
 {
     u32 n_written = 0;
     for (i16 i = 0; i < n; i++, n_written++) {
-        wchar_t c = cast(wchar_t)s[i];
+        tui_char c = cast(tui_char)s[i];
         if (!tui_append_char(T, bounds, c)) {
             break;
         }
@@ -309,10 +360,30 @@ tui_tab(tui_State *T, tui_Box bounds)
 }
 
 /*
- TODO(2026-08-13)
-    Add arrow key movement through the buffer? This will require a LOT of
-    handling...
+ Delete an entire WORD (a sequence of non-whitespaces) to the left of the
+ cursor. The cursor is placed *after* the first whitespace, or the start
+ of the bounds.
  */
+static void
+tui_delete_left_word(tui_State *T, tui_Box bounds, u32 *n)
+{
+    for (;;) {
+        tui_char c = tui_delete_left_char(T, bounds);
+        // Already at the start of the input buffer?
+        if (!c) {
+            break;
+        }
+        // Found a WORD separator? We assume that we encode whitespaces.
+        // We don't ever encode tabs, line feeds, or carriage returns.
+        else if (c == ' ') {
+            tui_append_char(T, bounds, c);
+            break;
+        }
+
+        *n -= 1;
+    }
+}
+
 static bool
 tui_handle_key_event(tui_State *T, tui_Box bounds, KEY_EVENT_RECORD k, u32 *n)
 {
@@ -323,14 +394,18 @@ tui_handle_key_event(tui_State *T, tui_Box bounds, KEY_EVENT_RECORD k, u32 *n)
     }
 
     switch (k.wVirtualKeyCode) {
-    /*
-     TODO(2026-08-13):
-        Add <Ctrl><Backspace> support to erase entire alphanumeric sequences
-        at a time?
-     */
+    case VK_LEFT:
+        tui_point_decr(&T->cursor, bounds);
+        tui_set_cursor(T, T->cursor);
+        return true;
+    case VK_RIGHT:
+        tui_point_incr(&T->cursor, bounds);
+        tui_set_cursor(T, T->cursor);
+        return true;
     case VK_BACK:
-        // Don't literally write the '\b' byte!
-        if (tui_remove_prev_char(T, bounds)) {
+        if (k.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) {
+            tui_delete_left_word(T, bounds, n);
+        } else if (tui_delete_left_char(T, bounds)) {
             *n -= 1;
         }
         break;
@@ -378,36 +453,32 @@ tui_handle_key_event(tui_State *T, tui_Box bounds, KEY_EVENT_RECORD k, u32 *n)
 u32
 tui_read_line(tui_State *T, tui_Box bounds)
 {
-    HANDLE h_input    = T->h_input;
-    u32    n_written  = 0;
-    bool   is_reading = true;
+    tui_Handle h_input    = T->h_input;
+    u32        n_written  = 0;
+    bool       is_reading = true;
     while (is_reading) {
-        /*
-         TODO(2026-08-12):
-            I don't know how much better it is to pass multiple of these
-            versus just passing one. Oh well..
-         */
-        INPUT_RECORD inputs[80];
-        DWORD        n_read = 0;
-        if (!ReadConsoleInputW(h_input, inputs, count_of(inputs), &n_read)) {
+        // Based on my testing, we don't need more than 1 input record. It
+        // seems the requirement for multiple input records is meant for when
+        // you explicitly write the inputs to some handle.
+        INPUT_RECORD input;
+
+        // Dummy because it's a required out-parameter. The call, however,
+        // will only return when at least 1 input of any ind has been read.
+        DWORD n_read = 0;
+        if (!ReadConsoleInputW(h_input, &input, 1, &n_read)) {
             is_reading = false;
             break;
         }
 
-        for (DWORD i = 0; i < n_read; i++) {
-            // Discard all non-key events.
-            if (n_read && inputs[i].EventType != KEY_EVENT) {
-                continue;
-            }
+        // Discard all non-key events.
+        if (input.EventType != KEY_EVENT) {
+            tui_log_infof("Got event type %u", input.EventType);
+            continue;
+        }
 
-            is_reading = tui_handle_key_event(T,
-                bounds,
-                inputs[i].Event.KeyEvent,
-                &n_written);
-
-            if (!is_reading) {
-                break;
-            }
+        if (!tui_handle_key_event(T, bounds, input.Event.KeyEvent, &n_written)) {
+            is_reading = false;
+            break;
         }
     }
     return n_written;
