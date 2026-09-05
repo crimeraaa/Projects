@@ -7,7 +7,7 @@
  | ones | 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 |
  |------|----------|C(3) |B(3) |A|k| F(3) |
  */
-using OpCode_Info = u8;
+using OpCode_Info = u16;
 
 static inline u8 constexpr
 OPCODE_INFO_F_WIDTH  = 3, OPCODE_INFO_F_MAX = (1 << OPCODE_INFO_F_WIDTH) - 1,
@@ -86,7 +86,7 @@ opcode_info(OpCode op)
      example, which end up error-ing out as undefined identifiers.
 
      This works `X2(e, F, A, B)` but it's a pain to maange as we don't
-     necessarily want to limit ourselves to two (2) arguments. Or mayb we do?
+     necessarily want to limit ourselves to two (2) arguments. Or maybe we do?
      */
 #define X2(e, F, A, B) case Op_##e: return F(A, B);
     switch (op) {

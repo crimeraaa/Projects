@@ -3,9 +3,9 @@
 #include "debug.hpp"
 #include "value.hpp"
 
-#define RB(i)   R[GETARG_B(i)]
-#define RC(i)   R[GETARG_C(i)]
-#define KBx(i)  K[GETARG_Bx(i)]
+#define RB(i)   R[getarg_B(i)]
+#define RC(i)   R[getarg_C(i)]
+#define KBx(i)  K[getarg_Bx(i)]
 
 template<class T> static inline void
 vm_arith1(T (*op)(T a), Value *RA, Value RB)
@@ -50,22 +50,25 @@ LULU_INTERNAL_FUNC void
 vm_execute(lulu_State *L, Chunk *c)
 {
     Value        R[ARG_A_MAX];
-    Instruction *ip = c->code;
-    TValue *     K  = c->constants;
+    Instruction *start_ip = raw_data(c->code);
+    Instruction *ip       = start_ip;
+    TValue *     K        = raw_data(c->constants);
     printf("======== EXECUTION ========\n");
     for (;;) {
         Instruction i  = *ip++;
-        Value      *RA = &R[GETARG_A(i)];
-        debug_disassemble_at(c, ip - c->code - 1);
-        switch (GET_OPCODE(i)) {
+        Value      *RA = &R[getarg_A(i)];
+
+        // Since we incremented the ip, undo that to get the actual index.
+        debug_disassemble_at(c, ip - start_ip - 1);
+        switch (get_opcode(i)) {
         case Op_move: *RA = RB(i); break;
         case Op_bool: 
-            value_set_bool(RA, cast(bool)GETARG_B(i));
-            if (GETARG_k(i)) {
+            value_set_bool(RA, cast(bool)getarg_B(i));
+            if (getarg_k(i)) {
                 ip++;
             }
             break;
-        case Op_int_imm:  value_set_int (RA, GETARG_sBx(i)); break;
+        case Op_int_imm:  value_set_int (RA, getarg_sBx(i)); break;
         // TODO(2026-07-13): Can we just copy the union directly?
         case Op_int_k:    value_set_int( RA, tvalue_int (KBx(i)) ); break;
         case Op_real:     value_set_real(RA, tvalue_real(KBx(i)) ); break;
@@ -77,7 +80,7 @@ vm_execute(lulu_State *L, Chunk *c)
 // Arithmetic
 #define vm_arith1(T, f) vm_arith1<T>(f<T>, RA, RB(i))
 #define vm_arith2(T, f) vm_arith2<T>(f<T>, RA, RB(i), RC(i))
-#define vm_arithi(T, f) vm_arithi<T>(f<T>, RA, RB(i), cast(T)GETARG_vsBx(i))
+#define vm_arithi(T, f) vm_arithi<T>(f<T>, RA, RB(i), cast(T)getarg_vsBx(i))
         // Integer bitwise (register-register)
         case Op_bnot:  vm_arith1(lulu_int, num_bnot); break;
         case Op_band:  vm_arith2(lulu_int, num_band); break;
@@ -116,8 +119,8 @@ vm_execute(lulu_State *L, Chunk *c)
 #undef vm_arith1
 
 // Comparison
-#define C                 GETARG_C(i)
-#define k                 GETARG_k(i)
+#define C                 getarg_C(i)
+#define k                 getarg_k(i)
 #define vm_compare(T, f)  if (vm_compare <T>(f<T>, *RA, RB(i))    != k) ip++
 #define vm_comparei(T, f) if (vm_comparei<T>(f<T>, *RA, cast(T)C) != k) ip++
         case Op_eq:    vm_compare (lulu_int,  num_eq);  break;
@@ -137,7 +140,13 @@ vm_execute(lulu_State *L, Chunk *c)
 #undef vm_comparei
 #undef vm_compare
 
-        case Op_return:
+        case Op_return: {
+            printf("===========================\n");
+            return;
+        }
+
+
+        case Op_return0:
             printf("===========================\n");
             return;
         }

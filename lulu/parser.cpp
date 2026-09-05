@@ -1,6 +1,7 @@
 #include <stdio.h> // [f]printf
 
 #include "lexer.hpp"
+#include "slice.hpp"
 #include "state.hpp"
 #include "parser.hpp"
 #include "compiler.hpp"
@@ -13,7 +14,7 @@
     the basic precedence which is a good starting point.
  */
 static void
-parser_expr(Parser *p, Expr *out, bool lhs, int prec = 1);
+parser_expr(Parser *p, Expr *out, bool is_lhs, int prec = 1);
 
 static char const *
 parser_clamp_string(Slice<char> buf, String s)
@@ -23,6 +24,9 @@ parser_clamp_string(Slice<char> buf, String s)
     // The iteration range is exclusive, so we save the last index for the
     // nul character.
     usize stop = min(len(s), len(buf) - 1);
+
+    // Prefix "..." to indicate that the full string was truncated and that
+    // you're seeing only the tail portion that fits.
     if (len(s) > stop) {
         buf[it++] = '.';
         buf[it++] = '.';
@@ -94,24 +98,33 @@ parser_expect(Parser *p, TokenKind k)
 /*
  TODO(2026-07-20): Add global lookup instead of worrying only about locals.
  */
-static Local *
+static VarInfo *
 parser_find_variable(Parser *p, String name, u16 *out)
 {
-    Compiler *c = p->compiler;
-    for (u16 i = c->active_count; i-- > 0;) {
-        Local *v = &c->locals[i];
-        if (name == v->name) {
-            if (out) *out = i;
-            return v;
+    Compiler *c      = p->compiler;
+    auto      locals = slice_array(c->locals, 0, c->active_count);
+    for (VarInfo &v : reverse(locals)) {
+        if (name == v.token.lexeme) {
+            if (out) {
+                *out = cast(u16)(&v - raw_data(locals));
+            }
+            return &v;
         }
     }
-    if (out) *out = cast(u16)-1;
+
+    if (out) {
+        *out = cast(u16)-1;
+    }
     return nullptr;
 }
 
 
 /*
-NOTE(2026-07-03):
+ Description:
+    'operand' refers to our most basic expression. These are literals,
+    identifiers, unary operations, and table constructors.
+
+ Note (2026-07-03):
     This is about the only place `lhs` is useful. It allows us to avoid
     needlessly parsing a compound literal (in our case, a table) when in
     declarations/assignments. See Odin's parser:
@@ -119,7 +132,7 @@ NOTE(2026-07-03):
     https://github.com/odin-lang/Odin/blob/1007ea278534e037fa586564c91113f5c925c286/src/parser.cpp#L2379
  */
 static void
-parser_operand(Parser *p, Expr *out, bool lhs)
+parser_operand(Parser *p, Expr *out, bool is_lhs)
 {
     Token token = p->token;
     parser_advance(p);
@@ -148,11 +161,11 @@ parser_operand(Parser *p, Expr *out, bool lhs)
         break;
     }
     case Token_Open_Paren:
-        parser_expr(p, out, lhs);
+        parser_expr(p, out, is_lhs);
         parser_expect(p, Token_Close_Paren);
         break;
     case Token_Open_Curly:
-        if (lhs) {
+        if (is_lhs) {
             parser_error_at(p, "Cannot assign to a compound literal", token);
         } else {
             parser_error_at(p, "Table constructors not yet supported", token);
@@ -164,11 +177,18 @@ parser_operand(Parser *p, Expr *out, bool lhs)
         if (type) {
             *out = expr_make_type(token, type);
         } else {
-            u16    i;
-            Local *v = parser_find_variable(p, ident, &i);
-            // If we're in a declaration or assignment, allow this temporarily.
-            // We'll have to check if it exists anyway.
-            if (!v && !lhs) {
+            u16      i;
+            VarInfo *v = parser_find_variable(p, ident, &i);
+
+            /*
+             Ensures that, for rvalue expressions, we absolutely have a
+             variable to work with.
+
+             For lvalue expressions, however, we can be more lenient.
+             Especially for declarations since the variable referred to
+             the identifier may not yet exist.
+             */
+            if (!v && !is_lhs) {
                 parser_error_at(p, "Unknown identifier", token);
             }
             *out = expr_make_local(token, (v) ? v->type : nullptr, i);
@@ -186,20 +206,21 @@ parser_call(Parser *p, Expr *func)
 {
     Expr arg;
     if (!parser_check(p, Token_Close_Paren)) {
-        parser_expr(p, &arg, /*lhs=*/false);
+        parser_expr(p, &arg, /*is_lhs=*/false);
     }
     parser_expect(p, Token_Close_Paren);
     compiler_call(p->compiler, func, &arg);
 }
 
 static void
-parser_primary_expr(Parser *p, Expr *out, bool lhs)
+parser_primary_expr(Parser *p, Expr *out, bool is_lhs)
 {
     bool loop = true;
-    parser_operand(p, out, lhs);
+    parser_operand(p, out, is_lhs);
     while (loop) {
         switch (p->token.kind) {
         case Token_Open_Paren:
+            // Consume '('.
             parser_advance(p);
             parser_call(p, out);
             break;
@@ -208,7 +229,7 @@ parser_primary_expr(Parser *p, Expr *out, bool lhs)
             break;
         }
         // After the first atom, we are no longer assignable.
-        lhs = false;
+        is_lhs = false;
     }
 }
 
@@ -269,7 +290,7 @@ parser_prec(TokenKind k)
     parsed as `cast(bool)(cast(int)x)` which is the same as `bool(int(x))`.
  */
 static void
-parser_unary_expr(Parser *p, Expr *out, bool lhs)
+parser_unary_expr(Parser *p, Expr *out, bool is_lhs)
 {
     Token op = p->token;
     switch (op.kind) {
@@ -280,7 +301,7 @@ parser_unary_expr(Parser *p, Expr *out, bool lhs)
         Expr type;
         parser_type(p, &type);
         parser_expect(p, Token_Close_Paren);
-        parser_expr(p, out, /*lhs=*/false, PREC_UNARY);
+        parser_expr(p, out, /*is_lhs=*/false, PREC_UNARY);
         compiler_cast(p->compiler, &type, out);
         break;
     }
@@ -291,12 +312,12 @@ parser_unary_expr(Parser *p, Expr *out, bool lhs)
         // Skip the unary operand so the first token of the argument
         // is our current.
         parser_advance(p);
-        parser_expr(p, out, lhs, PREC_UNARY);
+        parser_expr(p, out, is_lhs, PREC_UNARY);
         compiler_unary(p->compiler, op, out);
         break;
     }
     default:
-        parser_primary_expr(p, out, lhs);
+        parser_primary_expr(p, out, is_lhs);
         break;
     }
 }
@@ -318,13 +339,13 @@ parser_recurse_pop(Parser *p)
 }
 
 static void
-parser_expr(Parser *p, Expr *out, bool lhs, int prec_in)
+parser_expr(Parser *p, Expr *out, bool is_lhs, int prec_in)
 {
     Expr      rhs;
     Compiler *c = p->compiler;
 
     parser_recurse_push(p);
-    parser_unary_expr(p, out, lhs);
+    parser_unary_expr(p, out, is_lhs);
     for (;;) {
         // This also catches tokens that are not binary operators.
         Token op       = p->token;
@@ -352,77 +373,143 @@ parser_expr(Parser *p, Expr *out, bool lhs, int prec_in)
     parser_recurse_pop(p);
 }
 
-static void
-parser_decl(Parser *p, Expr *lhs)
+static ExprList *
+parser_expr_list(Parser *p, bool is_lhs)
 {
-    if (lhs->kind != Expr_Local) {
-        parser_error_at(p, "Unassignable target", lhs->token);
-    }
+    ExprList   *tail  = nullptr;
+    lulu_State *L     = p->L;
+    u16         count = 0;
+    do {
+        ExprList *node = mem_arena_alloc<ExprList>(L);
+        *node = {/*prev=*/tail, /*expr=*/{}};
+        parser_expr(p, &node->expr, is_lhs);
+        node->expr.count = ++count;
+        tail = node;
+    } while (parser_match(p, Token_Comma));
+    return tail;
 
-    // If none provided, then infer from rhs type.
-    if (lhs->type != nullptr) {
-        parser_error_at(p, "Shadowing of variable", lhs->token);
-    }
+}
 
-    Expr t, rhs;
-    if (parser_match(p, Token_Assign)) {
-        parser_expr(p, &rhs, /*lhs=*/false);
-        // Need to infer the type to assign with?
-        if (!t.type) {
-            LULU_ASSERT(rhs.type != nullptr);
-            t.type = rhs.type;
-        }
-    } else {
-        parser_type(p, &t);
-    }
-
-    LULU_ASSERT(t.type != nullptr);
-    lhs->type = t.type;
-    compiler_declare(p->compiler, lhs, &rhs);
+static ExprList *
+parser_primary_expr_list(Parser *p, bool is_lhs)
+{
+    ExprList   *tail  = nullptr;
+    lulu_State *L     = p->L;
+    u16         count = 0;
+    do {
+        ExprList *node = mem_arena_alloc<ExprList>(L);
+        *node = {/*prev=*/tail, /*expr=*/{}};
+        parser_primary_expr(p, &node->expr, is_lhs);
+        node->expr.count = ++count;
+        tail = node;
+    } while (parser_match(p, Token_Comma));
+    return tail;
 }
 
 static void
-parser_assign(Parser *p, Expr *lhs)
+parser_decl(Parser *p, DeclInfo *info)
 {
-    if (!lhs->type) {
-        parser_error_at(p, "Undeclared variable", lhs->token);
+    Compiler *c = p->compiler;
+    compiler_declare_local(c, info->lhs);
+
+    // If we have tokens in between ':' and '=', it must be a type.
+    if (!parser_check(p, Token_Assign)) {
+        Expr tmp;
+        parser_type(p, &tmp);
+        info->type = tmp.type;
     }
 
-    Expr rhs;
-    parser_expr(p, &rhs, /*lhs=*/false);
-    compiler_assign(p->compiler, lhs, &rhs);
+    // `x := expr` or `x: T = expr`, but not `x: T`.
+    if (parser_match(p, Token_Assign)) {
+        info->rhs = parser_expr_list(p, /*is_lhs=*/false);
+        // Infer the type we wish to assign with.
+        if (!info->type) {
+            // E.g. `x:` or `x: 1`, report the error at the last assigning token.
+            if (info->rhs->expr.count == 0) {
+                Expr *lhs = &info->lhs->expr;
+                parser_error_at(p, "Expected a type after ':'", lhs->token);
+            }
+
+            // TODO(2026-09-06): Change this, will break when multiple
+            // assignments are introduced.
+            info->type = info->rhs->expr.type;
+        }
+
+    }
+    compiler_define_local(c, info);
+}
+
+static void
+parser_assign(Parser *p, DeclInfo *info)
+{
+    // Before anything else, ensure our assignment targets actually
+    // exist.
+    for (ExprList *list = info->lhs; list != nullptr; list = list->prev) {
+        Expr *lhs = &list->expr;
+        if (!lhs->type) {
+            parser_error_at(p, "Undeclared variable", lhs->token);
+        }
+    }
+
+    info->rhs = parser_expr_list(p, /*is_lhs=*/false);
+    compiler_assign(p->compiler, info);
+}
+
+/*
+ TODO(2026-09-05):
+    Allow multiple, comma-separated identifiers in a list?
+    E.g. `x, y: T` or `x, y, z := expr1, expr2, expr3`
+    or even `x, y, z := f()`.
+ */
+static void
+parser_ident_stmt(Parser *p)
+{
+    DeclInfo info;
+
+    info.lhs = parser_primary_expr_list(p, /*is_lhs=*/true);
+    switch (p->token.kind) {
+    case Token_Colon:
+        // Consume ':'
+        parser_advance(p);
+        parser_decl(p, &info);
+        break;
+    case Token_Assign:
+        // Consume '='
+        parser_advance(p);
+        parser_assign(p, &info);
+        break;
+    default:
+        if (info.lhs->expr.kind != Expr_Call) {
+            parser_error_at(p, "Expected a declaration, assignment, or function call",
+                info.lhs->expr.token);
+        }
+        break;
+    }
+    mem_arena_free_all(&p->L->arena);
+}
+
+static void
+parser_return_stmt(Parser *p)
+{
+    Expr tmp;
+    // Consume 'return'.
+    parser_advance(p);
+    parser_expr(p, &tmp, /*is_lhs=*/false);
+    compiler_return1(p->compiler, &tmp);
+    compiler_expr_pop(p->compiler, &tmp);
 }
 
 static void
 parser_simple_stmt(Parser *p)
 {
     switch (p->token.kind) {
-    case Token_Ident: {
-        Expr lhs;
-        parser_primary_expr(p, &lhs, /*lhs=*/true);
-        switch (p->token.kind) {
-        case Token_Colon:
-            // Consume ':'
-            parser_advance(p);
-            parser_decl(p, &lhs);
-            break;
-        case Token_Assign:
-            // Consume '='
-            parser_advance(p);
-            parser_assign(p, &lhs);
-            break;
-        default:
-            if (lhs.kind != Expr_Call) {
-                parser_error_at(p, "Expected a declaration, assignment, or function call", lhs.token);
-            }
-            break;
-        }
-        break;
-    }
+    case Token_Ident:  parser_ident_stmt(p);  break;
+    case Token_return: parser_return_stmt(p); break;
     default:
         parser_error(p, "Expected a statement");
         break;
     }
+
     // Optional.
     parser_match(p, Token_Semicol);
 }

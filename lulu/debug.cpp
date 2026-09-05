@@ -54,7 +54,7 @@ print_int(lulu_int i)
         // Well-defined absolute value which works for min(T).
         // Don't negate directly to avoid warnings with MSVC.
         u = 0 - u;
-        putc('-', stdout);
+        fputc('-', stdout);
     }
     print_uint(u, 10, false);
 }
@@ -82,28 +82,34 @@ print_tvalue(TValue v)
 LULU_INTERNAL_FUNC void
 debug_disassemble(Chunk const *c)
 {
-    printf("======== DISASSEMBLY ========\n");
+    usize n = 0;
 
-    usize n = len(c->constants);
-    if (n > 0) {
-        auto K = c->constants;
+    printf("======== DISASSEMBLY ========\n");
+    if (len(c->constants) > 0) {
         printf(".values:\n");
-        for (usize i = 0; i < n; i++) {
-            printf("| [%zu]: ", i);
-            print_tvalue(K[i]);
+        for (TValue k : c->constants) {
+            printf("| ");
+            print_tvalue(k);
             putc('\n', stdout);
         }
     }
 
+    if (len(c->reg_info) > 0) {
+        printf(".stack:\n");
+        for (RegInfo r : c->reg_info) {
+            printf("| pc[%i, %i] ; reg = %i, type = %p\n",
+                r.pc_born, r.pc_died, r.reg, cast(void *)r.type);
+        }
+    }
+
     printf(".code:\n");
-    n = len(c->code);
-    for (usize i = 0; i < n; i++) {
+    for (usize i = 0, n = len(c->code); i < n; i++) {
         debug_disassemble_at(c, i);
     }
     printf("=============================\n");
 }
 
-static char const *OPCODE_CSTRINGS[] = {
+static char const *const OPCODE_CSTRINGS[] = {
 #define X(e, ...) #e,
     OPCODE_KINDS(X)
 #undef X
@@ -113,28 +119,28 @@ LULU_INTERNAL_FUNC void
 debug_disassemble_at(Chunk const *c, usize offset)
 {
     Instruction i  = c->code[offset];
-    OpCode      op = GET_OPCODE(i);
-    u8          A  = GETARG_A(i);
+    OpCode      op = get_opcode(i);
+    u8          A  = getarg_A(i);
 
     printf("| %-8s %-3u ", OPCODE_CSTRINGS[op], A);
     switch (OPCODE_INFO_FORMAT(op)) {
     case OpForm_ABC:
-        printf("%-3u %-7u", GETARG_B(i), GETARG_C(i));
+        printf("%-3u %-7u", getarg_B(i), getarg_C(i));
         break;
     case OpForm_ABx:
-        printf("%-11u", GETARG_Bx(i));
+        printf("%-11u", getarg_Bx(i));
         break;
     case OpForm_AsBx:
-        printf("%-11i", GETARG_sBx(i));
+        printf("%-11i", getarg_sBx(i));
         break;
     case OpForm_vABC:
-        printf("%-3u %-3u k=%u", GETARG_B(i), GETARG_vC(i), GETARG_k(i));
+        printf("%-3u %-3u k=%u", getarg_B(i), getarg_vC(i), getarg_k(i));
         break;
     case OpForm_vABx:
-        printf("%-7u k=%u", GETARG_vBx(i), GETARG_k(i));
+        printf("%-7u k=%u", getarg_vBx(i), getarg_k(i));
         break;
     case OpForm_vAsBx:
-        printf("%-7i k=%u", GETARG_vsBx(i), GETARG_k(i));
+        printf("%-7i k=%u", getarg_vsBx(i), getarg_k(i));
         break;
     }
 

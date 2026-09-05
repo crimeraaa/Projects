@@ -61,7 +61,8 @@
     X(flti,   vAsBx, 0, Imm) /* if (R(A).real <  vsBx) != k then ip++       */ \
     X(fleqi,  vAsBx, 0, Imm) /* if (R(A).real <= vsBx) != k then ip++       */ \
 /* Other                                                                    */ \
-    X(return, AB0, 0, Unused)
+    X(return0, AB0, 0, Unused) /* return                                    */ \
+    X(return,  AB0, 0, Imm)    /* return R(A:B) if B > 0 else R(A:)         */
 
 enum OpCode : u8 {
 #define X(e, ...) Op_##e,
@@ -150,9 +151,7 @@ OPCODE_INFO_k(OpCode op);
  | vABC  |       C(9)       |k|     B(8)      |     A(8)      |    Op(6)   |
  | ABx   |               Bx(18)               |     A(8)      |    Op(6)   |
  | AsBx  |           sBx (signed) (18)        |     A(8)      |    Op(6)   |
- | vABx  |
- | vAsBx |
- +-------------------------------------------+
+ +-------------------------------------------------------------------------+
  */
 using Instruction = u32;
 static Instruction constexpr
@@ -225,12 +224,11 @@ static inline bool opcode_is_ABC  (OpCode op) { return opcode_is_(op, ABC);   }
 static inline bool opcode_is_vABC (OpCode op) { return opcode_is_(op, vABC);  }
 static inline bool opcode_is_ABx  (OpCode op) { return opcode_is_(op, ABx);   }
 static inline bool opcode_is_AsBx (OpCode op) { return opcode_is_(op, AsBx);  }
-static inline bool opcode_is_vABx (OpCode op) { return opcode_is_(op, vABx);  }
-static inline bool opcode_is_vAsBx(OpCode op) { return opcode_is_(op, vAsBx); }
+static inline bool opcode_is_vAsBx(OpCode op) { return opcode_is_(op, AsBx);  }
 #undef opcode_is_
 
 static inline Instruction
-MAKE_ABC(OpCode Op, u16 A, u16 B, u16 C)
+make_ABC(OpCode Op, u16 A, u16 B, u16 C)
 {
     return (cast(Instruction)Op << ARG_OP_OFFSET)
         |  (cast(Instruction)A  << ARG_A_OFFSET)
@@ -239,7 +237,7 @@ MAKE_ABC(OpCode Op, u16 A, u16 B, u16 C)
 }
 
 static inline Instruction
-MAKE_vABC(OpCode Op, u16 A, u16 B, u16 vC, bool k)
+make_vABC(OpCode Op, u16 A, u16 B, u16 vC, bool k)
 {
     return (cast(Instruction)Op << ARG_OP_OFFSET)
         |  (cast(Instruction)A  << ARG_A_OFFSET)
@@ -249,7 +247,7 @@ MAKE_vABC(OpCode Op, u16 A, u16 B, u16 vC, bool k)
 }
 
 static inline Instruction
-MAKE_ABx(OpCode Op, u16 A, u32 Bx)
+make_ABx(OpCode Op, u16 A, u32 Bx)
 {
     return (cast(Instruction)Op << ARG_OP_OFFSET)
         |  (cast(Instruction)A  << ARG_A_OFFSET)
@@ -257,14 +255,14 @@ MAKE_ABx(OpCode Op, u16 A, u32 Bx)
 }
 
 static inline Instruction
-MAKE_AsBx(OpCode Op, u16 A, i32 sBx)
+make_AsBx(OpCode Op, u16 A, i32 sBx)
 {
     u32 Bx = cast(u32)(sBx + ARG_sBx_MAX);
-    return MAKE_ABx(Op, cast(u8)A, Bx);
+    return make_ABx(Op, cast(u8)A, Bx);
 }
 
 static inline Instruction
-MAKE_AvBx(OpCode Op, u16 A, u32 vBx, bool k)
+make_AvBx(OpCode Op, u16 A, u32 vBx, bool k)
 {
     return (cast(Instruction)Op  << ARG_OP_OFFSET)
         |  (cast(Instruction)A   << ARG_A_OFFSET)
@@ -273,122 +271,122 @@ MAKE_AvBx(OpCode Op, u16 A, u32 vBx, bool k)
 }
 
 static inline Instruction
-MAKE_AvsBx(OpCode Op, u16 A, i32 vsBx, bool k)
+make_AvsBx(OpCode Op, u16 A, i32 vsBx, bool k)
 {
-    return MAKE_AvBx(Op, cast(u8)A, cast(u32)(vsBx + ARG_vsBx_MAX), k);
+    return make_AvBx(Op, cast(u8)A, cast(u32)(vsBx + ARG_vsBx_MAX), k);
 }
 
 static inline OpCode
-GET_OPCODE(Instruction i)
+get_opcode(Instruction i)
 {
     return cast(OpCode)((i >> ARG_OP_OFFSET) & ARG_OP_MAX);
 }
 
 static inline u8
-GETARG_A(Instruction i)
+getarg_A(Instruction i)
 {
     return cast(u8)((i >> ARG_A_OFFSET) & ARG_A_MAX);
 }
 
 static inline u8
-GETARG_B(Instruction i)
+getarg_B(Instruction i)
 {
     return cast(u16)((i >> ARG_B_OFFSET) & ARG_B_MAX);
 }
 
 static inline u16
-GETARG_C(Instruction i)
+getarg_C(Instruction i)
 {
     return cast(u16)((i >> ARG_C_OFFSET) & ARG_C_MAX);
 }
 
 static inline bool
-GETARG_k(Instruction i)
+getarg_k(Instruction i)
 {
     return cast(bool)((i >> ARG_k_OFFSET) & ARG_k_MAX);
 }
 
 static inline u16
-GETARG_vC(Instruction i)
+getarg_vC(Instruction i)
 {
     return cast(u16)((i >> ARG_vC_OFFSET) & ARG_vC_MAX);
 }
 
 static inline u32
-GETARG_Bx(Instruction i)
+getarg_Bx(Instruction i)
 {
     return cast(u32)((i >> ARG_Bx_OFFSET) & ARG_Bx_MAX);
 }
 
 static inline i32
-GETARG_sBx(Instruction i)
+getarg_sBx(Instruction i)
 {
-    return cast(i32)(GETARG_Bx(i)) - ARG_sBx_MAX;
+    return cast(i32)(getarg_Bx(i)) - ARG_sBx_MAX;
 }
 
 static inline u32
-GETARG_vBx(Instruction i)
+getarg_vBx(Instruction i)
 {
     return cast(u32)((i >> ARG_vBx_OFFSET) & ARG_vBx_MAX);
 }
 
 static inline i32
-GETARG_vsBx(Instruction i)
+getarg_vsBx(Instruction i)
 {
-    return cast(i32)(GETARG_vBx(i) - ARG_vBx_MAX);
+    return cast(i32)(getarg_vBx(i) - ARG_vBx_MAX);
 }
 
 static inline void
-SET_OPCODE(Instruction *ip, OpCode Op)
+set_opcode(Instruction *ip, OpCode Op)
 {
     *ip = (*ip & ARG_OP_MASK0) | (cast(Instruction)Op << ARG_OP_OFFSET);
 }
 
 static inline void
-SETARG_A(Instruction *ip, u16 A)
+setarg_A(Instruction *ip, u16 A)
 {
     *ip = (*ip & ARG_A_MASK0) | (cast(Instruction)A << ARG_A_OFFSET);
 }
 
 static inline void
-SETARG_B(Instruction *ip, u16 B)
+setarg_B(Instruction *ip, u16 B)
 {
     *ip = (*ip & ARG_B_MASK0) | (cast(Instruction)B << ARG_B_OFFSET);
 }
 
 static inline void
-SETARG_C(Instruction *ip, u16 B)
+setarg_C(Instruction *ip, u16 B)
 {
     *ip = (*ip & ARG_C_MASK0) | (cast(Instruction)B << ARG_C_OFFSET);
 }
 
 static inline void
-SETARG_k(Instruction *ip, bool k)
+setarg_k(Instruction *ip, bool k)
 {
     *ip = (*ip & ARG_k_MASK0) | (cast(Instruction)k << ARG_k_OFFSET);
 }
 
 static inline void
-SETARG_Bx(Instruction *ip, u32 B)
+setarg_Bx(Instruction *ip, u32 B)
 {
     *ip = (*ip & ARG_Bx_MASK0) | (cast(Instruction)B << ARG_Bx_OFFSET);
 }
 
 static inline void
-SETARG_sBx(Instruction *ip, i32 sBx)
+setarg_sBx(Instruction *ip, i32 sBx)
 {
-    SETARG_Bx(ip, cast(u32)(sBx + ARG_sBx_MAX));
+    setarg_Bx(ip, cast(u32)(sBx + ARG_sBx_MAX));
 }
 
-#define SETARG_SAFE(ip, arg_name, arg_value)                                   \
+#define setarg_safe(ip, arg_name, arg_value)                                   \
 do {                                                                           \
     Instruction *_ip = (ip);                                                   \
-    OpCode       _op = GET_OPCODE(*_ip);                                       \
+    OpCode       _op = get_opcode(*_ip);                                       \
     LULU_ASSERT(OPCODE_INFO_##arg_name(_op));                                  \
-    SETARG_##arg_name(_ip, arg_value);                                         \
+    setarg_##arg_name(_ip, arg_value);                                         \
 } while (0)
 
-#define SETARG_k(ip, arg)   SETARG_SAFE(ip, k,   arg)
-#define SETARG_Bx(ip, arg)  SETARG_SAFE(ip, Bx,  arg)
-#define SETARG_sBx(ip, arg) SETARG_SAFE(ip, sBx, arg)
+#define setarg_k(ip, arg)   setarg_safe(ip, k,   arg)
+#define setarg_Bx(ip, arg)  setarg_safe(ip, Bx,  arg)
+#define setarg_sBx(ip, arg) setarg_safe(ip, sBx, arg)
 

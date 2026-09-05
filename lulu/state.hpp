@@ -1,7 +1,6 @@
 #pragma once
 
 #include "lulu.h"
-#include "internal.hpp"
 #include "strings.hpp"
 #include "mem.hpp"
 #include "type.hpp"

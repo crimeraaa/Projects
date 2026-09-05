@@ -16,12 +16,18 @@ compiler_finish(Compiler *c)
 {
     lulu_State *L     = c->L;
     Chunk *     chunk = c->chunk;
-    compiler_return(c, nullptr);
+    compiler_return0(c);
+
+    i32  pc       = c->pc;
+    auto reg_info = chunk->reg_info;
+    for (VarInfo v : slice_array(c->locals, 0, c->active_count)) {
+        reg_info[v.reg_info_index].pc_died = pc;
+    }
 
     // Shrink chunk to fit.
-    mem_shrink(L, &chunk->code);
-    mem_shrink(L, &chunk->constants);
-    mem_shrink(L, &chunk->stack_info);
+    mem_shrink_dynamic(L, &chunk->code);
+    mem_shrink_dynamic(L, &chunk->constants);
+    mem_shrink_dynamic(L, &chunk->reg_info);
 }
 
 [[noreturn]] static void
@@ -35,7 +41,7 @@ compiler_code(Compiler *c, Instruction i)
 {
     Chunk *chunk = c->chunk;
     i32    idx   = c->pc++;
-    mem_append(c->L, &chunk->code, i);
+    mem_append_dynamic(c->L, &chunk->code, i);
     return idx;
 }
 
@@ -52,7 +58,7 @@ compiler_add_constant(Compiler *c, TValue tv)
             return i;
         }
     }
-    mem_append(c->L, &chunk->constants, tv);
+    mem_append_dynamic(c->L, &chunk->constants, tv);
     return n;
 }
 
@@ -63,7 +69,7 @@ compiler_code_ABC(Compiler *c, OpCode Op, u16 A, u16 B, u16 C)
     LULU_ASSERT(A <= ARG_A_MAX);
     LULU_ASSERT(B <= ARG_B_MAX);
     LULU_ASSERT(C <= ARG_C_MAX);
-    return compiler_code(c, MAKE_ABC(Op, A, B, C));
+    return compiler_code(c, make_ABC(Op, A, B, C));
 }
 
 static i32
@@ -73,7 +79,7 @@ compiler_code_vABC(Compiler *c, OpCode Op, u16 A, u16 B, u16 C, bool k)
     LULU_ASSERT(A <= ARG_A_MAX);
     LULU_ASSERT(B <= ARG_B_MAX);
     LULU_ASSERT(C <= ARG_vC_MAX);
-    return compiler_code(c, MAKE_vABC(Op, A, B, C, cast(u8)k));
+    return compiler_code(c, make_vABC(Op, A, B, C, cast(u8)k));
 }
 
 static i32
@@ -82,7 +88,7 @@ compiler_code_ABx(Compiler *c, OpCode Op, u16 A, u32 Bx)
     LULU_ASSERT(opcode_is_ABx(Op));
     LULU_ASSERT(A  <= ARG_A_MAX);
     LULU_ASSERT(Bx <= ARG_Bx_MAX);
-    return compiler_code(c, MAKE_ABx(Op, A, Bx));
+    return compiler_code(c, make_ABx(Op, A, Bx));
 }
 
 static i32
@@ -91,7 +97,7 @@ compiler_code_AsBx(Compiler *c, OpCode Op, u16 A, i32 sBx)
     LULU_ASSERT(opcode_is_AsBx(Op));
     LULU_ASSERT(A <= ARG_A_MAX);
     LULU_ASSERT(ARG_sBx_MIN <= sBx && sBx <= ARG_sBx_MAX);
-    return compiler_code(c, MAKE_AsBx(Op, A, sBx));
+    return compiler_code(c, make_AsBx(Op, A, sBx));
 }
 
 static i32
@@ -100,7 +106,7 @@ compiler_code_vAsBx(Compiler *c, OpCode Op, u16 A, i32 vsBx, bool k)
     LULU_ASSERT(opcode_is_vAsBx(Op));
     LULU_ASSERT(A <= ARG_A_MAX);
     LULU_ASSERT(ARG_vsBx_MIN <= vsBx && vsBx <= ARG_vBx_MAX);
-    return compiler_code(c, MAKE_AvsBx(Op, A, vsBx, k));
+    return compiler_code(c, make_AvsBx(Op, A, vsBx, k));
 }
 
 static bool
@@ -279,11 +285,12 @@ reg_push(Compiler *c, u16 reg_count)
     }
 }
 
-static void
-expr_pop(Compiler *c, Expr *e)
+LULU_INTERNAL_FUNC void
+compiler_expr_pop(Compiler *c, Expr *e)
 {
     if (e->kind == Expr_Discharged) {
-        reg_pop(c, e->reg);
+        u16 reg = expr_reg(e);
+        reg_pop(c, reg);
     }
 }
 
@@ -364,7 +371,7 @@ expr_discharge_reg(Compiler *c, Expr *e, u16 reg)
         break;
     case Expr_Pending: {
         Instruction *ip = &c->chunk->code[expr_pc(e)];
-        SETARG_A(ip, reg);
+        setarg_A(ip, reg);
         break;
     }
     default:
@@ -382,23 +389,6 @@ expr_to_reg(Compiler *c, Expr *e, u16 reg)
     expr_discharge_reg(c, e, reg);
     e->kind = Expr_Discharged;
     e->reg  = reg;
-
-    Chunk *chunk = c->chunk;
-
-    // Try to find the stackinfo that fits the current PC.
-    i32 pc = c->pc;
-    u32 n  = cap(chunk->stack_info);
-    for (u32 i = 0; i < n; i++) {
-        StackInfo *si = &chunk->stack_info[i];
-        LULU_ASSERT(si->pc_born != PC_NONE);
-        if (si->reg == reg && si->pc_born <= pc && si->pc_died <= pc) {
-            si->pc_died = pc;
-            return reg;
-        }
-    }
-
-    // Didn't find a stack info that fit us, so append it.
-    mem_append(c->L, &chunk->stack_info, {cast(u8)reg, e->type, pc, PC_NONE});
     return reg;
 }
 
@@ -407,7 +397,7 @@ LULU_INTERNAL_FUNC u16
 compiler_expr_next_reg(Compiler *c, Expr *e)
 {
     expr_discharge_vars(c, e);
-    expr_pop(c, e);
+    compiler_expr_pop(c, e);
     reg_push(c, 1);
     return expr_to_reg(c, e, c->free_reg - 1);
 }
@@ -417,7 +407,7 @@ compiler_expr_any_reg(Compiler *c, Expr *e)
 {
     expr_discharge_vars(c, e);
     // Already have a register?
-    if (e->kind == Expr_Discharged) {
+    if (expr_is_reg(e)) {
         // TODO(2026-07-13): Handle jumps
         return expr_reg(e);
     }
@@ -473,8 +463,8 @@ compiler_unary_not(Compiler *c, Expr *e)
     case Expr_Compare: {
         // E.g. `not (x == y)`
         Instruction *ip = &c->chunk->code[e->pc];
-        bool const   k  = GETARG_k(*ip);
-        SETARG_k(ip, !k);
+        bool const   k  = getarg_k(*ip);
+        setarg_k(ip, !k);
         return true;
     }
     default:
@@ -641,7 +631,7 @@ compiler_binary_folded(Compiler *c,
     Expr *restrict lhs,
     Expr *restrict rhs)
 {
-    if (!expr2_both_literal(lhs, rhs)) {
+    if (!(expr_is_literal(lhs) && expr_is_literal(rhs))) {
         return false;
     }
 
@@ -658,6 +648,11 @@ compiler_binary_folded(Compiler *c,
     return false;
 #endif
 
+    /*
+     NOTE(2026-09-05):
+        If you think the following code is atrocious, just imagine how bad it
+        could be WITHOUT templates!
+     */
     switch (expr_literal_kind(lhs)) {
     case Value_bool: {
         bool a    = expr_bool(lhs);
@@ -665,7 +660,7 @@ compiler_binary_folded(Compiler *c,
         bool flip = false;
         switch (op.kind) {
         case Token_Tilde_Equal: flip = true; [[fallthrough]];
-        case Token_Equal_Equal: value_set_bool(&lhs->literal, (flip) ? a != b : a == b); break;
+        case Token_Equal_Equal: value_set_bool(&lhs->literal, flip ? (a != b) : (a == b)); break;
         case Token_and:         value_set_bool(&lhs->literal, a && b); break;
         case Token_or:          value_set_bool(&lhs->literal, a || b); break;
         default:
@@ -700,8 +695,9 @@ Description:
     
 Notes
     If constant folding is disabled, this will fail for trivial expressions
-    like `cast(real)1 / 4`, but I'm willing to make that a problem for the
-    constant folder.
+    like `cast(real)1 / 4`. Perhaps this means we should require it?
+
+    We also assume flags out-parameter is zero-initialized already!
 */
 static OpCode
 compiler_binary_dispatch(Compiler *c,
@@ -942,11 +938,11 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
     u16 r1 = expr_reg(lhs);
     u16 r2 = compiler_expr_any_reg(c, rhs);
     if (r1 > r2) {
-        expr_pop(c, lhs);
-        expr_pop(c, rhs);
+        compiler_expr_pop(c, lhs);
+        compiler_expr_pop(c, rhs);
     } else {
-        expr_pop(c, rhs);
-        expr_pop(c, lhs);
+        compiler_expr_pop(c, rhs);
+        compiler_expr_pop(c, lhs);
     }
 
     if (flags & FLAG_COMPARE) {
@@ -976,79 +972,139 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
 #undef FLAG_COMPARE
 
 LULU_INTERNAL_FUNC void
-compiler_return(Compiler *c, Expr *e)
+compiler_return0(Compiler *c)
 {
-    u16 reg = (e) ? compiler_expr_any_reg(c, e) : 0;
-    compiler_code_ABC(c, Op_return, reg, 0, 0);
+    compiler_code_ABC(c, Op_return0, 0, 0, 0);
 }
 
 LULU_INTERNAL_FUNC void
-compiler_declare(Compiler *c, Expr *restrict lhs, Expr *restrict rhs)
+compiler_return1(Compiler *c, Expr *e)
 {
-    Type const *type = lhs->type;
-    // No assigning expression given, so use the zero value.
-    if (!rhs->kind) {
-        switch (type->kind) {
-        case TypeKind_Basic:
-            rhs->type = type;
-            switch (type->basic.kind) {
-            case Value_bool: value_set_bool(&rhs->literal, false); break;
-            case Value_int:  value_set_int (&rhs->literal, 0);     break;
-            case Value_real: value_set_real(&rhs->literal, 0.0);   break;
-            default:
-                goto nodice;
+    u16 reg   = compiler_expr_any_reg(c, e);
+    u16 count = 1;
+    compiler_code_ABC(c, Op_return, reg, reg + count, 0);
+}
+
+LULU_INTERNAL_FUNC void
+compiler_declare_local(Compiler *c, ExprList *lhs)
+{
+    lulu_State *L = c->L;
+    // Declare from right to left.
+    u16   n  = c->active_count + lhs->expr.count;
+    i32   pc = c->pc;
+    auto *r  = &c->chunk->reg_info;
+    for (ExprList *list = lhs; list != nullptr; list = list->prev) {
+        Expr *node = &list->expr;
+        if (node->kind != Expr_Local) {
+            compiler_error(c, "Unassignable target", node);
+        }
+
+        // If non-null then that means this variable already exists in some scope.
+        // TODO(2026-09-05): Check scopes?
+        if (node->type != nullptr) {
+            compiler_error(c, "Shadowing of variable", node);
+        }
+
+        u32 i = cast(u32)len(*r);
+        mem_append_dynamic(L, r, {
+            /*reg    =*/cast(u8)(n - 1),
+            /*pc_born=*/pc,
+            /*pc_died=*/PC_NONE,
+            /*type   =*/nullptr,
+        });
+
+        // To be safe, reset the type to indicate we really need to overwrite it.
+        node->type = nullptr;
+        c->locals[--n] = {
+            /*name          =*/node->token,
+            /*type          =*/nullptr,
+            /*scope         =*/-1,
+            /*reg_info_index=*/i,
+        };
+    }
+
+    LULU_ASSERTF(n == c->active_count, "Expected last n = %u, got %u", c->active_count, n);
+}
+
+LULU_INTERNAL_FUNC void
+compiler_define_local(Compiler *c, DeclInfo *info)
+{
+    LULU_ASSERT(info->lhs->expr.count == info->rhs->expr.count);
+
+    u16         n    = c->active_count + info->lhs->expr.count;
+    Type const *type = info->type;
+    auto &      r    = c->chunk->reg_info;
+    for (ExprList *rhs_list = info->rhs; rhs_list != nullptr; rhs_list = rhs_list->prev) {
+        Expr *   rhs = &rhs_list->expr;
+        VarInfo *v   = &c->locals[--n];
+        // No assigning expression given, so use the zero value.
+        if (!rhs->kind) {
+            LULU_ASSERT(type != nullptr);
+            switch (type->kind) {
+            case TypeKind_Basic:
+                rhs->type = type;
+                switch (type->basic.kind) {
+                case Value_bool: value_set_bool(&rhs->literal, false); break;
+                case Value_int:  value_set_int (&rhs->literal, 0);     break;
+                case Value_real: value_set_real(&rhs->literal, 0.0);   break;
+                default:
+                    goto nodice;
+                }
+                break;
+            default: nodice:
+                parser_error_at(c->parser, "Unsupported zero value", v->token);
             }
-            break;
-        default: nodice:
-            compiler_error(c, "Unsupported zero value", lhs);
         }
-    }
-    // Otherwise, we have an assigning expression but it's of the wrong type.
-    else if (type != rhs->type) {
-        // Only literals that can be implicitly converted to the destination
-        // type without any loss of data will pass this check.
-        if (!compiler_coerce_rhs(type, rhs)) {
-            compiler_error(c, "Invalid implicit cast", rhs);
+        // Otherwise, we have an assigning expression but it's of the wrong type.
+        else if (type != rhs->type) {
+            // No type given, so infer it from the current expression.
+            if (!type) {
+                type = rhs->type;
+            }
+            // Only literals that can be implicitly converted to the destination
+            // type without any loss of data will pass this check.
+            else if (!compiler_coerce_rhs(type, rhs)) {
+                compiler_error(c, "Invalid implicit cast", rhs);
+            }
         }
+
+        u16 const reg = compiler_expr_next_reg(c, rhs);
+        LULU_ASSERTF(reg == c->active_count, "Expected reg = %u, got %u", c->active_count, reg);
+        LULU_ASSERT(rhs->type == type);
+
+        v->scope = c->scope;
+        v->type  = type;
+        r[v->reg_info_index].type = type;
     }
-
-    // Ensure register allocation is correct- locals variables are just
-    // registers, after all.
-    u16 const reg = compiler_expr_next_reg(c, rhs);
-    LULU_ASSERTF(reg == c->active_count, "Expected active_count = %u but got %u", c->active_count, reg);
-
-    // Don't update the active count just yet so we can refer to the same
-    // identifier in the assigning expression, e.g
-    // ```
-    // x := 1;
-    // {
-    //      x := x + 1;
-    // }
-    // ```
-    Local *v = &c->locals[c->active_count++];
-    v->type  = type;
-    v->name  = lhs->token.lexeme;
-    v->scope = -1;
-    lhs->reg = reg;
+    LULU_ASSERTF(n == c->active_count, "Expected last n = %u, got %u", c->active_count, n);
+    c->active_count += info->lhs->expr.count;
 }
 
 LULU_INTERNAL_FUNC void
-compiler_assign(Compiler *c, Expr *restrict lhs, Expr *restrict rhs)
+compiler_assign(Compiler *c, DeclInfo *info)
 {
-    if (lhs->type != rhs->type){
-        if (!compiler_coerce_rhs(lhs->type, rhs)) {
-            compiler_error(c, "Invalid implicit cast", rhs);
-        }
-    }
+    LULU_ASSERT(info->lhs->expr.count == info->rhs->expr.count);
 
-    switch (lhs->kind) {
-    case Expr_Local:
-        lhs->kind = Expr_Discharged;
-        expr_to_reg(c, rhs, expr_reg(lhs));
-        break;
-    default:
-        compiler_error(c, "Invalid assignment target", lhs);
-        break;
+    ExprList *rhs_list = info->rhs;
+    for (ExprList *lhs_list = info->lhs; lhs_list != nullptr; lhs_list = lhs_list->prev) {
+        Expr *lhs = &lhs_list->expr;
+        Expr *rhs = &rhs_list->expr;
+        rhs_list = rhs_list->prev;
+        if (lhs->type != rhs->type){
+            if (!compiler_coerce_rhs(lhs->type, rhs)) {
+                compiler_error(c, "Invalid implicit cast", rhs);
+            }
+        }
+
+        switch (lhs->kind) {
+        case Expr_Local:
+            lhs->kind = Expr_Discharged;
+            expr_to_reg(c, rhs, expr_reg(lhs));
+            break;
+        default:
+            compiler_error(c, "Invalid assignment target", lhs);
+            break;
+        }
     }
 }
 

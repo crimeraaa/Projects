@@ -204,13 +204,12 @@ mem_arena_resize_bytes(lulu_State *L, void *old_ptr, usize old_size, usize new_s
     }
 }
 
-LULU_INTERNAL_FUNC Scratch
-mem_scratch_begin(Arena *a)
+LULU_INTERNAL_FUNC void
+mem_scratch_begin(Arena *a, Scratch *x)
 {
-    Page *  p = a->tail;
-    Scratch x = {a, /*saved_page=*/p, p->prev_offset, p->curr_offset};
+    Page *p = a->tail;
+    *x = {a, /*saved_page=*/p, p->prev_offset, p->curr_offset};
     page_log_usage(a->tail, "SCRATCH BEGIN");
-    return x;
 }
 
 LULU_INTERNAL_FUNC void

@@ -1,4 +1,5 @@
 #include "type.hpp"
+#include "slice.hpp"
 #include "state.hpp"
 #include "mem.hpp"
 #include "strings.hpp"
@@ -8,7 +9,7 @@
 
 // Map ValueKind to Type. Don't add the type info for 'None'.
 static Type const
-ATOM_TYPES[] = {
+BASIC_TYPES[] = {
 #define basic_type_make(T)    {Value_##T, cast(u32)sizeof(#T) - 1, #T}
     {TypeKind_Basic, {basic_type_make(nil)}},
     {TypeKind_Basic, {basic_type_make(bool)}},
@@ -21,7 +22,7 @@ ATOM_TYPES[] = {
 LULU_INTERNAL_FUNC Type const *
 basic_type_get(ValueKind k)
 {
-    return &ATOM_TYPES[k];
+    return &BASIC_TYPES[k];
 }
 
 LULU_INTERNAL_FUNC void
@@ -31,17 +32,9 @@ type_env_init(lulu_State *L, TypeEnv *env)
     env->entries = {nullptr, 0};
     env->used    = 0;
 
-    for (usize i = 0; i < count_of(ATOM_TYPES); i++) {
-        Type const *type = &ATOM_TYPES[i];
-        String      key  = {type->basic.name, type->basic.len};
-        type_set(L, key, type);
-    }
-
-    for (usize i = 0; i < len(env->entries); i++) {
-        TypeEnv_Entry e = env->entries[i];
-        if (e.type) {
-            LULU_LOGF("env[%zu]: type = %s", i, e.key.data);
-        }
+    for (Type const &type : slice_array(BASIC_TYPES)) {
+        String key  = {type.basic.name, type.basic.len};
+        type_set(L, key, &type);
     }
 }
 
@@ -100,16 +93,14 @@ type_rehash(lulu_State *L, TypeEnv *env, usize cap)
     auto old_hash = env->entries;
 
     // Zero-initialize the new block so we can safely read it later.
-    for (usize i = 0; i < cap; i++) {
-        new_hash[i].key  = {nullptr, 0};
-        new_hash[i].type = nullptr;
+    for (TypeEnv_Entry &e : new_hash) {
+        e = {/*key=*/{nullptr, 0}, /*hash=*/0, /*type=*/nullptr};
     }
 
     // Rehash old data into our new backing array.
     usize new_used = 0;
-    for (usize i = 0; i < len(old_hash); i++) {
+    for (TypeEnv_Entry src : old_hash) {
         TypeEnv_Entry *dst;
-        TypeEnv_Entry  src = old_hash[i];
         if (!src.type) {
             continue;
         }

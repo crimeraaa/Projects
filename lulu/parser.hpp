@@ -29,7 +29,6 @@ struct Parser {
 };
 
 
-typedef struct ParserData ParserData;
 struct ParserData {
     String  path, input;
     Chunk   chunk;

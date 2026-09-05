@@ -35,7 +35,7 @@ struct TypeEnv_Entry {
 
 struct TypeEnv {
     Slice<TypeEnv_Entry> entries;
-    usize used;
+    usize                used    = 0;
 };
 
 static inline bool

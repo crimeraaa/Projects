@@ -10,15 +10,16 @@
 
 static inline i32 PC_NONE = -1;
 
-struct StackInfo {
+struct RegInfo {
     u8          reg;
+    i32         pc_born;
+    i32         pc_died; // Note that this is inclusive!
     Type const *type;
-    i32         pc_born, pc_died;
 };
 
 struct Chunk {
     Dynamic<Instruction> code;
-    Dynamic<StackInfo>   stack_info;
+    Dynamic<RegInfo>     reg_info;
     Dynamic<TValue>      constants;
     u8                   stack_size = 0;
 };

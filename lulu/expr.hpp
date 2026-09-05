@@ -20,7 +20,7 @@ enum ExprKind : u8 {
 struct Expr {
     ExprKind    kind         = Expr_None;
     ValueKind   literal_kind = Value_nil; // Helps reduce pointer dereferencing.
-    bool        literal_sign = false;     // Integer literal shenanigans.
+    u16         count        = 0;         // Used only by ExprList.
     Token       token;
     Type const *type         = nullptr;
     union {
@@ -29,6 +29,11 @@ struct Expr {
         i32   pc;       // Index of instruction in chunk bytecode array.
         u16   reg;      // Index of stack slot and/or active variable info.
     };
+};
+
+struct ExprList {
+    ExprList *prev = nullptr;
+    Expr      expr;
 };
 
 static inline Expr
@@ -59,9 +64,6 @@ expr_make_literal(Token const &token, T arg)
 
     // Literal value stuff
     expr.literal_kind = kind;
-    if constexpr(kind == Value_int) {
-        expr.literal_sign = arg < 0;
-    }
     value_set(&expr.literal, arg);
     return expr;
 }
@@ -110,16 +112,10 @@ expr_set_constant(Expr *e, u32 index)
     e->constant = index;
 }
 
-#define expr_is_literal(e) ((e)->kind == Expr_Literal)
 
-static inline bool
-expr2_both_literal(Expr const *a, Expr const *b)
-{
-    return expr_is_literal(a) && expr_is_literal(b);
-}
-
+static inline bool expr_is_literal(Expr const *e) { return e->kind == Expr_Literal;    }
 static inline bool expr_is_reg    (Expr const *e) { return e->kind == Expr_Discharged; }
-static inline bool expr_is_local  (Expr const *e) { return e->kind == Expr_Local;   }
+static inline bool expr_is_local  (Expr const *e) { return e->kind == Expr_Local;      }
 static inline bool expr_is_compare(Expr const *e) { return e->kind == Expr_Compare;    }
 static inline bool expr_is_pc     (Expr const *e) { return e->kind == Expr_Pending;    }
 
@@ -188,8 +184,18 @@ expr_neg(Expr *e)
     return true;
 }
 
-// To coerce (i.e. implicily cast) the expression from the source type to the
-// destination type. This modifies the expression in-ploce if successful.
+/*
+ Description:
+    Performs the equivalent of `cast(Dst)e` where `e` is of type `Src`.
+    Specifically, it coerces (i.e. implicily casts) the expression from the
+    source type to the destination type.
+
+ Returns:
+    `true` if the coercion can be performed. In this case, the given expression
+    is also modified in-place.
+
+    Otherwise, `false` is returned and the expression remains unchanged.
+*/
 template<class Src, class Dst>
 static bool
 expr_coerce(Expr *e)

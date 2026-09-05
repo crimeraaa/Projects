@@ -65,14 +65,16 @@ struct TValue {
 };
 
 static inline bool tvalue_is_kind(TValue tv, ValueKind kind) { return tv.kind == kind; }
+static inline bool tvalue_is_nil (TValue tv) { return tvalue_is_kind(tv, Value_nil);   }
+static inline bool tvalue_is_bool(TValue tv) { return tvalue_is_kind(tv, Value_bool);  }
+static inline bool tvalue_is_int (TValue tv) { return tvalue_is_kind(tv, Value_int);   }
+static inline bool tvalue_is_real(TValue tv) { return tvalue_is_kind(tv, Value_real);  }
 
-#define tvalue_is_nil(tv)   tvalue_is_kind(tv, Value_nil)
-#define tvalue_is_bool(tv)  tvalue_is_kind(tv, Value_bool)
-#define tvalue_is_int(tv)   tvalue_is_kind(tv, Value_int)
-#define tvalue_is_real(tv)  tvalue_is_kind(tv, Value_real)
 
-// If assertions are disabled then they will expand to a no-op.
+// If assertions are disabled then said assertion will expand to a no-op.
 #define tvalue_get(tv, T)   (LULU_ASSERT(tvalue_is_##T(tv)), value_##T((tv).value))
+
+// We use macros because we want the assertion location to be at the point of usage.
 #define tvalue_bool(tv)     tvalue_get(tv, bool)
 #define tvalue_int(tv)      tvalue_get(tv, int)
 #define tvalue_real(tv)     tvalue_get(tv, real)

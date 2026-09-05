@@ -10,25 +10,24 @@
 struct Page;
 struct Arena {
     /*
-        The first page is only freed when the entire arena is explicitly
-        destroyed via `arena_destroy()`. It should not be freed when
-        `arena_free_all()` is called.
+     The first page is only freed when the entire arena is explicitly destroyed
+     via `arena_destroy()`. It should not be freed when `arena_free_all()` is called.
      */
-    Page *head;
+    Page *head = nullptr;
 
     /*
-        Beyond the first page, all succeeding pages we allocate can be
-        freed whenever `arena_free_all()` is called.
+     Beyond the first page, all succeeding pages we allocate can be freed
+     whenever `arena_free_all()` is called.
      */
-    Page *tail;
+    Page *tail = nullptr;
 };
 
 struct Scratch {
-    Arena *backing;
-    Page * saved_page;
+    Arena *backing    = nullptr;
+    Page * saved_page = nullptr;
 
     // Track these manually as the underlying page itself may update.
-    usize prev_offset, curr_offset;
+    usize prev_offset = 0, curr_offset = 0;
 };
 
 LULU_INTERNAL_FUNC void
@@ -40,8 +39,8 @@ mem_arena_free_all(Arena *a);
 LULU_INTERNAL_FUNC void
 mem_arena_destroy(Arena *a);
 
-LULU_INTERNAL_FUNC Scratch
-mem_scratch_begin(Arena *a);
+LULU_INTERNAL_FUNC void
+mem_scratch_begin(Arena *a, Scratch *x);
 
 LULU_INTERNAL_FUNC void
 mem_scratch_end(Scratch *x);
@@ -153,29 +152,43 @@ struct Dynamic {
 };
 
 template<class T> static inline T *   raw_data (Dynamic<T> d) { return raw_data(d.slice); }
-template<class T> static inline usize len      (Dynamic<T> d) { return len(d.slice); }
-template<class T> static inline usize cap      (Dynamic<T> d) { return d.cap; }
-template<class T> static inline T *   begin    (Dynamic<T> d) { return begin(d.slice); }
-template<class T> static inline T *   end      (Dynamic<T> d) { return end(d.slice); }
+template<class T> static inline usize len      (Dynamic<T> d) { return len(d.slice);      }
+template<class T> static inline usize cap      (Dynamic<T> d) { return d.cap;             }
+template<class T> static inline T *   begin    (Dynamic<T> d) { return begin(d.slice);    }
+template<class T> static inline T *   end      (Dynamic<T> d) { return end(d.slice);      }
 
 template<class T>
 static inline void
-mem_append(lulu_State *L, Dynamic<T> *d, T const &value)
+mem_append_dynamic(lulu_State *L, Dynamic<T> *d, T const &value)
 {
     if (len(*d) + 1 > cap(*d)) {
         d->slice.data = mem_heap_grow(L, d->slice.data, &d->cap);
     }
 
     // Raw access because we assign to a (currently) out of bounds index.
-    // Only once length is updated can we use operator[] again.
+    // Only once the length is updated can we use operator[] again.
     d->slice.data[d->slice.len++] = value;
 }
 
 template<class T>
 static inline void
-mem_shrink(lulu_State *L, Dynamic<T> *d)
+mem_shrink_dynamic(lulu_State *L, Dynamic<T> *d)
 {
     usize n       = d->slice.len;
     d->slice.data = mem_heap_resize(L, d->slice.data, d->cap, n);
     d->cap        = n;
+}
+
+template<class T>
+static inline void
+mem_free_dynamic(lulu_State *L, Dynamic<T> *d)
+{
+    mem_free_slice(L, d->slice);
+}
+
+template<class T>
+static inline RevSlice<T>
+reverse(Dynamic<T> d)
+{
+    return reverse(d.slice);
 }
