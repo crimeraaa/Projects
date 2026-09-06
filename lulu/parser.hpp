@@ -38,6 +38,6 @@ struct ParserData {
 LULU_INTERNAL_FUNC Chunk *
 parser_parse(lulu_State *L, ParserData *data);
 
-LULU_INTERNAL_FUNC [[noreturn]] void
+[[noreturn]] LULU_INTERNAL_FUNC void
 parser_error_at(Parser *p, char const *info, Token const &t);
 

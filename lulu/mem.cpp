@@ -25,7 +25,7 @@ struct Page {
     usize curr_offset;
 };
 
-#if 1
+#if 0
 #define page_log(p, s, f, ...)  LULU_LOGF("[" s "] " #p " = " f, __VA_ARGS__)
 #else
 #define page_log(...)           cast(void)0
@@ -121,7 +121,7 @@ mem_arena_destroy(Arena *a)
     page_free(a->head);
 }
 
-// Align the given offset to the given alignment.
+// Align the paged address at the given offset to the given alignment.
 static usize
 page_align_forward(Page *p, usize offset, usize align)
 {
@@ -148,9 +148,8 @@ arena_align_forward(Arena *a, usize offset)
 
 
 LULU_INTERNAL_FUNC u8 *
-mem_arena_alloc_bytes(lulu_State *L, usize size)
+mem_arena_alloc_bytes(lulu_State *L, Arena *a, usize size)
 {
-    Arena *a     = &L->arena;
     usize  start = arena_align_forward(a, a->tail->curr_offset);
     usize  stop  = start + size;
 
@@ -175,13 +174,12 @@ mem_arena_alloc_bytes(lulu_State *L, usize size)
 }
 
 LULU_INTERNAL_FUNC u8 *
-mem_arena_resize_bytes(lulu_State *L, void *old_ptr, usize old_size, usize new_size)
+mem_arena_resize_bytes(lulu_State *L, Arena *a, void *old_ptr, usize old_size, usize new_size)
 {
-    Arena *a       = &L->arena;
-    u8 *   old_mem = cast(u8 *)old_ptr;
+    u8 *old_mem = cast(u8 *)old_ptr;
     if (old_mem == nullptr && old_size == 0) {
         // Nothing to resize, so we must be allocating a new block.
-        return mem_arena_alloc_bytes(L, new_size);
+        return mem_arena_alloc_bytes(L, a, new_size);
     } else if (old_mem == page_at(a->tail, a->tail->prev_offset)) {
         // Resize in-place.
         if (new_size > old_size) {
@@ -198,22 +196,23 @@ mem_arena_resize_bytes(lulu_State *L, void *old_ptr, usize old_size, usize new_s
         return old_mem;
     } else resize_copy: {
         // Resize by creating an appropriately-sized copy.
-        u8 *  new_mem   = mem_arena_alloc_bytes(L, new_size);
+        u8 *  new_mem   = mem_arena_alloc_bytes(L, a, new_size);
         usize copy_size = min(new_size, old_size);
         return cast(u8 *)memcpy(new_mem, old_mem, copy_size);
     }
 }
 
-LULU_INTERNAL_FUNC void
-mem_scratch_begin(Arena *a, Scratch *x)
+LULU_INTERNAL_FUNC Scratch
+mem_scratch_begin(Arena *a)
 {
-    Page *p = a->tail;
-    *x = {a, /*saved_page=*/p, p->prev_offset, p->curr_offset};
+    Page *  p = a->tail;
+    Scratch x = {a, /*saved_page=*/p, p->prev_offset, p->curr_offset};
     page_log_usage(a->tail, "SCRATCH BEGIN");
+    return x;
 }
 
 LULU_INTERNAL_FUNC void
-mem_scratch_end(Scratch *x)
+mem_scratch_free_all(Scratch *x)
 {
     Arena *a = x->backing;
     Page * p = nullptr;

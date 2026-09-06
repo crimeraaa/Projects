@@ -12,7 +12,8 @@ struct Slice {
     operator[](N index)
     {
         auto i = cast(usize)index;
-        LULU_ASSERTF(i < this->len, "Out of bounds index %zu", i);
+        // You may opt to let ASAN help here to report the stack trace.
+        // LULU_ASSERTF(i < this->len, "Out of bounds index %zu", i);
         return this->data[i];
     }
 

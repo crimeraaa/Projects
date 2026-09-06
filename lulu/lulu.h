@@ -34,7 +34,7 @@
  */
 #ifdef __cplusplus
 #define LULU_API            extern "C"
-#define LULU_INTERNAL_FUNC  extern "C"
+#define LULU_INTERNAL_FUNC  extern
 #define LULU_INTERNAL_DATA  extern
 #else
 #define LULU_API    extern

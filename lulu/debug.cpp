@@ -97,8 +97,8 @@ debug_disassemble(Chunk const *c)
     if (len(c->reg_info) > 0) {
         printf(".stack:\n");
         for (RegInfo r : c->reg_info) {
-            printf("| pc[%i, %i] ; reg = %i, type = %p\n",
-                r.pc_born, r.pc_died, r.reg, cast(void *)r.type);
+            printf("| R(%i): %s ; pc[%i, %i]\n",
+                r.reg, r.type->basic.name, r.pc_born, r.pc_died);
         }
     }
 

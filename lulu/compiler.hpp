@@ -19,12 +19,6 @@ struct VarInfo {
     u32         reg_info_index;
 };
 
-struct DeclInfo {
-    ExprList   *restrict lhs  = nullptr;
-    ExprList   *restrict rhs  = nullptr;
-    Type const *         type = nullptr;
-};
-
 struct Compiler {
     // Shared state.
     lulu_State *L      = nullptr;
@@ -36,12 +30,21 @@ struct Compiler {
     i32      pc              = 0;
     u32      constants_count = 0;
     u16      free_reg        = 0;
-    u16      active_count    = 0;
-    VarInfo  locals[LOCALS_MAX_COUNT];
+
+    // Track the list of currently active local variables. Their registers
+    // match the indices to be used here.
+    u16      active_locals_len = 0;
+    VarInfo  active_locals[LOCALS_MAX_COUNT];
 };
 
 LULU_INTERNAL_FUNC void
 compiler_finish(Compiler *c);
+
+static inline Slice<VarInfo>
+compiler_slice_active_locals(Compiler *c)
+{
+    return slice_array(c->active_locals, 0, c->active_locals_len);
+}
 
 // LOW-LEVEL EXPR MANIPULATION ============================================= {{{
 
@@ -80,6 +83,8 @@ LULU_INTERNAL_FUNC void
 compiler_expr_pop(Compiler *c, Expr *e);
 
 // ========================================================================= }}}
+
+// HIGH-LEVEL EXPR MANIPULATION ============================================ {{{
 
 /*
  Description:
@@ -150,10 +155,10 @@ compiler_return1(Compiler *c, Expr *e);
     lhs [in, out] - Must contain the identifiers we wish to use.
  */
 LULU_INTERNAL_FUNC void
-compiler_declare_local(Compiler *c, ExprList *lhs);
+compiler_declare_local(Compiler *c, ExprList lhs_list);
 
 LULU_INTERNAL_FUNC void
-compiler_define_local(Compiler *c, DeclInfo *info);
+compiler_define_local(Compiler *c, ExprList lhs_list, ExprList rhs_list);
 
 /*
  Description:
@@ -161,4 +166,7 @@ compiler_define_local(Compiler *c, DeclInfo *info);
     and strict type-checking.
  */
 LULU_INTERNAL_FUNC void
-compiler_assign(Compiler *c, DeclInfo *info);
+compiler_assign(Compiler *c, ExprList lhs_list, ExprList rhs_list);
+
+// ========================================================================= }}}
+

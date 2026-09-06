@@ -39,35 +39,35 @@ mem_arena_free_all(Arena *a);
 LULU_INTERNAL_FUNC void
 mem_arena_destroy(Arena *a);
 
-LULU_INTERNAL_FUNC void
-mem_scratch_begin(Arena *a, Scratch *x);
+LULU_INTERNAL_FUNC Scratch
+mem_scratch_begin(Arena *a);
 
 LULU_INTERNAL_FUNC void
-mem_scratch_end(Scratch *x);
+mem_scratch_free_all(Scratch *x);
 
-LULU_INTERNAL_FUNC [[nodiscard]] u8 *
-mem_arena_alloc_bytes(lulu_State *L, usize size);
+[[nodiscard]] LULU_INTERNAL_FUNC u8 *
+mem_arena_alloc_bytes(lulu_State *L, Arena *a, usize size);
 
-LULU_INTERNAL_FUNC [[nodiscard]] u8 *
-mem_arena_resize_bytes(lulu_State *L, void *old_ptr, usize old_size, usize new_size);
+[[nodiscard]] LULU_INTERNAL_FUNC u8 *
+mem_arena_resize_bytes(lulu_State *L, Arena *a, void *old_ptr, usize old_size, usize new_size);
 
 template<class T>
 [[nodiscard]] static inline T *
-mem_arena_alloc(lulu_State *L, usize count = 1)
+mem_arena_alloc(lulu_State *L, Arena *a, usize count = 1)
 {
-    return cast(T *)mem_arena_alloc_bytes(L, sizeof(T) * count);
+    return cast(T *)mem_arena_alloc_bytes(L, a, sizeof(T) * count);
 }
 
 template<class T>
 [[nodiscard]] static inline T *
-mem_arena_resize(lulu_State *L, T *old_mem, usize old_cap, usize new_cap)
+mem_arena_resize(lulu_State *L, Arena *a, T *old_mem, usize old_cap, usize new_cap)
 {
     auto old_size = sizeof(T) * old_cap;
     auto new_size = sizeof(T) * new_cap;
-    return cast(T *)mem_arena_resize_bytes(L, old_mem, old_size, new_size);
+    return cast(T *)mem_arena_resize_bytes(L, a, old_mem, old_size, new_size);
 }
 
-LULU_INTERNAL_FUNC [[nodiscard]] u8 *
+[[nodiscard]] LULU_INTERNAL_FUNC u8 *
 mem_heap_resize_bytes(lulu_State *L, void *old_ptr, usize old_size, usize new_size);
 
 template<class T>
@@ -184,6 +184,13 @@ static inline void
 mem_free_dynamic(lulu_State *L, Dynamic<T> *d)
 {
     mem_free_slice(L, d->slice);
+}
+
+template<class T>
+[[nodiscard]] static inline T *
+mem_scratch_alloc(lulu_State *L, Scratch *x, usize count = 1)
+{
+    return mem_arena_alloc<T>(L, x->backing, count);
 }
 
 template<class T>

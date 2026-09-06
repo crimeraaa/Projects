@@ -3,6 +3,7 @@
 #include "internal.hpp"
 #include "lexer.hpp"
 #include "type.hpp"
+#include "list.hpp"
 
 enum ExprKind : u8 {
     Expr_None,
@@ -20,7 +21,6 @@ enum ExprKind : u8 {
 struct Expr {
     ExprKind    kind         = Expr_None;
     ValueKind   literal_kind = Value_nil; // Helps reduce pointer dereferencing.
-    u16         count        = 0;         // Used only by ExprList.
     Token       token;
     Type const *type         = nullptr;
     union {
@@ -31,10 +31,7 @@ struct Expr {
     };
 };
 
-struct ExprList {
-    ExprList *prev = nullptr;
-    Expr      expr;
-};
+using ExprList = List<Expr>;
 
 static inline Expr
 expr_make(ExprKind kind, Type const *type, Token const &token)

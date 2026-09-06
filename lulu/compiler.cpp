@@ -20,7 +20,8 @@ compiler_finish(Compiler *c)
 
     i32  pc       = c->pc;
     auto reg_info = chunk->reg_info;
-    for (VarInfo v : slice_array(c->locals, 0, c->active_count)) {
+    for (VarInfo v : compiler_slice_active_locals(c)) {
+        LULU_LOGF("R(%u)", v.reg_info_index);
         reg_info[v.reg_info_index].pc_died = pc;
     }
 
@@ -40,9 +41,9 @@ static i32
 compiler_code(Compiler *c, Instruction i)
 {
     Chunk *chunk = c->chunk;
-    i32    idx   = c->pc++;
+    i32    index = c->pc++;
     mem_append_dynamic(c->L, &chunk->code, i);
-    return idx;
+    return index;
 }
 
 static u32
@@ -269,7 +270,7 @@ compiler_call(Compiler *c, Expr *restrict func, Expr *restrict arg)
 static void
 reg_pop(Compiler *c, u16 reg)
 {
-    if (reg >= c->active_count) {
+    if (reg >= c->active_locals_len) {
         c->free_reg--;
         LULU_ASSERTF(reg == c->free_reg, "Expected free_reg = %u but got %u", reg, c->free_reg);
     }
@@ -986,123 +987,100 @@ compiler_return1(Compiler *c, Expr *e)
 }
 
 LULU_INTERNAL_FUNC void
-compiler_declare_local(Compiler *c, ExprList *lhs)
+compiler_declare_local(Compiler *c, ExprList lhs_list)
 {
     lulu_State *L = c->L;
-    // Declare from right to left.
-    u16   n  = c->active_count + lhs->expr.count;
-    i32   pc = c->pc;
-    auto *r  = &c->chunk->reg_info;
-    for (ExprList *list = lhs; list != nullptr; list = list->prev) {
-        Expr *node = &list->expr;
-        if (node->kind != Expr_Local) {
-            compiler_error(c, "Unassignable target", node);
+
+    // Declare from left to right.
+    u16   reg           = c->active_locals_len;
+    i32   pc            = c->pc;
+    auto *reg_info      = &c->chunk->reg_info;
+    auto  active_locals = compiler_slice_active_locals(c);
+    for (Expr &lhs : lhs_list) {
+        if (lhs.kind != Expr_Local) {
+            compiler_error(c, "Unassignable target", &lhs);
         }
 
         // If non-null then that means this variable already exists in some scope.
         // TODO(2026-09-05): Check scopes?
-        if (node->type != nullptr) {
-            compiler_error(c, "Shadowing of variable", node);
+        if (lhs.type != nullptr) {
+            compiler_error(c, "Shadowing of variable", &lhs);
         }
 
-        u32 i = cast(u32)len(*r);
-        mem_append_dynamic(L, r, {
-            /*reg    =*/cast(u8)(n - 1),
+        mem_append_dynamic(L, reg_info, {
+            /*reg    =*/cast(u8)reg,
             /*pc_born=*/pc,
             /*pc_died=*/PC_NONE,
             /*type   =*/nullptr,
         });
 
-        // To be safe, reset the type to indicate we really need to overwrite it.
-        node->type = nullptr;
-        c->locals[--n] = {
-            /*name          =*/node->token,
+        // Reset the type to indicate we don't know it (yet).
+        lhs.type = nullptr;
+        active_locals[reg++] = {
+            /*name          =*/lhs.token,
             /*type          =*/nullptr,
             /*scope         =*/-1,
-            /*reg_info_index=*/i,
+            /*reg_info_index=*/cast(u32)(len(*reg_info) - 1),
         };
     }
-
-    LULU_ASSERTF(n == c->active_count, "Expected last n = %u, got %u", c->active_count, n);
 }
 
 LULU_INTERNAL_FUNC void
-compiler_define_local(Compiler *c, DeclInfo *info)
+compiler_define_local(Compiler *c, ExprList lhs_list, ExprList rhs_list)
 {
-    LULU_ASSERT(info->lhs->expr.count == info->rhs->expr.count);
+    LULU_ASSERT(lhs_list.count == rhs_list.count);
 
-    u16         n    = c->active_count + info->lhs->expr.count;
-    Type const *type = info->type;
-    auto &      r    = c->chunk->reg_info;
-    for (ExprList *rhs_list = info->rhs; rhs_list != nullptr; rhs_list = rhs_list->prev) {
-        Expr *   rhs = &rhs_list->expr;
-        VarInfo *v   = &c->locals[--n];
-        // No assigning expression given, so use the zero value.
-        if (!rhs->kind) {
-            LULU_ASSERT(type != nullptr);
-            switch (type->kind) {
-            case TypeKind_Basic:
-                rhs->type = type;
-                switch (type->basic.kind) {
-                case Value_bool: value_set_bool(&rhs->literal, false); break;
-                case Value_int:  value_set_int (&rhs->literal, 0);     break;
-                case Value_real: value_set_real(&rhs->literal, 0.0);   break;
-                default:
-                    goto nodice;
-                }
-                break;
-            default: nodice:
-                parser_error_at(c->parser, "Unsupported zero value", v->token);
-            }
-        }
-        // Otherwise, we have an assigning expression but it's of the wrong type.
-        else if (type != rhs->type) {
-            // No type given, so infer it from the current expression.
-            if (!type) {
-                type = rhs->type;
-            }
+    auto reg_info      = c->chunk->reg_info;
+    auto active_locals = compiler_slice_active_locals(c);
+    int  scope         = c->scope;
+    u16  reg           = cast(u16)len(active_locals);
+    for (Expr &rhs : rhs_list) {
+        VarInfo *v    = &active_locals[reg++];
+        Expr &   lhs  = *lhs_list++;
+
+        // Ensure both sides had type inference done by the parser.
+        LULU_ASSERT(lhs.type != nullptr);
+        LULU_ASSERT(rhs.type != nullptr);
+
+        // We have an assigning expression but it's the wrong target type.
+        if (lhs.type != rhs.type) {
             // Only literals that can be implicitly converted to the destination
             // type without any loss of data will pass this check.
-            else if (!compiler_coerce_rhs(type, rhs)) {
-                compiler_error(c, "Invalid implicit cast", rhs);
+            if (!compiler_coerce_rhs(lhs.type, &rhs)) {
+                compiler_error(c, "Invalid implicit cast", &rhs);
             }
         }
 
-        u16 const reg = compiler_expr_next_reg(c, rhs);
-        LULU_ASSERTF(reg == c->active_count, "Expected reg = %u, got %u", c->active_count, reg);
-        LULU_ASSERT(rhs->type == type);
-
-        v->scope = c->scope;
-        v->type  = type;
-        r[v->reg_info_index].type = type;
+        LULU_ASSERT(rhs.type == lhs.type);
+        compiler_expr_next_reg(c, &rhs);
+        v->scope = scope;
+        v->type  = lhs.type;
+        reg_info[v->reg_info_index].type = lhs.type;
     }
-    LULU_ASSERTF(n == c->active_count, "Expected last n = %u, got %u", c->active_count, n);
-    c->active_count += info->lhs->expr.count;
+
+    // The last register is the length.
+    c->active_locals_len = reg;
 }
 
 LULU_INTERNAL_FUNC void
-compiler_assign(Compiler *c, DeclInfo *info)
+compiler_assign(Compiler *c, ExprList lhs_list, ExprList rhs_list)
 {
-    LULU_ASSERT(info->lhs->expr.count == info->rhs->expr.count);
-
-    ExprList *rhs_list = info->rhs;
-    for (ExprList *lhs_list = info->lhs; lhs_list != nullptr; lhs_list = lhs_list->prev) {
-        Expr *lhs = &lhs_list->expr;
-        Expr *rhs = &rhs_list->expr;
-        rhs_list = rhs_list->prev;
-        if (lhs->type != rhs->type){
-            if (!compiler_coerce_rhs(lhs->type, rhs)) {
-                compiler_error(c, "Invalid implicit cast", rhs);
+    LULU_ASSERT(lhs_list.count == rhs_list.count);
+    for (Expr &lhs : lhs_list) {
+        Expr &rhs = *rhs_list++;
+        if (lhs.type != rhs.type){
+            if (!compiler_coerce_rhs(lhs.type, &rhs)) {
+                compiler_error(c, "Invalid implicit cast", &rhs);
             }
         }
 
-        switch (lhs->kind) {
+        switch (lhs.kind) {
         case Expr_Local:
-            lhs->kind = Expr_Discharged;
-            expr_to_reg(c, rhs, expr_reg(lhs));
+            lhs.kind = Expr_Discharged;
+            expr_to_reg(c, &rhs, expr_reg(&lhs));
             break;
         default:
-            compiler_error(c, "Invalid assignment target", lhs);
+            compiler_error(c, "Invalid assignment target", &lhs);
             break;
         }
     }

@@ -46,7 +46,7 @@ parser_error(Parser *p, char const *info)
     parser_error_at(p, info, p->token);
 }
 
-LULU_INTERNAL_FUNC [[noreturn]] void
+[[noreturn]] LULU_INTERNAL_FUNC void
 parser_error_at(Parser *p, char const *info, Token const &t)
 {
     char name[80];
@@ -102,7 +102,7 @@ static VarInfo *
 parser_find_variable(Parser *p, String name, u16 *out)
 {
     Compiler *c      = p->compiler;
-    auto      locals = slice_array(c->locals, 0, c->active_count);
+    auto      locals = slice_array(c->active_locals, 0, c->active_locals_len);
     for (VarInfo &v : reverse(locals)) {
         if (name == v.token.lexeme) {
             if (out) {
@@ -373,86 +373,154 @@ parser_expr(Parser *p, Expr *out, bool is_lhs, int prec_in)
     parser_recurse_pop(p);
 }
 
-static ExprList *
+/*
+ Description:
+    Parses a list of comma-separated expressions.
+ */
+static ExprList
 parser_expr_list(Parser *p, bool is_lhs)
 {
-    ExprList   *tail  = nullptr;
-    lulu_State *L     = p->L;
-    u16         count = 0;
+    lulu_State *L = p->L;
+    // Compiler   *c = p->compiler;
+    Scratch    *x = p->scratch;
+    ExprList    list;
     do {
-        ExprList *node = mem_arena_alloc<ExprList>(L);
-        *node = {/*prev=*/tail, /*expr=*/{}};
-        parser_expr(p, &node->expr, is_lhs);
-        node->expr.count = ++count;
-        tail = node;
+        Expr e;
+        parser_expr(p, &e, is_lhs);
+        // compiler_expr_next_reg(c, &e);
+        list_append(L, &list, x, e);
     } while (parser_match(p, Token_Comma));
-    return tail;
+    return list;
 
 }
 
-static ExprList *
+/*
+ Description:
+    Parses a list of comma-separated primary expressions.
+ */
+static ExprList
 parser_primary_expr_list(Parser *p, bool is_lhs)
 {
-    ExprList   *tail  = nullptr;
-    lulu_State *L     = p->L;
-    u16         count = 0;
+    lulu_State *L = p->L;
+    Scratch    *x = p->scratch;
+    ExprList    list;
     do {
-        ExprList *node = mem_arena_alloc<ExprList>(L);
-        *node = {/*prev=*/tail, /*expr=*/{}};
-        parser_primary_expr(p, &node->expr, is_lhs);
-        node->expr.count = ++count;
-        tail = node;
+        Expr e;
+        parser_primary_expr(p, &e, is_lhs);
+        list_append(L, &list, x, e);
     } while (parser_match(p, Token_Comma));
-    return tail;
+    return list;
 }
 
 static void
-parser_decl(Parser *p, DeclInfo *info)
+parser_decl(Parser *p, ExprList lhs_list)
 {
     Compiler *c = p->compiler;
-    compiler_declare_local(c, info->lhs);
+    compiler_declare_local(c, lhs_list);
 
     // If we have tokens in between ':' and '=', it must be a type.
+    // Note that only one (1) type declaration is allowed, e.g. `x, y: int`
+    // and not `x, y: int, real`.
     if (!parser_check(p, Token_Assign)) {
         Expr tmp;
+        // This should also catch invalid 'types', like `x: 1`.
         parser_type(p, &tmp);
-        info->type = tmp.type;
+        for (Expr &lhs : lhs_list) {
+            lhs.type = tmp.type;
+        }
     }
 
     // `x := expr` or `x: T = expr`, but not `x: T`.
+    ExprList rhs_list;
     if (parser_match(p, Token_Assign)) {
-        info->rhs = parser_expr_list(p, /*is_lhs=*/false);
-        // Infer the type we wish to assign with.
-        if (!info->type) {
-            // E.g. `x:` or `x: 1`, report the error at the last assigning token.
-            if (info->rhs->expr.count == 0) {
-                Expr *lhs = &info->lhs->expr;
-                parser_error_at(p, "Expected a type after ':'", lhs->token);
-            }
+        rhs_list = parser_expr_list(p, /*is_lhs=*/false);
+    }
 
-            // TODO(2026-09-06): Change this, will break when multiple
-            // assignments are introduced.
-            info->type = info->rhs->expr.type;
+    // We don't have a type, so we need to infer it from the assigning
+    // expressions.
+    if (!lhs_list->type) {
+        // We want to infer the type but we literally don't have anything
+        // to infer *from*, e.g. `x:`.
+        if (rhs_list.count == 0) {
+            // Report the error at the *last* local variable name.
+            Expr *last = list_last_elem(lhs_list);
+            parser_error_at(p, "Expected a type after ':'", last->token);
         }
 
+        if (lhs_list.count != rhs_list.count) {
+            Expr *last = list_last_elem(rhs_list);
+            parser_error_at(p, "Mismatched number of expressions", last->token);
+        }
+
+        // Copy over all assigning expression types to the targets so the
+        // compiler can see them.
+        ExprList tmp = lhs_list;
+        for (Expr &rhs : rhs_list) {
+            Expr &lhs = *tmp++;
+            lhs.type = rhs.type;
+        }
     }
-    compiler_define_local(c, info);
+    // We do have a type, but we don't have assigning expressions, e.g.
+    // `x, y: int`. So create a bunch of zero-valued expressions.
+    else if (rhs_list.count == 0) {
+        for (Expr const &lhs : lhs_list) {
+            Expr tmp;
+            switch (lhs.type->kind) {
+            case TypeKind_Basic:
+                tmp.kind         = Expr_Literal;
+                tmp.literal_kind = lhs.type->basic.kind;
+                tmp.type         = lhs.type;
+                switch (lhs.type->basic.kind) {
+                case Value_bool:
+                    value_set_bool(&tmp.literal, false);
+                    tmp.token.lexeme = "false"_s;
+                    break;
+                case Value_int:
+                    value_set_int(&tmp.literal, 0);
+                    tmp.token.lexeme = "0"_s;
+                    break;
+                case Value_real:
+                    value_set_real(&tmp.literal, 0.0);
+                    tmp.token.lexeme = "0.0"_s;
+                    break;
+                default:
+                    goto nodice;
+                }
+                break;
+            default: nodice:
+                parser_error_at(c->parser, "Unsupported zero value", lhs.token);
+            }
+            list_append(p->L, &rhs_list, p->scratch, tmp);
+        }
+    }
+
+    LULU_ASSERT(lhs_list.count == rhs_list.count);
+    ExprList tmp = rhs_list;
+    for (Expr const &lhs : lhs_list) {
+        Expr const &rhs = *tmp++;
+        LULU_LOGF("%.*s: %s = %s(%.*s)",
+            STRING_EXPAND(lhs.token.lexeme),
+            lhs.type->basic.name,
+            rhs.type->basic.name,
+            STRING_EXPAND(rhs.token.lexeme));
+    }
+
+    compiler_define_local(c, lhs_list, rhs_list);
 }
 
 static void
-parser_assign(Parser *p, DeclInfo *info)
+parser_assign(Parser *p, ExprList lhs_list)
 {
     // Before anything else, ensure our assignment targets actually
     // exist.
-    for (ExprList *list = info->lhs; list != nullptr; list = list->prev) {
-        Expr *lhs = &list->expr;
-        if (!lhs->type) {
-            parser_error_at(p, "Undeclared variable", lhs->token);
+    for (Expr &lhs : lhs_list) {
+        if (!lhs.type) {
+            parser_error_at(p, "Undeclared variable", lhs.token);
         }
     }
 
-    info->rhs = parser_expr_list(p, /*is_lhs=*/false);
-    compiler_assign(p->compiler, info);
+    ExprList rhs_list = parser_expr_list(p, /*is_lhs=*/false);
+    compiler_assign(p->compiler, lhs_list, rhs_list);
 }
 
 /*
@@ -464,28 +532,26 @@ parser_assign(Parser *p, DeclInfo *info)
 static void
 parser_ident_stmt(Parser *p)
 {
-    DeclInfo info;
-
-    info.lhs = parser_primary_expr_list(p, /*is_lhs=*/true);
+    ExprList lhs_list = parser_primary_expr_list(p, /*is_lhs=*/true);
     switch (p->token.kind) {
     case Token_Colon:
         // Consume ':'
         parser_advance(p);
-        parser_decl(p, &info);
+        parser_decl(p, lhs_list);
         break;
     case Token_Assign:
         // Consume '='
         parser_advance(p);
-        parser_assign(p, &info);
+        parser_assign(p, lhs_list);
         break;
     default:
-        if (info.lhs->expr.kind != Expr_Call) {
+        if (lhs_list.count != 1 || lhs_list->kind != Expr_Call) {
             parser_error_at(p, "Expected a declaration, assignment, or function call",
-                info.lhs->expr.token);
+                lhs_list->token);
         }
         break;
     }
-    mem_arena_free_all(&p->L->arena);
+    mem_scratch_free_all(p->scratch);
 }
 
 static void

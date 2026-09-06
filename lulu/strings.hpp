@@ -47,3 +47,8 @@ string_hash(String s)
     return hash;
 }
 
+/*
+ For use with printf-like functions that accept the `%.*s` specifiers.
+ */
+#define STRING_EXPAND(s)    (cast(int)(s).len), ((s).data)
+
