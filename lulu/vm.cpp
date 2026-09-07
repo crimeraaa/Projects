@@ -140,13 +140,14 @@ vm_execute(lulu_State *L, Chunk *c)
 #undef vm_comparei
 #undef vm_compare
 
-        case Op_return: {
-            printf("===========================\n");
-            return;
-        }
-
-
+        case Op_return:
         case Op_return0:
+            // We don't have type tags to switch on, so this will have to do for now
+            for (Value &reg : slice_array(R, 0, c->stack_size)) {
+                auto i = &reg - R;
+                printf("R(%ti) = {i = " LULU_INT_FMT ", f = " LULU_REAL_FMT ", p = 0x%p}\n",
+                    i, reg.i, reg.r, reg.p);
+            }
             printf("===========================\n");
             return;
         }

@@ -1,15 +1,18 @@
 #ifndef LULU_H
 #define LULU_H
 
-#include <stddef.h> /* size_t          */
-#include <stdint.h> /* intN_t, uintN_t */
-#include <limits.h> /* INTn_MAX, UINTn_MAX */
+#include <stddef.h>   /* size_t          */
+#include <stdint.h>   /* intN_t, uintN_t */
+#include <limits.h>   /* INTn_MAX, UINTn_MAX */
+#include <inttypes.h> /* PRIi64 */
 
 #define LULU_INT_TYPE   int64_t
 #define LULU_INT_MAX    INT64_MAX
 #define LULU_INT_MIN    INT64_MIN
+#define LULU_INT_FMT    "%" PRIi64
 
 #define LULU_REAL_TYPE  double
+#define LULU_REAL_FMT   "%.14g"
 
 /*
  LULU_API:

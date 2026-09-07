@@ -181,35 +181,6 @@ expr_neg(Expr *e)
     return true;
 }
 
-/*
- Description:
-    Performs the equivalent of `cast(Dst)e` where `e` is of type `Src`.
-    Specifically, it coerces (i.e. implicily casts) the expression from the
-    source type to the destination type.
-
- Returns:
-    `true` if the coercion can be performed. In this case, the given expression
-    is also modified in-place.
-
-    Otherwise, `false` is returned and the expression remains unchanged.
-*/
-template<class Src, class Dst>
-static bool
-expr_coerce(Expr *e)
-{
-    LULU_ASSERT(expr_is_literal(e));
-    auto src_arg = value_get<Src>(e->literal);
-    auto dst_arg = cast(Dst)src_arg;
-
-    // Conversion results in data loss?
-    if (cast(Src)dst_arg != src_arg) {
-        return false;
-    }
-
-    expr_set<Dst>(e, dst_arg);
-    return true;
-}
-
 static bool
 expr_int_safe(Expr *e, lulu_int min, lulu_int max, lulu_int *out)
 {

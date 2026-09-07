@@ -79,22 +79,12 @@ type_find_entry(Slice<TypeEnv_Entry> entries, String key, u32 hash)
 static void
 type_rehash(lulu_State *L, TypeEnv *env, usize cap)
 {
-    /*
-    NOTE(2026-07-06):
-        This is a dangerous assumption! For now, we don't allow users to
-        define their own types so we know that the type environment is
-        fixed-size. We can get away with storing it in an arena and just
-        use a scratch arena in the parsing stage.
-
-        However, if we decide the allow user types, we'll need to move
-        to a heap-like permanent allocator of some kind.
-     */
     auto new_hash = mem_alloc_slice<TypeEnv_Entry>(L, cap);
     auto old_hash = env->entries;
 
     // Zero-initialize the new block so we can safely read it later.
     for (TypeEnv_Entry &e : new_hash) {
-        e = {/*key=*/{nullptr, 0}, /*hash=*/0, /*type=*/nullptr};
+        e = {};
     }
 
     // Rehash old data into our new backing array.

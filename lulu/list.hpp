@@ -2,12 +2,6 @@
 
 #include "mem.hpp"
 
-template<class T>
-struct ListNode {
-    T         data = {};
-    ListNode *next = nullptr;
-};
-
 /*
  Description:
     A singly-linked, intrusive list. This is just a wrapper for nodes
@@ -15,8 +9,13 @@ struct ListNode {
  */
 template<class T>
 struct List {
-    ListNode<T> *node  = nullptr;
-    int          count = 0;
+    struct Node {
+        T     data{};
+        Node *next = nullptr;
+    };
+
+    Node *node  = nullptr;
+    int   count = 0;
 
     bool     operator==(List other) { return this->node == other.node; }
     bool     operator!=(List other) { return !(*this == other); }
@@ -57,7 +56,8 @@ struct List {
     operator++()
     {
         // Remember that as we traverse the list, we are actually running
-        // out of nodes.
+        // out of nodes. However for the most part we don't care about the
+        // number of list members.
         if (this->node) {
             this->node = this->node->next;
             this->count--;
@@ -78,34 +78,53 @@ struct List {
     }
 };
 
+/*
+ Description:
+    Adds the given data to the end of the list, making it the new tail.
+ */
 template<class T>
 static inline void
 list_append(lulu_State *L, List<T> *list, Scratch *x, T const &data)
 {
-    // Find the address of the last *next* node we can append to. We start at
-    // the head. Once the head is added, the next one we can append to is the
-    // head's next node, so on and so forth.
-    auto *(*tail) = &list->node;
+    using Node = typename List<T>::Node;
+
+    /*
+     In order to mutate the list in place, we need a reference to the tail's
+     `next` member. When we start with an empty list, the tail is the head
+     and, there is no next node. Otherwise we have to traverse the entire list
+     until we hit the last non-null node, at which point we can reference their
+     `next` member in order to update the list.
+     */
+    Node **tail = &list->node;
     for (T &elem : *list) {
         /*
-         This is safe because both types have `T` as their first member.
-         All `T` in the list are guaranteed to be part of a node, so they
-         always have a `next` member.
+         This is safe because `Node`s have a `T` as their first member.
+         So a pointer to a `Node` can be treated as a mere pointer to `T`.
+         Likeise, instaces of `T` that are actually part of `Node`s can be
+         similarly casted.
          */
-        tail = &(cast(ListNode<T> *)&elem)->next;
+        tail = &(cast(Node *)&elem)->next;
     }
 
-    *tail         = mem_scratch_alloc<ListNode<T>>(L, x);
+    *tail         = mem_scratch_alloc<Node>(L, x);
     (*tail)->data = data;
     (*tail)->next = nullptr;
     list->count++;
 }
 
+
+/*
+ Description:
+    Retrieves a pointer to the data of the last node. Note that, if the list
+    is empty, thence the data will be null- hence we use pointers rather than
+    references.
+ */
 template<class T>
 static inline T *
 list_last_elem(List<T> list)
 {
-    T *last = nullptr;
+    // This is a valid reinterpret cast, see above.
+    T *last = cast(T *)list.node;
     for (T &elem : list) {
         last = &elem;
     }

@@ -25,11 +25,10 @@ struct Compiler {
     Parser *    parser = nullptr;
 
     // Compiler state.
-    Chunk *  chunk           = nullptr;
-    int      scope           = 0;
-    i32      pc              = 0;
-    u32      constants_count = 0;
-    u16      free_reg        = 0;
+    Chunk *  chunk     = nullptr;
+    int      scope     = 0;
+    i32      pc        = 0;
+    u16      free_reg  = 0;
 
     // Track the list of currently active local variables. Their registers
     // match the indices to be used here.

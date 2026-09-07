@@ -7,6 +7,7 @@
 #include "type.cpp"
 #include "lexer.cpp"
 #include "parser.cpp"
+#include "checker.cpp"
 #include "compiler.cpp"
 #include "value.cpp"
 #include "debug.cpp"

@@ -1,5 +1,6 @@
 #include <stdio.h> // [f]printf
 
+#include "internal.hpp"
 #include "lexer.hpp"
 #include "slice.hpp"
 #include "state.hpp"
@@ -308,14 +309,13 @@ parser_unary_expr(Parser *p, Expr *out, bool is_lhs)
     case Token_Tilde:
     case Token_Dash:
     case Token_Len:
-    case Token_not: {
+    case Token_not:
         // Skip the unary operand so the first token of the argument
         // is our current.
         parser_advance(p);
         parser_expr(p, out, is_lhs, PREC_UNARY);
         compiler_unary(p->compiler, op, out);
         break;
-    }
     default:
         parser_primary_expr(p, out, is_lhs);
         break;
@@ -347,21 +347,18 @@ parser_expr(Parser *p, Expr *out, bool is_lhs, int prec_in)
     parser_recurse_push(p);
     parser_unary_expr(p, out, is_lhs);
     for (;;) {
-        // This also catches tokens that are not binary operators.
         Token op       = p->token;
         int   prec_out = parser_prec(op.kind);
+        // This also catches tokens that are not binary operators.
         if (prec_out < prec_in) {
             break;
         }
 
         parser_advance(p);
-#if PARSER_CONSTANT_FOLDING
         if (!expr_is_literal(out)) {
             compiler_expr_any_reg(c, out);
         }
-#else
-        compiler_expr_any_reg(c, out);
-#endif
+
         /*
          Assumptions:
          1) All binary operators are left-associative. We don't have
@@ -463,8 +460,10 @@ parser_decl(Parser *p, ExprList lhs_list)
     // We do have a type, but we don't have assigning expressions, e.g.
     // `x, y: int`. So create a bunch of zero-valued expressions.
     else if (rhs_list.count == 0) {
+        LULU_LOGF("Inserting %i zero values...", lhs_list.count);
         for (Expr const &lhs : lhs_list) {
             Expr tmp;
+            LULU_LOGF("%.*s: %s = 0", STRING_EXPAND(lhs.token.lexeme), lhs.type->basic.name);
             switch (lhs.type->kind) {
             case TypeKind_Basic:
                 tmp.kind         = Expr_Literal;
@@ -492,9 +491,13 @@ parser_decl(Parser *p, ExprList lhs_list)
             }
             list_append(p->L, &rhs_list, p->scratch, tmp);
         }
+        LULU_LOGF("Inserted %i zero values.", rhs_list.count);
     }
 
+    // Temporary until we can figure out how to handle function calls.
     LULU_ASSERT(lhs_list.count == rhs_list.count);
+    
+    // Temporary because we still need the original list.
     ExprList tmp = rhs_list;
     for (Expr const &lhs : lhs_list) {
         Expr const &rhs = *tmp++;
@@ -519,7 +522,13 @@ parser_assign(Parser *p, ExprList lhs_list)
         }
     }
 
+    // Note that, unlike declaration-assignments, the number of assignment
+    // targets and assigning expressions MUST match.
     ExprList rhs_list = parser_expr_list(p, /*is_lhs=*/false);
+    if (lhs_list.count != rhs_list.count) {
+        Expr *tail = list_last_elem(rhs_list);
+        parser_error_at(p, "Mismatched number of expressions", tail->token);
+    }
     compiler_assign(p->compiler, lhs_list, rhs_list);
 }
 
@@ -533,6 +542,9 @@ static void
 parser_ident_stmt(Parser *p)
 {
     ExprList lhs_list = parser_primary_expr_list(p, /*is_lhs=*/true);
+    for (auto p = lhs_list.node; p != nullptr; p = p->next) {
+        LULU_LOGF("var '%.*s'", STRING_EXPAND(p->data.token.lexeme));
+    }
     switch (p->token.kind) {
     case Token_Colon:
         // Consume ':'

@@ -5,8 +5,6 @@
 #include "chunk.hpp"
 #include "mem.hpp"
 
-#define PARSER_CONSTANT_FOLDING 1
-
 // If you exceed this, you should probably rethink what you did!
 #define PARSER_MAX_RECURSIONS   250
 

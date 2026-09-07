@@ -29,8 +29,8 @@ struct Type {
 
 struct TypeEnv_Entry {
     String      key;
-    u32         hash;
-    Type const *type;
+    u32         hash = 0;
+    Type const *type = nullptr;
 };
 
 struct TypeEnv {

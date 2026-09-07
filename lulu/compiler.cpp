@@ -1,5 +1,3 @@
-#include <math.h> // trunc
-
 #include "lulu.h"
 #include "internal.hpp"
 #include "mem.hpp"
@@ -10,6 +8,7 @@
 #include "parser.hpp"
 #include "chunk.hpp"
 #include "compiler.hpp"
+#include "checker.hpp"
 
 LULU_INTERNAL_FUNC void
 compiler_finish(Compiler *c)
@@ -21,7 +20,6 @@ compiler_finish(Compiler *c)
     i32  pc       = c->pc;
     auto reg_info = chunk->reg_info;
     for (VarInfo v : compiler_slice_active_locals(c)) {
-        LULU_LOGF("R(%u)", v.reg_info_index);
         reg_info[v.reg_info_index].pc_died = pc;
     }
 
@@ -50,16 +48,18 @@ static u32
 compiler_add_constant(Compiler *c, TValue tv)
 {
     Chunk *chunk = c->chunk;
-    auto   K     = chunk->constants;
-    u32    n     = c->constants_count;
+    auto  &K     = chunk->constants;
+    u32    n     = cast(u32)len(K);
 
     // Try to reuse an existing value.
     for (u32 i = 0; i < n; i++) {
         if (tvalue_eq(tv, K[i])) {
+            // LULU_LOGF("Reused constant index %u", i);
             return i;
         }
     }
-    mem_append_dynamic(c->L, &chunk->constants, tv);
+    // LULU_LOGF("Added constant index %u", n);
+    mem_append_dynamic(c->L, &K, tv);
     return n;
 }
 
@@ -167,57 +167,49 @@ static bool
 compiler_cast_basic_type(Compiler *c, Expr *e, ValueKind basic_kind)
 {
     LULU_ASSERT(e->type != nullptr);
+
+    // Check for supported expressions and discharge to registers as needed.
     switch (e->kind) {
-    case Expr_Literal:
-        switch (expr_literal_kind(e)) {
-        case Value_bool: {
-            bool b = expr_bool(e);
-            switch (basic_kind) {
-            case Value_int:  expr_set_int (e, cast(lulu_int) b); break;
-            case Value_real: expr_set_real(e, cast(lulu_real)b); break;
-	        default:         LULU_UNREACHABLE();                 break;
-            }
-        }
-        case Value_int: {
-            lulu_int i = expr_int(e);
-            switch (basic_kind) {
-            case Value_bool: expr_set_bool(e, cast(bool)i);      break;
-            case Value_real: expr_set_real(e, cast(lulu_real)i); break;
-	        default:         LULU_UNREACHABLE();                 break;
-            }
-        }
-        case Value_real: {
-            lulu_real r = expr_real(e);
-            switch (basic_kind) {
-            case Value_bool: expr_set_bool(e, cast(bool)r);     break;
-            case Value_int:  expr_set_int (e, cast(lulu_int)r); break;
-            default:         LULU_UNREACHABLE();                break;
-            }
-        }
-        default:
-            LULU_UNREACHABLE();
-            break;
-        }
+    case Expr_Literal: return checker_cast_literal(e, basic_kind);
+    case Expr_Local:
+    case Expr_Compare:
+    case Expr_Pending:
+        compiler_expr_any_reg(c, e);
         break;
-    case Expr_Local: [[fallthrough]];
-    case Expr_Pending: compiler_expr_any_reg(c, e); [[fallthrough]];
     case Expr_Discharged:
-        switch (basic_kind) {
-        case Value_bool: if (!compiler_cast_bool(c, e)) { goto nodice; } break;
-        case Value_int:  if (!compiler_cast_int (c, e)) { goto nodice; } break;
-        case Value_real: if (!compiler_cast_real(c, e)) { goto nodice; } break;
-        default:
-            LULU_UNREACHABLE();
-            break;
-        }
-        e->type = basic_type_get(basic_kind);
         break;
-    default: nodice:
-        LULU_PANICF("Got ExprKind(%i)", e->kind);
-        compiler_error(c, "Cannot cast to type", e);
-        return false;
+    default:
+        goto nodice;
     }
+
+    // We should haae been discharged into a register by now.
+    switch (basic_kind) {
+    case Value_bool:
+        if (!compiler_cast_bool(c, e)) {
+            goto nodice;
+        }
+        break;
+    case Value_int:
+        if (!compiler_cast_int (c, e)) {
+            goto nodice;
+        }
+        break;
+    case Value_real:
+        if (!compiler_cast_real(c, e)) {
+            goto nodice;
+        }
+        break;
+    default:
+        LULU_UNREACHABLE();
+        break;
+    }
+    e->type = basic_type_get(basic_kind);
     return true;
+
+nodice:
+    LULU_PANICF("Got ExprKind(%i)", e->kind);
+    compiler_error(c, "Cannot cast to type", e);
+    return false;
 }
 
 LULU_INTERNAL_FUNC void
@@ -237,8 +229,8 @@ compiler_cast(Compiler *c, Expr *restrict t, Expr *restrict arg)
     if (type->kind == TypeKind_Basic) {
         ValueKind k = type->basic.kind;
         switch (k) {
-        case Value_bool: [[fallthrough]];
-        case Value_int:  [[fallthrough]];
+        case Value_bool:
+        case Value_int:
         case Value_real:
             if (compiler_cast_basic_type(c, arg, k)) {
                 return;
@@ -503,189 +495,6 @@ compiler_unary(Compiler *c, Token const &op, Expr *e)
     }
 }
 
-static bool
-compiler_coerce_rhs(Type const *type, Expr *rhs)
-{
-    // If rhs isn't a literal and it's of the wrong type, then we don't
-    // allow it to assign to lhs as implicit casts are error-prone.
-    if (!type_is_basic(type) || !expr_is_literal(rhs)) {
-        return false;
-    }
-
-    switch (type->basic.kind) {
-    // E.g. `x: int = 1.0` should succeed, but `x: int = 1.2` should fail.
-    case Value_int:
-        if (rhs->literal_kind == Value_real) {
-            return expr_coerce<lulu_real, lulu_int>(rhs);
-        }
-        break;
-
-    // E.g. `x: real = 1` should succeed,
-    // but  `x: real = 90_071_992_454_740_993` should fail.
-    case Value_real:
-        if (rhs->literal_kind == Value_int) {
-            return expr_coerce<lulu_int, lulu_real>(rhs);
-        }
-        break;
-    default:
-        break;
-    }
-    return false;
-}
-
-
-// TODO(2026-07-13): Make work with variables paired with literals!
-static bool
-compiler_coerce_numeric(Compiler *c, Expr *restrict lhs, Expr *restrict rhs)
-{
-    ValueKind rhs_kind = expr_literal_kind(rhs);
-    switch (expr_literal_kind(lhs)) {
-    case Value_int:
-        switch (rhs_kind) {
-        case Value_int:  LULU_UNREACHABLE(); break;
-        case Value_real: return expr_coerce<lulu_real, lulu_int>(rhs);
-        default:
-            break;
-        }
-        break;
-    case Value_real:
-        // TODO(2026-07-08): Do we really want propagation?
-        switch (rhs_kind) {
-        case Value_int:  return expr_coerce<lulu_int, lulu_real>(rhs);
-        case Value_real: LULU_UNREACHABLE(); break;
-        default:
-            break;
-        }
-        break;
-    default:
-        return false;
-    }
-    return false;
-}
-
-template<class T>
-static inline void
-expr_divmod(Compiler *c, T (*op)(T a, T b), Expr *restrict lhs, Expr *restrict rhs)
-{
-    auto lhs_literal = expr_literal<T>(lhs);
-    auto rhs_literal = expr_literal<T>(rhs);
-    // Although well-defined for IEEE, it's usually a bad idea regardless.
-    if (rhs_literal == 0) {
-        compiler_error(c, "Cannot divide/modulo by 0", rhs);
-    }
-    value_set<T>(&lhs->literal, (*op)(lhs_literal, rhs_literal));
-}
-
-template<class T>
-static inline void
-expr_arith(T (*op)(T a, T b), Expr *restrict lhs, Expr *restrict rhs)
-{
-    auto res = (*op)(expr_literal<T>(lhs), expr_literal<T>(rhs));
-    value_set<T>(&lhs->literal, res);
-}
-
-template<class T>
-static inline void
-expr_compare(bool (*op)(T a, T b), Expr *restrict lhs, Expr *restrict rhs, bool flip)
-{
-    bool b = (*op)(expr_literal<T>(lhs), expr_literal<T>(rhs));
-    value_set<T>(&lhs->literal, (flip) ? !b : b);
-}
-
-/*
- Assumptions:
- 1) Both operands are literal values of the same underlying type.
- */
-template<class T>
-static bool
-compiler_binary_fold_literals(Compiler *c,
-    Token const &  op,
-    Expr *restrict lhs,
-    Expr *restrict rhs)
-{
-    bool flip = false;
-    switch (op.kind) {
-    // Arithmetic
-    case Token_Plus:          expr_arith (num_add<T>, lhs, rhs);    break;
-    case Token_Dash:          expr_arith (num_sub<T>, lhs, rhs);    break;
-    case Token_Asterisk:      expr_arith (num_mul<T>, lhs, rhs);    break;
-    case Token_Slash:         expr_divmod(c, num_div<T>, lhs, rhs); break;
-    case Token_Percent:       expr_divmod(c, num_mod<T>, lhs, rhs); break;
-
-    // Comparison
-    case Token_Tilde_Equal:   flip = true; [[fallthrough]];
-    case Token_Equal_Equal:   expr_compare(num_eq <T>, lhs, rhs, flip); break;
-    case Token_Greater_Equal: flip = true; [[fallthrough]];
-    case Token_Less_Than:     expr_compare(num_lt <T>, lhs, rhs, flip); break;
-    case Token_Greater_Than:  flip = true; [[fallthrough]];
-    case Token_Less_Equal:    expr_compare(num_leq<T>, lhs, rhs, flip); break;
-    default:
-        return false;
-    }
-    return true;
-}
-
-
-static bool
-compiler_binary_folded(Compiler *c,
-    Token const &  op,
-    Expr *restrict lhs,
-    Expr *restrict rhs)
-{
-    if (!(expr_is_literal(lhs) && expr_is_literal(rhs))) {
-        return false;
-    }
-
-    // CHECK(2026-07-16): Literal is typed or untyped
-    LULU_ASSERT(lhs->type != nullptr);
-    LULU_ASSERT(rhs->type != nullptr);
-    if (lhs->type != rhs->type) {
-        if (!compiler_coerce_numeric(c, lhs, rhs)) {
-            return false;
-        }
-    }
-
-#if !PARSER_CONSTANT_FOLDING
-    return false;
-#endif
-
-    /*
-     NOTE(2026-09-05):
-        If you think the following code is atrocious, just imagine how bad it
-        could be WITHOUT templates!
-     */
-    switch (expr_literal_kind(lhs)) {
-    case Value_bool: {
-        bool a    = expr_bool(lhs);
-        bool b    = expr_bool(rhs);
-        bool flip = false;
-        switch (op.kind) {
-        case Token_Tilde_Equal: flip = true; [[fallthrough]];
-        case Token_Equal_Equal: value_set_bool(&lhs->literal, flip ? (a != b) : (a == b)); break;
-        case Token_and:         value_set_bool(&lhs->literal, a && b); break;
-        case Token_or:          value_set_bool(&lhs->literal, a || b); break;
-        default:
-            return false;
-        }
-        break;
-    }
-    case Value_int:
-        switch (op.kind) {
-        // Bitwise
-        case Token_Ampersand: expr_arith(num_band<lulu_int>, lhs, rhs); break;
-        case Token_Pipe:      expr_arith(num_bor <lulu_int>, lhs, rhs); break;
-        case Token_Caret:     expr_arith(num_bxor<lulu_int>, lhs, rhs); break;
-        default:
-            return compiler_binary_fold_literals<lulu_int> (c, op, lhs, rhs);
-        }
-        break;
-
-    case Value_real: return compiler_binary_fold_literals<lulu_real>(c, op, lhs, rhs);
-    default:
-        return false;
-    }
-    return true;
-}
 
 #define FLAG_COMPARE  (1 << 0)
 #define FLAG_NOT      (1 << 1)
@@ -870,9 +679,6 @@ compiler_comparei(Compiler *c,
  1) Both arguments are of the same underlying type.
 
  2) The opcodes and types we support immediate operations for are commutative.
-    if (!(-cast(lulu_int)ARG_C_MAX <= imm && imm <= ARG_C_MAX)) {
-        return false;
-    }
     I.e. `x op y` has the same effect as `y op x`, which is only true for some
     operations.
  */
@@ -911,17 +717,21 @@ compiler_binary_imm(Compiler *c,
 LULU_INTERNAL_FUNC void
 compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict rhs)
 {
-    if (compiler_binary_folded(c, op, lhs, rhs)) {
-        return;
+    switch (checker_fold_binary(op, lhs, rhs)) {
+    case Checker_Ok:          return;
+    case Checker_Cannot_Fold: break;
+    case Checker_Divide_By_Zero:
+        compiler_error(c, "Cannot divide/modulo by 0", rhs);
+        break;
     }
 
     // Ensure both arguments are of the same underyling type so that we
     // can dispatch the correct opcodes. Only literals can be coerced.
     if (expr_is_literal(lhs)) {
         // E.g. `1 + x` so we want to coerce `1` to the type of `x`.
-        compiler_coerce_rhs(rhs->type, lhs);
+        checker_coerce_rhs(rhs, lhs);
     } else if (expr_is_literal(rhs)) {
-        compiler_coerce_rhs(lhs->type, rhs);
+        checker_coerce_rhs(lhs, rhs);
     }
 
     u8     flags  = 0;
@@ -1035,7 +845,6 @@ compiler_define_local(Compiler *c, ExprList lhs_list, ExprList rhs_list)
     int  scope         = c->scope;
     u16  reg           = cast(u16)len(active_locals);
     for (Expr &rhs : rhs_list) {
-        VarInfo *v    = &active_locals[reg++];
         Expr &   lhs  = *lhs_list++;
 
         // Ensure both sides had type inference done by the parser.
@@ -1046,15 +855,17 @@ compiler_define_local(Compiler *c, ExprList lhs_list, ExprList rhs_list)
         if (lhs.type != rhs.type) {
             // Only literals that can be implicitly converted to the destination
             // type without any loss of data will pass this check.
-            if (!compiler_coerce_rhs(lhs.type, &rhs)) {
+            if (!checker_coerce_rhs(&lhs, &rhs)) {
                 compiler_error(c, "Invalid implicit cast", &rhs);
             }
         }
 
         LULU_ASSERT(rhs.type == lhs.type);
         compiler_expr_next_reg(c, &rhs);
-        v->scope = scope;
-        v->type  = lhs.type;
+
+        VarInfo *v = &active_locals[reg++];
+        v->scope   = scope;
+        v->type    = lhs.type;
         reg_info[v->reg_info_index].type = lhs.type;
     }
 
@@ -1069,7 +880,7 @@ compiler_assign(Compiler *c, ExprList lhs_list, ExprList rhs_list)
     for (Expr &lhs : lhs_list) {
         Expr &rhs = *rhs_list++;
         if (lhs.type != rhs.type){
-            if (!compiler_coerce_rhs(lhs.type, &rhs)) {
+            if (!checker_coerce_rhs(&lhs, &rhs)) {
                 compiler_error(c, "Invalid implicit cast", &rhs);
             }
         }
