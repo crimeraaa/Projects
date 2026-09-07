@@ -16,6 +16,9 @@ enum ValueKind : u8 {
 #undef X
 };
 
+LULU_INTERNAL_FUNC char const *
+value_kind_cstring(ValueKind k);
+
 // Stupid template shenanigans because we can't token paste
 template<class T>
 struct type2vk {
@@ -64,11 +67,12 @@ struct TValue {
     Value     value = {0};
 };
 
-static inline bool tvalue_is_kind(TValue tv, ValueKind kind) { return tv.kind == kind; }
-static inline bool tvalue_is_nil (TValue tv) { return tvalue_is_kind(tv, Value_nil);   }
-static inline bool tvalue_is_bool(TValue tv) { return tvalue_is_kind(tv, Value_bool);  }
-static inline bool tvalue_is_int (TValue tv) { return tvalue_is_kind(tv, Value_int);   }
-static inline bool tvalue_is_real(TValue tv) { return tvalue_is_kind(tv, Value_real);  }
+#define tvalue_is_(tv, k)   ((tv).kind == (k))
+static inline bool tvalue_is_nil (TValue tv) { return tvalue_is_(tv, Value_nil);   }
+static inline bool tvalue_is_bool(TValue tv) { return tvalue_is_(tv, Value_bool);  }
+static inline bool tvalue_is_int (TValue tv) { return tvalue_is_(tv, Value_int);   }
+static inline bool tvalue_is_real(TValue tv) { return tvalue_is_(tv, Value_real);  }
+#undef tvalue_is_
 
 
 // If assertions are disabled then said assertion will expand to a no-op.

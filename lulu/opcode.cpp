@@ -9,7 +9,7 @@
  */
 using OpCode_Info = u16;
 
-static inline u8 constexpr
+static inline OpCode_Info constexpr
 OPCODE_INFO_F_WIDTH  = 3, OPCODE_INFO_F_MAX = (1 << OPCODE_INFO_F_WIDTH) - 1,
 OPCODE_INFO_k_WIDTH  = 1, OPCODE_INFO_k_MAX = (1 << OPCODE_INFO_k_WIDTH) - 1,
 OPCODE_INFO_A_WIDTH  = 1, OPCODE_INFO_A_MAX = (1 << OPCODE_INFO_A_WIDTH) - 1,
@@ -56,12 +56,6 @@ opcode_info_make_AsBx(bool A, OpCode_Arg sBx)
     return opcode_info_make(OpForm_AsBx, A, sBx, OpArg_Unused, false);
 }
 
-static constexpr OpCode_Info
-opcode_info_make_vAsBx(bool A, OpCode_Arg vsBx)
-{
-    return opcode_info_make(OpForm_vAsBx, A, vsBx, OpArg_Unused, true);
-}
-
 #define OpArg_(T)       OpArg_ ## T
 #define ABC(A, B, C)    opcode_info_make_ABC(A, OpArg_(B), OpArg_(C))
 #define AB0(A, B)       ABC(A, B, Unused)
@@ -73,7 +67,6 @@ opcode_info_make_vAsBx(bool A, OpCode_Arg vsBx)
 
 #define ABx(A, Bx)      opcode_info_make_ABx  (A, OpArg_(Bx))
 #define AsBx(A, sBx)    opcode_info_make_AsBx (A, OpArg_(sBx))
-#define vAsBx(A, vsBx)  opcode_info_make_vAsBx(A, OpArg_(vsBx))
 
 static OpCode_Info
 opcode_info(OpCode op)

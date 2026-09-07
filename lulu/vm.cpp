@@ -80,7 +80,7 @@ vm_execute(lulu_State *L, Chunk *c)
 // Arithmetic
 #define vm_arith1(T, f) vm_arith1<T>(f<T>, RA, RB(i))
 #define vm_arith2(T, f) vm_arith2<T>(f<T>, RA, RB(i), RC(i))
-#define vm_arithi(T, f) vm_arithi<T>(f<T>, RA, RB(i), cast(T)getarg_vsBx(i))
+#define vm_arithi(T, f) vm_arithi<T>(f<T>, RA, RB(i), cast(T)getarg_vC(i))
         // Integer bitwise (register-register)
         case Op_bnot:  vm_arith1(lulu_int, num_bnot); break;
         case Op_band:  vm_arith2(lulu_int, num_band); break;
@@ -119,10 +119,11 @@ vm_execute(lulu_State *L, Chunk *c)
 #undef vm_arith1
 
 // Comparison
+#define B                 getarg_B(i)
 #define C                 getarg_C(i)
 #define k                 getarg_k(i)
 #define vm_compare(T, f)  if (vm_compare <T>(f<T>, *RA, RB(i))    != k) ip++
-#define vm_comparei(T, f) if (vm_comparei<T>(f<T>, *RA, cast(T)C) != k) ip++
+#define vm_comparei(T, f) if (vm_comparei<T>(f<T>, *RA, cast(T)B) != k) ip++
         case Op_eq:    vm_compare (lulu_int,  num_eq);  break;
         case Op_lt:    vm_compare (lulu_int,  num_lt);  break;
         case Op_leq:   vm_compare (lulu_int,  num_leq); break;

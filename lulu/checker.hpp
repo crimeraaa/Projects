@@ -1,9 +1,10 @@
 #pragma once
 
-#include "lulu.h"       // LULU_INTERNAL_FUNC
-#include "internal.hpp" // restrict
-#include "expr.hpp"     // Expr
-#include "lexer.hpp"    // Token
+#include "lulu.h"
+#include "internal.hpp"
+#include "opcode.hpp"
+#include "expr.hpp"
+#include "lexer.hpp"
 
 enum CheckerError {
     Checker_Ok,
@@ -47,3 +48,13 @@ checker_coerce_numeric(Expr *restrict lhs, Expr *restrict rhs);
 
 LULU_INTERNAL_FUNC CheckerError
 checker_fold_binary(Token const &op, Expr *restrict lhs, Expr *restrict rhs);
+
+struct CheckerBinary {
+    bool   ok;
+    OpCode opcode;
+    bool   is_compare;
+    bool   is_not;
+};
+
+LULU_INTERNAL_FUNC CheckerBinary
+checker_fix_binary(Token const &op, Expr *restrict lhs, Expr *restrict rhs);

@@ -98,7 +98,7 @@ debug_disassemble(Chunk const *c)
         printf(".stack:\n");
         for (RegInfo r : c->reg_info) {
             printf("| R(%i): %s ; pc[%i, %i]\n",
-                r.reg, r.type->basic.name, r.pc_born, r.pc_died);
+                r.reg, type_cstring(r.type), r.pc_born, r.pc_died);
         }
     }
 
@@ -122,7 +122,7 @@ debug_disassemble_at(Chunk const *c, usize offset)
     OpCode      op = get_opcode(i);
     u8          A  = getarg_A(i);
 
-    printf("| %-8s %-3u ", OPCODE_CSTRINGS[op], A);
+    printf("[%zu] %-8s %-3u ", offset, OPCODE_CSTRINGS[op], A);
     switch (OPCODE_INFO_FORMAT(op)) {
     case OpForm_ABC:
         printf("%-3u %-7u", getarg_B(i), getarg_C(i));
@@ -135,12 +135,6 @@ debug_disassemble_at(Chunk const *c, usize offset)
         break;
     case OpForm_vABC:
         printf("%-3u %-3u k=%u", getarg_B(i), getarg_vC(i), getarg_k(i));
-        break;
-    case OpForm_vABx:
-        printf("%-7u k=%u", getarg_vBx(i), getarg_k(i));
-        break;
-    case OpForm_vAsBx:
-        printf("%-7i k=%u", getarg_vsBx(i), getarg_k(i));
         break;
     }
 

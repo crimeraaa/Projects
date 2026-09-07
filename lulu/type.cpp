@@ -7,15 +7,15 @@
 #define type_size_of(T) offsetof(Type, basic) + sizeof(T)
 #define type_new(L, T)  cast(Type *)mem_arena_alloc_bytes(L, type_size_of(T))
 
-// Map ValueKind to Type. Don't add the type info for 'None'.
+// Maps `ValueKind` to a fundamental `Type`.
 static Type const
 BASIC_TYPES[] = {
 #define basic_type_make(T)    {Value_##T, cast(u32)sizeof(#T) - 1, #T}
-    {TypeKind_Basic, {basic_type_make(nil)}},
-    {TypeKind_Basic, {basic_type_make(bool)}},
-    {TypeKind_Basic, {basic_type_make(int)}},
-    {TypeKind_Basic, {basic_type_make(real)}},
-    {TypeKind_Basic, {basic_type_make(string)}},
+    {TypeKind_Basic, {basic_type_make(nil)   } },
+    {TypeKind_Basic, {basic_type_make(bool)  } },
+    {TypeKind_Basic, {basic_type_make(int)   } },
+    {TypeKind_Basic, {basic_type_make(real)  } },
+    {TypeKind_Basic, {basic_type_make(string)} },
 #undef basic_type_make
 };
 
@@ -23,6 +23,17 @@ LULU_INTERNAL_FUNC Type const *
 basic_type_get(ValueKind k)
 {
     return &BASIC_TYPES[k];
+}
+
+LULU_INTERNAL_FUNC char const *
+type_cstring(Type const *t)
+{
+    switch (t->kind) {
+    case TypeKind_None:  break;
+    case TypeKind_Basic: return value_kind_cstring(t->basic.kind);
+    }
+    LULU_PANICF("No type string for TypeKind(%i)", t->kind);
+    return nullptr;
 }
 
 LULU_INTERNAL_FUNC void
@@ -33,7 +44,7 @@ type_env_init(lulu_State *L, TypeEnv *env)
     env->used    = 0;
 
     for (Type const &type : slice_array(BASIC_TYPES)) {
-        String key  = {type.basic.name, type.basic.len};
+        String key  = {type.basic.name, cast(usize)type.basic.len};
         type_set(L, key, &type);
     }
 }
@@ -43,16 +54,6 @@ type_env_destroy(lulu_State *L, TypeEnv *env)
 {
     unused(L);
     unused(env);
-}
-
-LULU_INTERNAL_FUNC bool
-type_eq(Type const *a, Type const *b)
-{
-    if (a->kind == b->kind) switch (a->kind) {
-    case TypeKind_None: LULU_UNREACHABLE(); break;
-    case TypeKind_Basic: return a->basic.kind == b->basic.kind;
-    }
-    return false;
 }
 
 static TypeEnv_Entry *
@@ -131,12 +132,6 @@ type_set(lulu_State *L, String key, Type const *type)
     p = type_find_entry(env->entries, key, hash);
     if (!p->type) {
         env->used++;
-    } else {
-        // Removing a type?
-        if (!type) {
-            LULU_ASSERT(env->used > 0);
-            env->used--;
-        }
     }
     p->key  = key;
     p->hash = hash;

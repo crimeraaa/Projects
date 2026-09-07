@@ -128,21 +128,10 @@ compiler_binary(Compiler *c,
 
 /*
  Description:
-    Emits the bytecode for `return`, i.e. no explicit value is to be returned,
-    not even `nil`.
+    Emits the bytecode for `return a, b, ...x`.
  */
 LULU_INTERNAL_FUNC void
-compiler_return0(Compiler *c);
-
-/*
- Description:
-    Emits the bytecode for `return e`.
-
- Arguments:
-    e [in, out]
- */
-LULU_INTERNAL_FUNC void
-compiler_return1(Compiler *c, Expr *e);
+compiler_return(Compiler *c, ExprList list);
 
 /*
  Description:

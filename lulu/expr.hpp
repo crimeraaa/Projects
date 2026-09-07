@@ -31,6 +31,8 @@ struct Expr {
     };
 };
 
+#define EXPR_EXPAND(e)  STRING_EXPAND((e).token.lexeme)
+
 using ExprList = List<Expr>;
 
 static inline Expr

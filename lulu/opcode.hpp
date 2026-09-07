@@ -32,16 +32,16 @@
     X(lt,      vAB0, 0, Reg) /* if (R(A).int <  R(B).int) != k then ip++    */ \
     X(leq,     vAB0, 0, Reg) /* if (R(A).int <= R(B).int) != k then ip++    */ \
 /* Integral operations (1c): register-immediate bitwise manipulation        */ \
-    X(bandi,    ABi, 1, Imm) /* R(A).int :=  R(B).int & C                   */ \
-    X(bori,     ABi, 1, Imm) /* R(A).int :=  R(B).int | C                   */ \
-    X(bxori,    ABi, 1, Imm) /* R(A).int :=  R(B).int ^ C                   */ \
+    X(bandi,    ABi, 1, Imm) /* R(A).int := R(B).int & C                    */ \
+    X(bori,     ABi, 1, Imm) /* R(A).int := R(B).int | C                    */ \
+    X(bxori,    ABi, 1, Imm) /* R(A).int := R(B).int ^ C                    */ \
 /* Integral operations (1c): register-immediate arithmetic                  */ \
     X(addi,     ABi, 1, Reg) /* R(A).int := R(B).int + C                    */ \
     X(subi,     ABi, 1, Reg) /* R(A).int := R(B).int - C                    */ \
 /* Integral operations (1d): register-immediate comparisons                 */ \
-    X(eqi,    vAsBx, 0, Imm) /* if (R(A).int == vsBx) != k then ip++        */ \
-    X(lti,    vAsBx, 0, Imm) /* if (R(A).int <  vsBx) != k then ip++        */ \
-    X(leqi,   vAsBx, 0, Imm) /* if (R(A).int <= vsBx) != k then ip++        */ \
+    X(eqi,     vAB0, 0, Imm) /* if (R(A).int == B) != k then ip++           */ \
+    X(lti,     vAB0, 0, Imm) /* if (R(A).int <  B) != k then ip++           */ \
+    X(leqi,    vAB0, 0, Imm) /* if (R(A).int <= B) != k then ip++           */ \
 /* Floating-point operations (2a): register-register arithmetic             */ \
     X(fneg,     AB0, 1, Reg) /* R(A).real := -R(B).real                     */ \
     X(fadd,     ABr, 1, Reg) /* R(A).real := R(B).real + R(C).real          */ \
@@ -57,9 +57,9 @@
     X(faddi,    ABi, 1, Reg) /* R(A).real := R(B).real + C                  */ \
     X(fsubi,    ABi, 1, Reg) /* R(A).real := R(B).real + C                  */ \
 /* Floating-point operations (2d): register-register comparisons            */ \
-    X(feqi,   vAsBx, 0, Imm) /* if (R(A).real == vsBx) != k then ip++       */ \
-    X(flti,   vAsBx, 0, Imm) /* if (R(A).real <  vsBx) != k then ip++       */ \
-    X(fleqi,  vAsBx, 0, Imm) /* if (R(A).real <= vsBx) != k then ip++       */ \
+    X(feqi,    vAB0, 0, Imm) /* if (R(A).real == B) != k then ip++          */ \
+    X(flti,    vAB0, 0, Imm) /* if (R(A).real <  B) != k then ip++          */ \
+    X(fleqi,   vAB0, 0, Imm) /* if (R(A).real <= B) != k then ip++          */ \
 /* Other                                                                    */ \
     X(return0, AB0, 0, Unused) /* return                                    */ \
     X(return,  AB0, 0, Imm)    /* return R(A:B) if B > 0 else R(A:)         */
@@ -115,8 +115,6 @@ enum OpCode_Format : u8 {
     OpForm_ABx   =                  OpForm_Extended,                 // 010
     OpForm_AsBx  =                  OpForm_Extended | OpForm_Signed, // 110
     OpForm_vABC  = OpForm_Variant,                                   // 001
-    OpForm_vABx  = OpForm_Variant | OpForm_Extended,                 // 011
-    OpForm_vAsBx = OpForm_Variant | OpForm_Extended | OpForm_Signed, // 111
 };
 
 enum OpCode_Arg : u8 {
@@ -168,7 +166,7 @@ ARG_B_OFFSET  = ARG_A_OFFSET  + ARG_A_WIDTH,
 ARG_C_OFFSET  = ARG_B_OFFSET  + ARG_B_WIDTH,
 
 // Variant bits
-// vABC and vAsBx: flag k
+// vABC: flag k
 ARG_k_WIDTH  = 1,
 ARG_k_MAX    = (1 << ARG_k_WIDTH) - 1,
 ARG_k_OFFSET = ARG_C_OFFSET,
@@ -181,20 +179,12 @@ ARG_vC_OFFSET = ARG_k_OFFSET + 1,
 // Bx (extended B, unsigned)
 ARG_Bx_WIDTH  = ARG_B_WIDTH + ARG_C_WIDTH,
 ARG_Bx_OFFSET = ARG_B_OFFSET,
-ARG_Bx_MAX    = (1 << ARG_Bx_WIDTH) - 1,
-
-// variant Bx and sBx
-ARG_vBx_WIDTH  = (ARG_Bx_WIDTH) - 1,
-ARG_vBx_MAX    = ARG_Bx_MAX >> 1,
-ARG_vBx_OFFSET = ARG_B_OFFSET;
+ARG_Bx_MAX    = (1 << ARG_Bx_WIDTH) - 1;
 
 
 static inline i32 constexpr
 // sBx (extended B, signed)
-ARG_sBx_MAX  = cast(i32)ARG_Bx_MAX / 2, ARG_sBx_MIN  = -ARG_sBx_MAX,
-
-// vsBx (variant extended B, signed)
-ARG_vsBx_MAX = cast(i32)ARG_Bx_MAX / 2, ARG_vsBx_MIN = -ARG_vsBx_MAX;
+ARG_sBx_MAX  = cast(i32)ARG_Bx_MAX / 2, ARG_sBx_MIN  = -ARG_sBx_MAX;
 
 #define MASK1(max, offset)  ((max) << (offset))
 #define MASK0(max, offset)  (~(MASK1(max, offset)))
@@ -207,8 +197,7 @@ ARG_B_MASK0   = MASK0(ARG_B_MAX,   ARG_B_OFFSET),
 ARG_C_MASK0   = MASK0(ARG_C_MAX,   ARG_C_OFFSET),
 ARG_vC_MASK0  = MASK0(ARG_vC_MAX,  ARG_vC_OFFSET),
 ARG_k_MASK0   = MASK0(ARG_k_MAX,   ARG_k_OFFSET),
-ARG_Bx_MASK0  = MASK0(ARG_Bx_MAX,  ARG_Bx_OFFSET),
-ARG_vBx_MASK0 = MASK0(ARG_vBx_MAX, ARG_vBx_OFFSET);
+ARG_Bx_MASK0  = MASK0(ARG_Bx_MAX,  ARG_Bx_OFFSET);
 
 // We reserve this value for agument A as an invalid argument.
 static inline u16 constexpr
@@ -224,7 +213,6 @@ static inline bool opcode_is_ABC  (OpCode op) { return opcode_is_(op, ABC);   }
 static inline bool opcode_is_vABC (OpCode op) { return opcode_is_(op, vABC);  }
 static inline bool opcode_is_ABx  (OpCode op) { return opcode_is_(op, ABx);   }
 static inline bool opcode_is_AsBx (OpCode op) { return opcode_is_(op, AsBx);  }
-static inline bool opcode_is_vAsBx(OpCode op) { return opcode_is_(op, AsBx);  }
 #undef opcode_is_
 
 static inline Instruction
@@ -259,21 +247,6 @@ make_AsBx(OpCode Op, u16 A, i32 sBx)
 {
     u32 Bx = cast(u32)(sBx + ARG_sBx_MAX);
     return make_ABx(Op, cast(u8)A, Bx);
-}
-
-static inline Instruction
-make_AvBx(OpCode Op, u16 A, u32 vBx, bool k)
-{
-    return (cast(Instruction)Op  << ARG_OP_OFFSET)
-        |  (cast(Instruction)A   << ARG_A_OFFSET)
-        |  (cast(Instruction)vBx << ARG_vBx_OFFSET)
-        |  (cast(Instruction)k   << ARG_k_OFFSET);
-}
-
-static inline Instruction
-make_AvsBx(OpCode Op, u16 A, i32 vsBx, bool k)
-{
-    return make_AvBx(Op, cast(u8)A, cast(u32)(vsBx + ARG_vsBx_MAX), k);
 }
 
 static inline OpCode
@@ -322,18 +295,6 @@ static inline i32
 getarg_sBx(Instruction i)
 {
     return cast(i32)(getarg_Bx(i)) - ARG_sBx_MAX;
-}
-
-static inline u32
-getarg_vBx(Instruction i)
-{
-    return cast(u32)((i >> ARG_vBx_OFFSET) & ARG_vBx_MAX);
-}
-
-static inline i32
-getarg_vsBx(Instruction i)
-{
-    return cast(i32)(getarg_vBx(i) - ARG_vBx_MAX);
 }
 
 static inline void

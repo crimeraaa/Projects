@@ -7,6 +7,7 @@
 #include "parser.hpp"
 #include "compiler.hpp"
 #include "expr.hpp"
+#include "strings.hpp"
 #include "type.hpp"
 
 /*
@@ -15,7 +16,7 @@
     the basic precedence which is a good starting point.
  */
 static void
-parser_expr(Parser *p, Expr *out, bool is_lhs, int prec = 1);
+parser_expr(Parser *p, Expr *out, bool is_lhs = false, int prec = 1);
 
 static char const *
 parser_clamp_string(Slice<char> buf, String s)
@@ -207,7 +208,7 @@ parser_call(Parser *p, Expr *func)
 {
     Expr arg;
     if (!parser_check(p, Token_Close_Paren)) {
-        parser_expr(p, &arg, /*is_lhs=*/false);
+        parser_expr(p, &arg);
     }
     parser_expect(p, Token_Close_Paren);
     compiler_call(p->compiler, func, &arg);
@@ -274,7 +275,7 @@ parser_prec(TokenKind k)
     case Token_Less_Than:
     case Token_Greater_Than:
     case Token_Less_Equal:    return 5;
-    case Token_Equal_Equal:
+    case Token_Equal_Equal:   LULU_LOGLN("Got '=='!");
     case Token_Tilde_Equal:   return 4;
     case Token_and:           return 3;
     case Token_or:            return 2;
@@ -364,7 +365,9 @@ parser_expr(Parser *p, Expr *out, bool is_lhs, int prec_in)
          1) All binary operators are left-associative. We don't have
             exponentiation.
          */
-        parser_expr(p, &rhs, false, prec_out + 1);
+        parser_expr(p, &rhs, /*is_lhs=*/false, prec_out + 1);
+
+        LULU_LOGF("ExprKind(%i) = '%.*s'", rhs.kind, EXPR_EXPAND(rhs));
         compiler_binary(c, op, out, &rhs);
     }
     parser_recurse_pop(p);
@@ -375,7 +378,7 @@ parser_expr(Parser *p, Expr *out, bool is_lhs, int prec_in)
     Parses a list of comma-separated expressions.
  */
 static ExprList
-parser_expr_list(Parser *p, bool is_lhs)
+parser_expr_list(Parser *p, bool is_lhs = false)
 {
     lulu_State *L = p->L;
     // Compiler   *c = p->compiler;
@@ -410,6 +413,70 @@ parser_primary_expr_list(Parser *p, bool is_lhs)
 }
 
 static void
+parser_infer_types(Parser *p, ExprList lhs_list, ExprList rhs_list)
+{
+    // We want to infer the type but we literally don't have anything
+    // to infer *from*, e.g. `x:`.
+    if (rhs_list.count == 0) {
+        // Report the error at the *last* local variable name.
+        Expr *last = list_last_elem(lhs_list);
+        parser_error_at(p, "Expected a type after ':'", last->token);
+    }
+
+    if (lhs_list.count != rhs_list.count) {
+        Expr *last = list_last_elem(rhs_list);
+        parser_error_at(p, "Mismatched number of expressions", last->token);
+    }
+
+    // Copy over all assigning expression types to the targets so the
+    // compiler can see them.
+    ExprList tmp = lhs_list;
+    for (Expr rhs : rhs_list) {
+        Expr &lhs = *tmp++;
+        lhs.type = rhs.type;
+    }
+}
+
+static ExprList
+parser_make_zero_values(Parser *p, Type const *t, int count)
+{
+    Expr zero;
+    switch (t->kind) {
+    case TypeKind_Basic:
+        zero.kind         = Expr_Literal;
+        zero.literal_kind = t->basic.kind;
+        zero.type         = t;
+        switch (t->basic.kind) {
+        case Value_bool:
+            value_set_bool(&zero.literal, false);
+            zero.token.lexeme = "false"_s;
+            break;
+        case Value_int:
+            value_set_int(&zero.literal, 0);
+            zero.token.lexeme = "0"_s;
+            break;
+        case Value_real:
+            value_set_real(&zero.literal, 0.0);
+            zero.token.lexeme = "0.0"_s;
+            break;
+        default:
+            LULU_PANICF("Unsupported zero type for ValueType(%i)", t->basic.kind);
+            break;
+        }
+        break;
+    default:
+        LULU_PANICF("Unsupported zero type for TypeKind(%i)", t->kind);
+        break;
+    }
+
+    ExprList rhs_list;
+    for (int i = 0; i < count; i++) {
+        list_append(p->L, &rhs_list, p->scratch, zero);
+    }
+    return rhs_list;
+}
+
+static void
 parser_decl(Parser *p, ExprList lhs_list)
 {
     Compiler *c = p->compiler;
@@ -430,68 +497,29 @@ parser_decl(Parser *p, ExprList lhs_list)
     // `x := expr` or `x: T = expr`, but not `x: T`.
     ExprList rhs_list;
     if (parser_match(p, Token_Assign)) {
-        rhs_list = parser_expr_list(p, /*is_lhs=*/false);
+        rhs_list = parser_expr_list(p);
+        for (Expr rhs : rhs_list) {
+            LULU_LOGF("ExprKind(%u) = '%.*s'", rhs.kind, EXPR_EXPAND(rhs));
+        }
     }
 
     // We don't have a type, so we need to infer it from the assigning
     // expressions.
     if (!lhs_list->type) {
-        // We want to infer the type but we literally don't have anything
-        // to infer *from*, e.g. `x:`.
-        if (rhs_list.count == 0) {
-            // Report the error at the *last* local variable name.
-            Expr *last = list_last_elem(lhs_list);
-            parser_error_at(p, "Expected a type after ':'", last->token);
-        }
-
-        if (lhs_list.count != rhs_list.count) {
-            Expr *last = list_last_elem(rhs_list);
-            parser_error_at(p, "Mismatched number of expressions", last->token);
-        }
-
-        // Copy over all assigning expression types to the targets so the
-        // compiler can see them.
-        ExprList tmp = lhs_list;
-        for (Expr &rhs : rhs_list) {
-            Expr &lhs = *tmp++;
-            lhs.type = rhs.type;
-        }
+        parser_infer_types(p, lhs_list, rhs_list);
     }
-    // We do have a type, but we don't have assigning expressions, e.g.
-    // `x, y: int`. So create a bunch of zero-valued expressions.
     else if (rhs_list.count == 0) {
-        LULU_LOGF("Inserting %i zero values...", lhs_list.count);
-        for (Expr const &lhs : lhs_list) {
-            Expr tmp;
-            LULU_LOGF("%.*s: %s = 0", STRING_EXPAND(lhs.token.lexeme), lhs.type->basic.name);
-            switch (lhs.type->kind) {
-            case TypeKind_Basic:
-                tmp.kind         = Expr_Literal;
-                tmp.literal_kind = lhs.type->basic.kind;
-                tmp.type         = lhs.type;
-                switch (lhs.type->basic.kind) {
-                case Value_bool:
-                    value_set_bool(&tmp.literal, false);
-                    tmp.token.lexeme = "false"_s;
-                    break;
-                case Value_int:
-                    value_set_int(&tmp.literal, 0);
-                    tmp.token.lexeme = "0"_s;
-                    break;
-                case Value_real:
-                    value_set_real(&tmp.literal, 0.0);
-                    tmp.token.lexeme = "0.0"_s;
-                    break;
-                default:
-                    goto nodice;
-                }
-                break;
-            default: nodice:
-                parser_error_at(c->parser, "Unsupported zero value", lhs.token);
-            }
-            list_append(p->L, &rhs_list, p->scratch, tmp);
-        }
-        LULU_LOGF("Inserted %i zero values.", rhs_list.count);
+        /*
+         We do have a type, but we don't have assigning expressions, e.g.
+         `x, y: int`. So we need to cough up an equal-length list of
+         zero-valued expressions of the appropriate type.
+
+         Note that, grammar-wise, we only allow one (1) type declaration. This
+         means that `x, y: int, int` is invalid and would error out before we
+         get to this point. So we can assume that all zero values will be of the
+         same type.
+         */
+        rhs_list = parser_make_zero_values(p, lhs_list->type, lhs_list.count);
     }
 
     // Temporary until we can figure out how to handle function calls.
@@ -502,10 +530,10 @@ parser_decl(Parser *p, ExprList lhs_list)
     for (Expr const &lhs : lhs_list) {
         Expr const &rhs = *tmp++;
         LULU_LOGF("%.*s: %s = %s(%.*s)",
-            STRING_EXPAND(lhs.token.lexeme),
-            lhs.type->basic.name,
-            rhs.type->basic.name,
-            STRING_EXPAND(rhs.token.lexeme));
+            EXPR_EXPAND(lhs),
+            type_cstring(lhs.type),
+            type_cstring(rhs.type),
+            EXPR_EXPAND(rhs));
     }
 
     compiler_define_local(c, lhs_list, rhs_list);
@@ -524,7 +552,7 @@ parser_assign(Parser *p, ExprList lhs_list)
 
     // Note that, unlike declaration-assignments, the number of assignment
     // targets and assigning expressions MUST match.
-    ExprList rhs_list = parser_expr_list(p, /*is_lhs=*/false);
+    ExprList rhs_list = parser_expr_list(p);
     if (lhs_list.count != rhs_list.count) {
         Expr *tail = list_last_elem(rhs_list);
         parser_error_at(p, "Mismatched number of expressions", tail->token);
@@ -542,9 +570,10 @@ static void
 parser_ident_stmt(Parser *p)
 {
     ExprList lhs_list = parser_primary_expr_list(p, /*is_lhs=*/true);
-    for (auto p = lhs_list.node; p != nullptr; p = p->next) {
-        LULU_LOGF("var '%.*s'", STRING_EXPAND(p->data.token.lexeme));
+    for (Expr lhs : lhs_list) {
+        LULU_LOGF("ExprKind(%u) = local '%.*s'", lhs.kind, EXPR_EXPAND(lhs));
     }
+
     switch (p->token.kind) {
     case Token_Colon:
         // Consume ':'
@@ -569,12 +598,11 @@ parser_ident_stmt(Parser *p)
 static void
 parser_return_stmt(Parser *p)
 {
-    Expr tmp;
     // Consume 'return'.
     parser_advance(p);
-    parser_expr(p, &tmp, /*is_lhs=*/false);
-    compiler_return1(p->compiler, &tmp);
-    compiler_expr_pop(p->compiler, &tmp);
+
+    ExprList rets = parser_expr_list(p);
+    compiler_return(p->compiler, rets);
 }
 
 static void

@@ -11,13 +11,13 @@
  */
 struct BasicType {
     ValueKind kind;
-    u32       len;
+    u8        len;
     char      name[8];
 };
 
 enum TypeKind : u8 {
     TypeKind_None,
-    TypeKind_Basic,
+    TypeKind_Basic, // Concrete type: `ValueKind`
 };
 
 struct Type {
@@ -53,12 +53,11 @@ type_env_init(lulu_State *L, TypeEnv *env);
 LULU_INTERNAL_FUNC void
 type_env_destroy(lulu_State *L, TypeEnv *env);
 
-LULU_INTERNAL_FUNC bool
-type_eq(Type const *a, Type const *b);
-
 LULU_INTERNAL_FUNC Type const *
 type_get(lulu_State *L, String key);
 
 LULU_INTERNAL_FUNC void
 type_set(lulu_State *L, String key, Type const *type);
 
+LULU_INTERNAL_FUNC char const *
+type_cstring(Type const *t);

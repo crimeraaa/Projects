@@ -1,5 +1,6 @@
 #include "lulu.h"
 #include "internal.hpp"
+#include "opcode.hpp"
 #include "expr.hpp"
 #include "checker.hpp"
 
@@ -247,3 +248,85 @@ checker_fold_binary(Token const &  op, Expr *restrict lhs, Expr *restrict rhs)
     return Checker_Ok;
 }
 
+
+LULU_INTERNAL_FUNC CheckerBinary
+checker_fix_binary(Token const &op, Expr *restrict lhs, Expr *restrict rhs)
+{
+    // Ensure both arguments are of the same underyling type so that we
+    // can dispatch the correct opcodes. Only literals can be coerced.
+    if (expr_is_literal(lhs)) {
+        // E.g. `1 + x` so we want to coerce `1` to the type of `x`.
+        checker_coerce_rhs(rhs, lhs);
+    } else if (expr_is_literal(rhs)) {
+        checker_coerce_rhs(lhs, rhs);
+    }
+
+    if (lhs->type != rhs->type) {
+        return {};
+    }
+
+    // Neither lhs nor rhs are necessarily a literal by this point!
+    CheckerBinary b{};
+    switch (op.kind) {
+    case Token_Ampersand: b.opcode = Op_band; break;
+    case Token_Pipe:      b.opcode = Op_bor;  break;
+    case Token_Caret:     b.opcode = Op_bxor; break;
+    case Token_Plus:      b.opcode = Op_add;  break;
+    case Token_Dash:      b.opcode = Op_sub;  break;
+    case Token_Asterisk:  b.opcode = Op_mul;  break;
+    case Token_Slash:     b.opcode = Op_div;  break;
+    case Token_Percent:   b.opcode = Op_mod;  break;
+    case Token_Tilde_Equal:
+        b.is_not = true;
+        [[fallthrough]];
+    case Token_Equal_Equal:
+        b.is_compare = true;
+        b.opcode     = Op_eq;
+        break;
+
+    // x >= y <=> !(x < y)
+    case Token_Greater_Equal:
+        b.is_not = true;
+        [[fallthrough]];
+    case Token_Less_Than:
+        b.is_compare = true;
+        b.opcode     = Op_lt;
+        break;
+
+    // x > y <=> !(x <= y)
+    case Token_Greater_Than:
+        b.is_not = true;
+        [[fallthrough]];
+    case Token_Less_Equal:
+        b.is_compare = true;
+        b.opcode     = Op_leq;
+        break;
+    default:
+        LULU_UNREACHABLE();
+        break;
+    }
+
+    b.ok = true;
+    if (type_is_basic(lhs->type)) switch (expr_basic_kind(lhs)) {
+    case Value_bool:
+        // We don't allow ordered comparisons on booleans.
+        if (b.opcode == Op_eq) {
+            return b;
+        }
+        break;
+    case Value_real:
+        // Don't allow bitwise operations on reals.
+        if (Op_add <= b.opcode && b.opcode <= Op_leq) {
+            b.opcode = b.opcode + (Op_fadd - Op_add);
+            return b;
+        }
+        break;
+    case Value_int:
+        return b;
+    default:
+        break;
+    }
+
+    b.ok = false;
+    return b;
+}
