@@ -60,7 +60,7 @@ struct List {
         // number of list members.
         if (this->node) {
             this->node = this->node->next;
-            this->count--;
+            // this->count--;
         }
         return *this;
     }

@@ -1,17 +1,5 @@
 #include "value.hpp"
 
-LULU_INTERNAL_FUNC char const *
-value_kind_cstring(ValueKind k)
-{
-#define X(e, s) case e: return s;
-    switch (k) {
-    VALUE_KINDS(X)
-    }
-#undef X
-    LULU_PANICF("Invalid ValueKind(%i)", k);
-    return nullptr;
-}
-
 LULU_INTERNAL_FUNC bool
 tvalue_eq(TValue a, TValue b)
 {

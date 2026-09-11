@@ -28,7 +28,7 @@ string_make_cstring(char const *cstring)
 static inline bool
 operator==(String a, String b)
 {
-    return a.len == b.len && std::memcmp(a.data, b.data, b.len) == 0;
+    return len(a) == len(b) && std::memcmp(a.data, b.data, b.len) == 0;
 }
 
 #define FNV32A_OFFSET  0x811c9dc5
@@ -37,12 +37,9 @@ operator==(String a, String b)
 static inline u32
 string_hash(String s)
 {
-    char const *      p   = s.data;
-    char const *const end = p + s.len;
-
     u32 hash = FNV32A_OFFSET;
-    while (p < end) {
-        hash = (hash ^ cast(u32)*p++) * FNV32A_PRIME;
+    for (char c : s) {
+        hash = (hash ^ cast(u32)c) * FNV32A_PRIME;
     }
     return hash;
 }

@@ -16,9 +16,6 @@ enum ValueKind : u8 {
 #undef X
 };
 
-LULU_INTERNAL_FUNC char const *
-value_kind_cstring(ValueKind k);
-
 // Stupid template shenanigans because we can't token paste
 template<class T>
 struct type2vk {

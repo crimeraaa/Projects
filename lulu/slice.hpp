@@ -49,6 +49,34 @@ slice_ptr(T *p, usize start, usize stop)
     return {p[start], n};
 }
 
+template<class T>
+static inline bool
+slice_has_ptr(Slice<T> s, T *ptr)
+{
+    auto addr       = cast(uintptr)ptr;
+    auto start_addr = cast(uintptr)raw_data(s);
+    auto stop_addr  = cast(uintptr)end(s);
+    return start_addr <= addr && addr < stop_addr;
+}
+
+template<class T>
+static inline usize
+slice_index_ptr(Slice<T> s, T *ptr)
+{
+    return cast(usize)(ptr - begin(s));
+}
+
+template<class T>
+static inline bool
+slice_index_ptr_safe(Slice<T> s, T *ptr, usize *out)
+{
+    bool ok = slice_has_ptr(s, ptr);
+    if (ok) {
+        *out = slice_index_ptr(s, ptr);
+    }
+    return ok;
+}
+
 template<class T, usize N>
 static inline Slice<T>
 slice_array(T (&a)[N], usize start = 0, usize stop = N)
@@ -56,6 +84,7 @@ slice_array(T (&a)[N], usize start = 0, usize stop = N)
     usize n = stop - start;
     LULU_ASSERT(start <= stop);
     LULU_ASSERT(stop  <= N);
+    LULU_ASSERT(n <= N);
     return {&a[start], n};
 }
 

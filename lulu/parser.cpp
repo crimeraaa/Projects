@@ -275,7 +275,7 @@ parser_prec(TokenKind k)
     case Token_Less_Than:
     case Token_Greater_Than:
     case Token_Less_Equal:    return 5;
-    case Token_Equal_Equal:   LULU_LOGLN("Got '=='!");
+    case Token_Equal_Equal:
     case Token_Tilde_Equal:   return 4;
     case Token_and:           return 3;
     case Token_or:            return 2;

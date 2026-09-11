@@ -421,7 +421,7 @@ lexer_parse_real(String s, lulu_real *out)
     *out = std::strtod(s.data, &pend);
 
     // Could point to the nul terminator, so don't use the index operator.
-    return pend == begin(s) + len(s) ? Lexer_Ok : Lexer_Invalid_Number;
+    return pend == end(s) ? Lexer_Ok : Lexer_Invalid_Number;
 }
 
 static LexerError

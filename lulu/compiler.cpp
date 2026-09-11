@@ -174,6 +174,7 @@ compiler_cast_basic_type(Compiler *c, Expr *e, ValueKind basic_kind)
     case Expr_Compare:
     case Expr_Pending:
         compiler_expr_any_reg(c, e);
+        compiler_expr_pop(c, e);
         break;
     case Expr_Discharged:
         break;
@@ -189,7 +190,7 @@ compiler_cast_basic_type(Compiler *c, Expr *e, ValueKind basic_kind)
         }
         break;
     case Value_int:
-        if (!compiler_cast_int (c, e)) {
+        if (!compiler_cast_int(c, e)) {
             goto nodice;
         }
         break;
@@ -418,9 +419,10 @@ compiler_expr_any_reg(Compiler *c, Expr *e)
 static bool
 compiler_unary_bnot(Compiler *c, Expr *e)
 {
-    if (expr_is_int(e)) {
+    if (expr_is_literal_int(e)) {
         value_set_int(&e->literal, ~expr_int(e));
     } else {
+        // Non-literal (e.g. discharged register) that is NOT of type `int`?
         if (!expr_has_basic_kind(e, Value_int)) {
             return false;
         }
@@ -503,10 +505,15 @@ compiler_unary(Compiler *c, Token const &op, Expr *e)
     }
 }
 
-static bool
+struct CompilerBinaryResult {
+    bool ok;      // Did we successfuly compile the binary expression?
+    bool swapped; // Did we need to swap the contents of the operands?
+};
+
+static CompilerBinaryResult
 compiler_arithi(Compiler *c, OpCode iop, Expr *restrict lhs, Expr *restrict rhs)
 {
-    Expr *dst = lhs;
+    bool swapped{};
 
     /*
      Consider the following forms:
@@ -522,9 +529,16 @@ compiler_arithi(Compiler *c, OpCode iop, Expr *restrict lhs, Expr *restrict rhs)
      */
     if (expr_is_literal(lhs)) {
         if (iop == Op_subi || iop == Op_fsubi) {
-            return false;
+            return {};
         }
-        swap(&lhs, &rhs);
+
+        /*
+         NOTE(2026-09-11)
+            Don't just swap the pointers, swap the contents! We want this
+            change to reflect to the caller and their parents as well.
+         */
+        swap(lhs, rhs);
+        swapped = true;
     }
 
     /*
@@ -533,13 +547,18 @@ compiler_arithi(Compiler *c, OpCode iop, Expr *restrict lhs, Expr *restrict rhs)
      2) x + (-imm) <=> x - |imm|
      3) x -   imm
      4) x - (-imm) <=> x + |imm|
+
+     Note that since we may have swapped the expressions, there's no guarantee
+     that what was once `rhs` was already discharged, e.g. it could be a local.
+     Remember that we don't automatically discharge rhs expressions for binary
+     so we have to manually manage them.
      */
-    u16      reg = expr_reg(lhs);
+    u16 reg = compiler_expr_any_reg(c, lhs);
     compiler_expr_pop(c, lhs);
 
     lulu_int imm;
     if (!expr_int_safe(rhs, -cast(lulu_int)ARG_C_MAX, ARG_C_MAX, &imm)) {
-        return false;
+        return {/*ok=*/false, swapped};
     }
 
     switch (iop) {
@@ -561,47 +580,86 @@ compiler_arithi(Compiler *c, OpCode iop, Expr *restrict lhs, Expr *restrict rhs)
         break;
     default:
         LULU_UNREACHABLE();
-        return false;
+        return {};
     }
 
-    dst->pc   = compiler_code_ABC(c, iop, REG_NONE, reg, cast(u16)imm);
-    dst->kind = Expr_Pending;
-    return true;
+    lhs->kind  = Expr_Pending;
+    lhs->pc    = compiler_code_ABC(c, iop, REG_NONE, reg, cast(u16)imm);
+    return {/*ok=*/true, swapped};
 }
 
-static bool
+static CompilerBinaryResult
 compiler_comparei(Compiler *c,
     OpCode         iop,
     Expr *restrict lhs,
     Expr *restrict rhs,
     bool           k)
 {
-    Expr *dst = lhs;
+    bool swapped{};
+
+    /*
+     Consider the following forms:
+
+     1)   imm == y  <=>   y == imm
+     2) !(imm == y) <=>   y ~= imm
+     3)   imm <  y  <=>   y >  imm  <=> !(y <= imm)
+     4) !(imm <  y) <=> !(y >  imm) <=>   y <= imm
+     5)   imm <= y  <=>   y >= imm  <=> !(y <  imm)
+     6) !(imm <= y) <=> !(y >= imm) <=>   y <  imm
+
+     1) and 2) can remain as-is but we do need to swap them so we can assume
+     that `lhs` has a register. However, 2) through 6) require us to swap
+     the operands. `Op_[f]lti` becomes `Op_[f]leqi` and vice-versa, while
+     `k` gets flipped.
+     */
     if (expr_is_literal(lhs)) {
-        swap(&lhs, &rhs);
+        switch (iop) {
+        case Op_eqi:   break;
+        case Op_lti:   iop = Op_leqi;  k = !k; break;
+        case Op_leqi:  iop = Op_lti;   k = !k; break;
+        case Op_feqi:  break;
+        case Op_flti:  iop = Op_fleqi; k = !k; break;
+        case Op_fleqi: iop = Op_flti;  k = !k; break;
+        default:
+            LULU_PANICF("Invalid immediate comparison OpCode(%i)", iop);
+            LULU_UNREACHABLE();
+            return {};
+        }
+        swap(lhs, rhs);
+        swapped = true;
     }
 
-    u16 reg = expr_reg(lhs);
+    u16 reg = compiler_expr_any_reg(c, lhs);
     compiler_expr_pop(c, lhs);
 
-    // x == true  <=> x
-    // x == false <=> not x
-    if (expr_is_bool(rhs)) {
-        if (k) {
-            dst->pc   = compiler_code_ABC(c, Op_not, REG_NONE, reg, 0);
-            dst->kind = Expr_Pending;
+    /*
+     Consider the following forms:
+
+     1) x == true  <=>     x ; b = true,  k = true
+     2) x ~= true  <=> not x ; b = true,  k = false
+     2) x == false <=> not x ; b = false, k = true
+     4) x ~= false <=>     x ; b = false, k = false
+
+     We assumme that for ordered comparisons, i.e. < and <=, we already threw
+     an error.
+     */
+    if (expr_is_literal_bool(rhs)) {
+        bool b = expr_bool(rhs);
+        if (b != k) {
+            lhs->kind  = Expr_Pending;
+            lhs->pc    = compiler_code_ABC(c, Op_not, REG_NONE, reg, 0);
         }
-        return true;
+        return {true, swapped};
     }
 
     lulu_int imm;
     if (!expr_int_safe(rhs, 0, ARG_B_MAX, &imm)) {
-        return false;
+        return {false, swapped};
     }
 
-    dst->pc   = compiler_code_vABC(c, iop, reg, cast(u16)imm, 0, k);
-    dst->kind = Expr_Compare;
-    return true;
+    lhs->kind  = Expr_Compare;
+    lhs->pc    = compiler_code_vABC(c, iop, reg, cast(u16)imm, 0, k);
+    return {true, swapped};
 }
 
 /*
@@ -612,7 +670,7 @@ compiler_comparei(Compiler *c,
     I.e. `x op y` has the same effect as `y op x`, which is only true for some
     operations.
  */
-static bool
+static CompilerBinaryResult
 compiler_binary_imm(Compiler *c,
     OpCode const    op,
     Expr * restrict lhs,
@@ -639,7 +697,7 @@ compiler_binary_imm(Compiler *c,
     case Op_feq:  return compiler_comparei(c, Op_feqi,  lhs, rhs, k);
     case Op_flt:  return compiler_comparei(c, Op_flti,  lhs, rhs, k);
     case Op_fleq: return compiler_comparei(c, Op_fleqi, lhs, rhs, k);
-    default:      return false;
+    default:      return {};
     }
 }
 
@@ -647,26 +705,33 @@ LULU_INTERNAL_FUNC void
 compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict rhs)
 {
     switch (checker_fold_binary(op, lhs, rhs)) {
-    case Checker_Ok:          return;
-    case Checker_Cannot_Fold: break;
+    case Checker_Ok:
+        lhs->token = rhs->token;
+        return;
+    case Checker_Cannot_Fold:
+        break;
     case Checker_Divide_By_Zero:
         compiler_error(c, "Cannot divide/modulo by 0", rhs);
         break;
     }
 
-    auto b = checker_fix_binary(op, lhs, rhs);
+    CheckerBinary b = checker_fix_binary(op, lhs, rhs);
     if (!b.ok) {
+        // Leaky abstraction but who tf cares amirite
         if (b.opcode) {
             compiler_error(c, "Invalid left hand side operand", lhs);
         } else {
             compiler_error(c, "Inconsistent right hand side type", rhs);
         }
     }
-    // Try the immediate versions first.
+
     if (expr_is_literal(lhs) || expr_is_literal(rhs)) {
-        if (compiler_binary_imm(c, b.opcode, lhs, rhs, !b.is_not)) {
-            // Propagate this change because we won't do it any place else.
-            lhs->token = rhs->token;
+        CompilerBinaryResult cb = compiler_binary_imm(c, b.opcode, lhs, rhs, !b.is_not);
+        if (cb.ok) {
+            if (!cb.swapped) {
+                // Propagate this change because we won't do it any place else.
+                lhs->token = rhs->token;
+            }
             return;
         }
     }
@@ -715,7 +780,7 @@ compiler_return(Compiler *c, ExprList list)
     case 1:
         start_reg = compiler_expr_any_reg(c, &*list);
         stop_reg  = start_reg + 1;
-        compiler_code_ABC(c, Op_return0, start_reg, stop_reg, 0);
+        compiler_code_ABC(c, Op_return, start_reg, stop_reg, 0);
         return;
     default:
         break;

@@ -27,21 +27,13 @@
     X(mul,      ABr, 1, Reg) /* R(A).int := R(B).int * R(C).int             */ \
     X(div,      ABr, 1, Reg) /* R(A).int := R(B).int / R(C).int             */ \
     X(mod,      ABr, 1, Reg) /* R(A).int := R(B).int % R(C).int             */ \
-/* Integral operations (1b): register-register comparisons                  */ \
-    X(eq,      vAB0, 0, Reg) /* if (R(A).int == R(B).int) != k then ip++    */ \
-    X(lt,      vAB0, 0, Reg) /* if (R(A).int <  R(B).int) != k then ip++    */ \
-    X(leq,     vAB0, 0, Reg) /* if (R(A).int <= R(B).int) != k then ip++    */ \
-/* Integral operations (1c): register-immediate bitwise manipulation        */ \
+/* Integral operations (1b): register-immediate bitwise manipulation        */ \
     X(bandi,    ABi, 1, Imm) /* R(A).int := R(B).int & C                    */ \
     X(bori,     ABi, 1, Imm) /* R(A).int := R(B).int | C                    */ \
     X(bxori,    ABi, 1, Imm) /* R(A).int := R(B).int ^ C                    */ \
 /* Integral operations (1c): register-immediate arithmetic                  */ \
     X(addi,     ABi, 1, Reg) /* R(A).int := R(B).int + C                    */ \
     X(subi,     ABi, 1, Reg) /* R(A).int := R(B).int - C                    */ \
-/* Integral operations (1d): register-immediate comparisons                 */ \
-    X(eqi,     vAB0, 0, Imm) /* if (R(A).int == B) != k then ip++           */ \
-    X(lti,     vAB0, 0, Imm) /* if (R(A).int <  B) != k then ip++           */ \
-    X(leqi,    vAB0, 0, Imm) /* if (R(A).int <= B) != k then ip++           */ \
 /* Floating-point operations (2a): register-register arithmetic             */ \
     X(fneg,     AB0, 1, Reg) /* R(A).real := -R(B).real                     */ \
     X(fadd,     ABr, 1, Reg) /* R(A).real := R(B).real + R(C).real          */ \
@@ -49,17 +41,25 @@
     X(fmul,     ABr, 1, Reg) /* R(A).real := R(B).real * R(C).real          */ \
     X(fdiv,     ABr, 1, Reg) /* R(A).real := R(B).real / R(C).real          */ \
     X(fmod,     ABr, 1, Reg) /* R(A).real := R(B).real % R(C).real          */ \
-/* Floating-point operations (2b): register-register comparisons            */ \
-    X(feq,     vAB0, 0, Reg) /* if (R(A).real == R(B).real) != k then ip++  */ \
-    X(flt,     vAB0, 0, Reg) /* if (R(A).real <  R(B).real) != k then ip++  */ \
-    X(fleq,    vAB0, 0, Reg) /* if (R(A).real <= R(B).real) != k then ip++  */ \
-/* Floating-point operations (2c): register-immediate arithmetic            */ \
+/* Floating-point operations (2b): register-immediate arithmetic            */ \
     X(faddi,    ABi, 1, Reg) /* R(A).real := R(B).real + C                  */ \
     X(fsubi,    ABi, 1, Reg) /* R(A).real := R(B).real + C                  */ \
-/* Floating-point operations (2d): register-register comparisons            */ \
-    X(feqi,    vAB0, 0, Imm) /* if (R(A).real == B) != k then ip++          */ \
-    X(flti,    vAB0, 0, Imm) /* if (R(A).real <  B) != k then ip++          */ \
-    X(fleqi,   vAB0, 0, Imm) /* if (R(A).real <= B) != k then ip++          */ \
+/* Integral operations (3a): register-register comparisons                  */ \
+    X(eq,      vAB0, 0, Reg) /* if R(A).int == R(B).int != k then ip++      */ \
+    X(lt,      vAB0, 0, Reg) /* if R(A).int <  R(B).int != k then ip++      */ \
+    X(leq,     vAB0, 0, Reg) /* if R(A).int <= R(B).int != k then ip++      */ \
+/* Integral operations (3b): register-immediate comparisons                 */ \
+    X(eqi,     vAB0, 0, Imm) /* if R(A).int == B != k then ip++             */ \
+    X(lti,     vAB0, 0, Imm) /* if R(A).int <  B != k then ip++             */ \
+    X(leqi,    vAB0, 0, Imm) /* if R(A).int <= B != k then ip++             */ \
+/* Floating-point operations (4a): register-register comparisons            */ \
+    X(feq,     vAB0, 0, Reg) /* if R(A).real == R(B).real != k then ip++    */ \
+    X(flt,     vAB0, 0, Reg) /* if R(A).real <  R(B).real != k then ip++    */ \
+    X(fleq,    vAB0, 0, Reg) /* if R(A).real <= R(B).real != k then ip++    */ \
+/* Floating-point operations (4b): register-immediate comparisons           */ \
+    X(feqi,    vAB0, 0, Imm) /* if R(A).real == B != k then ip++            */ \
+    X(flti,    vAB0, 0, Imm) /* if R(A).real <  B != k then ip++            */ \
+    X(fleqi,   vAB0, 0, Imm) /* if R(A).real <= B != k then ip++            */ \
 /* Other                                                                    */ \
     X(return0, AB0, 0, Unused) /* return                                    */ \
     X(return,  AB0, 0, Imm)    /* return R(A:B) if B > 0 else R(A:)         */
@@ -145,19 +145,19 @@ OPCODE_INFO_k(OpCode op);
  +-------------------------------------------------------------------------+
  | tens  | 3 3 2 2 2 2 2 2 2 2 2 2 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 |
  | ones  | 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 9 8 7 6 5 4 3 2 1 0 |
- | ABC   |       C(10)        |     B(8)      |     A(8)      |    Op(6)   |
- | vABC  |       C(9)       |k|     B(8)      |     A(8)      |    Op(6)   |
- | ABx   |               Bx(18)               |     A(8)      |    Op(6)   |
- | AsBx  |           sBx (signed) (18)        |     A(8)      |    Op(6)   |
+ | ABC   |       C(9)       |     B(8)      |     A(8)      |     Op(7)    |
+ | vABC  |       C(8)     |k|     B(8)      |     A(8)      |     Op(7)    |
+ | ABx   |               Bx(17)             |     A(8)      |     Op(7)    |
+ | AsBx  |          sBx (signed) (17)       |     A(8)      |     Op(7)    |
  +-------------------------------------------------------------------------+
  */
 using Instruction = u32;
 static Instruction constexpr
 // Instruction argument bitfield sizes and limits.
-ARG_OP_WIDTH = 6,  ARG_OP_MAX = (1 << ARG_OP_WIDTH) - 1,
-ARG_A_WIDTH  = 8,  ARG_A_MAX  = (1 << ARG_A_WIDTH)  - 1,
-ARG_B_WIDTH  = 8,  ARG_B_MAX  = (1 << ARG_B_WIDTH)  - 1,
-ARG_C_WIDTH  = 10, ARG_C_MAX  = (1 << ARG_C_WIDTH)  - 1,
+ARG_OP_WIDTH = 7, ARG_OP_MAX = (1 << ARG_OP_WIDTH) - 1,
+ARG_A_WIDTH  = 8, ARG_A_MAX  = (1 << ARG_A_WIDTH)  - 1,
+ARG_B_WIDTH  = 8, ARG_B_MAX  = (1 << ARG_B_WIDTH)  - 1,
+ARG_C_WIDTH  = 9, ARG_C_MAX  = (1 << ARG_C_WIDTH)  - 1,
 
 // Instruction argument bitfield offsets.
 ARG_OP_OFFSET = 0,
@@ -184,7 +184,7 @@ ARG_Bx_MAX    = (1 << ARG_Bx_WIDTH) - 1;
 
 static inline i32 constexpr
 // sBx (extended B, signed)
-ARG_sBx_MAX  = cast(i32)ARG_Bx_MAX / 2, ARG_sBx_MIN  = -ARG_sBx_MAX;
+ARG_sBx_MAX  = cast(i32)ARG_Bx_MAX  / 2, ARG_sBx_MIN  = -ARG_sBx_MAX;
 
 #define MASK1(max, offset)  ((max) << (offset))
 #define MASK0(max, offset)  (~(MASK1(max, offset)))

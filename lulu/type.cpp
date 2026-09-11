@@ -30,7 +30,7 @@ type_cstring(Type const *t)
 {
     switch (t->kind) {
     case TypeKind_None:  break;
-    case TypeKind_Basic: return value_kind_cstring(t->basic.kind);
+    case TypeKind_Basic: return t->basic.name;
     }
     LULU_PANICF("No type string for TypeKind(%i)", t->kind);
     return nullptr;

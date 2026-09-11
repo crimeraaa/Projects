@@ -132,22 +132,18 @@ expr_has_basic_kind(Expr const *e, ValueKind kind)
 #define expr_basic_kind(e) \
     (LULU_ASSERT(expr_has_basic_type(e)), (e)->type->basic.kind)
 
-static inline bool
-expr_has_literal_kind(Expr const *e, ValueKind kind)
-{
-    return expr_is_literal(e) && (e->literal_kind == kind);
-}
+#define expr_is_(e, k) expr_is_literal(e) && (e->literal_kind == (k));
+static inline bool expr_is_literal_bool(Expr const *e) { return expr_is_(e, Value_bool); }
+static inline bool expr_is_literal_int (Expr const *e) { return expr_is_(e, Value_int);  }
+static inline bool expr_is_literal_real(Expr const *e) { return expr_is_(e, Value_real); }
+#undef expr_is_
 
-static inline bool expr_is_bool(Expr const *e) { return expr_has_literal_kind(e, Value_bool); }
-static inline bool expr_is_int (Expr const *e) { return expr_has_literal_kind(e, Value_int);  }
-static inline bool expr_is_real(Expr const *e) { return expr_has_literal_kind(e, Value_real); }
-
-#define expr_literal_kind(e) (LULU_ASSERT(expr_is_literal(e)),  (e)->literal_kind)
-#define expr_bool(e)         (LULU_ASSERT(expr_is_bool(e)),     value_bool((e)->literal))
-#define expr_int(e)          (LULU_ASSERT(expr_is_int(e)),      value_int ((e)->literal))
-#define expr_real(e)         (LULU_ASSERT(expr_is_real(e)),     value_real((e)->literal))
-#define expr_reg(e)          (LULU_ASSERT(expr_is_reg(e)),      (e)->reg)
-#define expr_pc(e)           (LULU_ASSERT(expr_is_pc(e)),       (e)->pc)
+#define expr_literal_kind(e) (LULU_ASSERT(expr_is_literal(e)),      (e)->literal_kind)
+#define expr_bool(e)         (LULU_ASSERT(expr_is_literal_bool(e)), value_bool((e)->literal))
+#define expr_int(e)          (LULU_ASSERT(expr_is_literal_int(e)),  value_int ((e)->literal))
+#define expr_real(e)         (LULU_ASSERT(expr_is_literal_real(e)), value_real((e)->literal))
+#define expr_reg(e)          (LULU_ASSERT(expr_is_reg(e)),          (e)->reg)
+#define expr_pc(e)           (LULU_ASSERT(expr_is_pc(e)),           (e)->pc)
 
 template<class T>
 static inline void

@@ -61,6 +61,7 @@ opcode_info_make_AsBx(bool A, OpCode_Arg sBx)
 #define AB0(A, B)       ABC(A, B, Unused)
 #define ABr(A, B)       ABC(A, B, Reg)
 #define ABi(A, B)       ABC(A, B, Imm)
+#define ABk(A, B)       ABC(A, B, Const)
 
 #define vABC(A, B, vC)  opcode_info_make_vABC(A, OpArg_(B), OpArg_(vC))
 #define vAB0(A, B)      vABC(A, B, Unused)
@@ -95,6 +96,7 @@ opcode_info(OpCode op)
 #undef ABx
 #undef vAB0
 #undef vABC
+#undef ABk
 #undef ABi
 #undef ABr
 #undef AB0
