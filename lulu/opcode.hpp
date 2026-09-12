@@ -12,54 +12,78 @@
     X(int_k,    ABx, 1, Const) /* R(A).int  := K(Bx).int                    */ \
     X(real,     ABx, 1, Const) /* R(A).real := K(Bx).real                   */ \
 /* Conversion operations                                                    */ \
-    X(not,      AB0, 1, Reg) /* R(A).bool := not R(B).bool                  */ \
-    X(int2real, AB0, 1, Reg) /* R(A).real := cast(real)R(B).int             */ \
-    X(real2int, AB0, 1, Reg) /* R(A).int  := cast(int) R(B).real            */ \
+    X(not,      AB0, 1, Reg)   /* R(A).bool := not R(B).bool                */ \
+    X(int2real, AB0, 1, Reg)   /* R(A).real := cast(real)R(B).int           */ \
+    X(real2int, AB0, 1, Reg)   /* R(A).int  := cast(int) R(B).real          */ \
 /* Integral operations (1a): register-register bit manipulation             */ \
-    X(bnot,     AB0, 1, Reg) /* R(A).int := ~R(B).int                       */ \
-    X(band,     ABr, 1, Reg) /* R(A).int :=  R(B).int & R(B).int            */ \
-    X(bor,      ABr, 1, Reg) /* R(A).int :=  R(B).int | R(B).int            */ \
-    X(bxor,     ABr, 1, Reg) /* R(A).int :=  R(B).int ^ R(B).int            */ \
-/* Integral operations (1a): register-register arithmetic                   */ \
-    X(neg,      AB0, 1, Reg) /* R(A).int := -R(B).int                       */ \
-    X(add,      ABr, 1, Reg) /* R(A).int := R(B).int + R(C).int             */ \
-    X(sub,      ABr, 1, Reg) /* R(A).int := R(B).int - R(C).int             */ \
-    X(mul,      ABr, 1, Reg) /* R(A).int := R(B).int * R(C).int             */ \
-    X(div,      ABr, 1, Reg) /* R(A).int := R(B).int / R(C).int             */ \
-    X(mod,      ABr, 1, Reg) /* R(A).int := R(B).int % R(C).int             */ \
-/* Integral operations (1b): register-immediate bitwise manipulation        */ \
-    X(bandi,    ABi, 1, Imm) /* R(A).int := R(B).int & C                    */ \
-    X(bori,     ABi, 1, Imm) /* R(A).int := R(B).int | C                    */ \
-    X(bxori,    ABi, 1, Imm) /* R(A).int := R(B).int ^ C                    */ \
-/* Integral operations (1c): register-immediate arithmetic                  */ \
-    X(addi,     ABi, 1, Reg) /* R(A).int := R(B).int + C                    */ \
-    X(subi,     ABi, 1, Reg) /* R(A).int := R(B).int - C                    */ \
+    X(bnot,     AB0, 1, Reg)   /* R(A).int := ~R(B).int                     */ \
+    X(band,     ABr, 1, Reg)   /* R(A).int :=  R(B).int & R(B).int          */ \
+    X(bor,      ABr, 1, Reg)   /* R(A).int :=  R(B).int | R(B).int          */ \
+    X(bxor,     ABr, 1, Reg)   /* R(A).int :=  R(B).int ^ R(B).int          */ \
+/* Integral operations (1b): register-register arithmetic                   */ \
+    X(neg,      AB0, 1, Reg)   /* R(A).int := -R(B).int                     */ \
+    X(add,      ABr, 1, Reg)   /* R(A).int := R(B).int + R(C).int           */ \
+    X(sub,      ABr, 1, Reg)   /* R(A).int := R(B).int - R(C).int           */ \
+    X(mul,      ABr, 1, Reg)   /* R(A).int := R(B).int * R(C).int           */ \
+    X(div,      ABr, 1, Reg)   /* R(A).int := R(B).int / R(C).int           */ \
+    X(mod,      ABr, 1, Reg)   /* R(A).int := R(B).int % R(C).int           */ \
+/* Integral operations (1c): register-immediate bitwise manipulation        */ \
+    X(bandi,    ABi, 1, Imm)   /* R(A).int := R(B).int & C                  */ \
+    X(bori,     ABi, 1, Imm)   /* R(A).int := R(B).int | C                  */ \
+    X(bxori,    ABi, 1, Imm)   /* R(A).int := R(B).int ^ C                  */ \
+/* Integral operations (1d): register-immediate arithmetic                  */ \
+    X(addi,     ABi, 1, Reg)   /* R(A).int := R(B).int + C                  */ \
+    X(subi,     ABi, 1, Reg)   /* R(A).int := R(B).int - C                  */ \
+/* Integral operations (1e): register-constant bitwise                      */ \
+    X(bandk,    ABk, 1, Reg)   /* R(A).int :=  R(B).int & K(B).int          */ \
+    X(bork,     ABk, 1, Reg)   /* R(A).int :=  R(B).int | K(B).int          */ \
+    X(bxork,    ABk, 1, Reg)   /* R(A).int :=  R(B).int ^ K(B).int          */ \
+/* Integral operations (1f): register-constant arithmetic                   */ \
+    X(addk,     ABk, 1, Reg)   /* R(A).int := R(B).int + K(C).int           */ \
+    X(subk,     ABk, 1, Reg)   /* R(A).int := R(B).int - K(C).int           */ \
+    X(mulk,     ABk, 1, Reg)   /* R(A).int := R(B).int * K(C).int           */ \
+    X(divk,     ABk, 1, Reg)   /* R(A).int := R(B).int / K(C).int           */ \
+    X(modk,     ABk, 1, Reg)   /* R(A).int := R(B).int % K(C).int           */ \
 /* Floating-point operations (2a): register-register arithmetic             */ \
-    X(fneg,     AB0, 1, Reg) /* R(A).real := -R(B).real                     */ \
-    X(fadd,     ABr, 1, Reg) /* R(A).real := R(B).real + R(C).real          */ \
-    X(fsub,     ABr, 1, Reg) /* R(A).real := R(B).real - R(C).real          */ \
-    X(fmul,     ABr, 1, Reg) /* R(A).real := R(B).real * R(C).real          */ \
-    X(fdiv,     ABr, 1, Reg) /* R(A).real := R(B).real / R(C).real          */ \
-    X(fmod,     ABr, 1, Reg) /* R(A).real := R(B).real % R(C).real          */ \
+    X(fneg,     AB0, 1, Reg)   /* R(A).real := -R(B).real                   */ \
+    X(fadd,     ABr, 1, Reg)   /* R(A).real := R(B).real + R(C).real        */ \
+    X(fsub,     ABr, 1, Reg)   /* R(A).real := R(B).real - R(C).real        */ \
+    X(fmul,     ABr, 1, Reg)   /* R(A).real := R(B).real * R(C).real        */ \
+    X(fdiv,     ABr, 1, Reg)   /* R(A).real := R(B).real / R(C).real        */ \
+    X(fmod,     ABr, 1, Reg)   /* R(A).real := R(B).real % R(C).real        */ \
 /* Floating-point operations (2b): register-immediate arithmetic            */ \
-    X(faddi,    ABi, 1, Reg) /* R(A).real := R(B).real + C                  */ \
-    X(fsubi,    ABi, 1, Reg) /* R(A).real := R(B).real + C                  */ \
+    X(faddi,    ABi, 1, Reg)   /* R(A).real := R(B).real + C                */ \
+    X(fsubi,    ABi, 1, Reg)   /* R(A).real := R(B).real + C                */ \
+/* Floating-point operations (2c): register-constant arithmetic             */ \
+    X(faddk,    ABk, 1, Reg)   /* R(A).real := R(B).real + K(C).real        */ \
+    X(fsubk,    ABk, 1, Reg)   /* R(A).real := R(B).real - K(C).real        */ \
+    X(fmulk,    ABk, 1, Reg)   /* R(A).real := R(B).real * K(C).real        */ \
+    X(fdivk,    ABk, 1, Reg)   /* R(A).real := R(B).real / K(C).real        */ \
+    X(fmodk,    ABk, 1, Reg)   /* R(A).real := R(B).real % K(C).real        */ \
 /* Integral operations (3a): register-register comparisons                  */ \
-    X(eq,      vAB0, 0, Reg) /* if R(A).int == R(B).int != k then ip++      */ \
-    X(lt,      vAB0, 0, Reg) /* if R(A).int <  R(B).int != k then ip++      */ \
-    X(leq,     vAB0, 0, Reg) /* if R(A).int <= R(B).int != k then ip++      */ \
+    X(eq,      vAB0, 0, Reg)   /* if R(A).int == R(B).int != k then ip++    */ \
+    X(lt,      vAB0, 0, Reg)   /* if R(A).int <  R(B).int != k then ip++    */ \
+    X(leq,     vAB0, 0, Reg)   /* if R(A).int <= R(B).int != k then ip++    */ \
 /* Integral operations (3b): register-immediate comparisons                 */ \
-    X(eqi,     vAB0, 0, Imm) /* if R(A).int == B != k then ip++             */ \
-    X(lti,     vAB0, 0, Imm) /* if R(A).int <  B != k then ip++             */ \
-    X(leqi,    vAB0, 0, Imm) /* if R(A).int <= B != k then ip++             */ \
+    X(eqi,     vAB0, 0, Imm)   /* if R(A).int == B != k then ip++           */ \
+    X(lti,     vAB0, 0, Imm)   /* if R(A).int <  B != k then ip++           */ \
+    X(leqi,    vAB0, 0, Imm)   /* if R(A).int <= B != k then ip++           */ \
+/* Integral operations (3c): register-constant comparisons                  */ \
+    X(eqk,     vAB0, 0, Const) /* if R(A).int == K(B).int != k then ip++    */ \
+    X(ltk,     vAB0, 0, Const) /* if R(A).int <  K(B).int != k then ip++    */ \
+    X(leqk,    vAB0, 0, Const) /* if R(A).int <= K(B).int != k then ip++    */ \
 /* Floating-point operations (4a): register-register comparisons            */ \
-    X(feq,     vAB0, 0, Reg) /* if R(A).real == R(B).real != k then ip++    */ \
-    X(flt,     vAB0, 0, Reg) /* if R(A).real <  R(B).real != k then ip++    */ \
-    X(fleq,    vAB0, 0, Reg) /* if R(A).real <= R(B).real != k then ip++    */ \
+    X(feq,     vAB0, 0, Reg)   /* if R(A).real == R(B).real != k then ip++  */ \
+    X(flt,     vAB0, 0, Reg)   /* if R(A).real <  R(B).real != k then ip++  */ \
+    X(fleq,    vAB0, 0, Reg)   /* if R(A).real <= R(B).real != k then ip++  */ \
 /* Floating-point operations (4b): register-immediate comparisons           */ \
-    X(feqi,    vAB0, 0, Imm) /* if R(A).real == B != k then ip++            */ \
-    X(flti,    vAB0, 0, Imm) /* if R(A).real <  B != k then ip++            */ \
-    X(fleqi,   vAB0, 0, Imm) /* if R(A).real <= B != k then ip++            */ \
+    X(feqi,    vAB0, 0, Imm)   /* if R(A).real == B != k then ip++          */ \
+    X(flti,    vAB0, 0, Imm)   /* if R(A).real <  B != k then ip++          */ \
+    X(fleqi,   vAB0, 0, Imm)   /* if R(A).real <= B != k then ip++          */ \
+/* Floating-point operations (4c): register-immediate comparisons           */ \
+    X(feqk,    vAB0, 0, Const) /* if R(A).real == R(B).real != k then ip++  */ \
+    X(fltk,    vAB0, 0, Const) /* if R(A).real <  R(B).real != k then ip++  */ \
+    X(fleqk,   vAB0, 0, Const) /* if R(A).real <= R(B).real != k then ip++  */ \
 /* Other                                                                    */ \
     X(return0, AB0, 0, Unused) /* return                                    */ \
     X(return,  AB0, 0, Imm)    /* return R(A:B) if B > 0 else R(A:)         */

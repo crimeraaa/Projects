@@ -180,7 +180,7 @@ expr_neg(Expr *e)
 }
 
 static bool
-expr_int_safe(Expr *e, lulu_int min, lulu_int max, lulu_int *out)
+expr_try_int(Expr *e, lulu_int min, lulu_int max, lulu_int *out)
 {
     lulu_int imm = 0;
     switch (expr_literal_kind(e)) {

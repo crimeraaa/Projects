@@ -49,12 +49,36 @@ checker_coerce_numeric(Expr *restrict lhs, Expr *restrict rhs);
 LULU_INTERNAL_FUNC CheckerError
 checker_fold_binary(Token const &op, Expr *restrict lhs, Expr *restrict rhs);
 
-struct CheckerBinary {
+struct CheckerBinaryResult {
     bool   ok;
-    OpCode opcode;
+    OpCode op;
     bool   is_compare;
     bool   is_not;
 };
 
-LULU_INTERNAL_FUNC CheckerBinary
+LULU_INTERNAL_FUNC CheckerBinaryResult
 checker_fix_binary(Token const &op, Expr *restrict lhs, Expr *restrict rhs);
+
+struct CheckerBinaryIResult {
+    bool     ok;
+    bool     swapped;
+    lulu_int imm;
+};
+
+LULU_INTERNAL_FUNC CheckerBinaryIResult
+checker_fix_arithi(OpCode *op, Expr *restrict lhs, Expr *restrict rhs);
+
+LULU_INTERNAL_FUNC CheckerBinaryIResult
+checker_fix_comparei(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k);
+
+struct CheckerBinaryKResult {
+    bool   ok;
+    bool   swapped;
+    TValue constant;
+};
+
+LULU_INTERNAL_FUNC CheckerBinaryKResult
+checker_fix_arithk(OpCode *op, Expr *restrict lhs, Expr *restrict rhs);
+
+LULU_INTERNAL_FUNC CheckerBinaryKResult
+checker_fix_comparek(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k);

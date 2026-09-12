@@ -115,13 +115,13 @@ compiler_unary(Compiler *c, Token const &op, Expr *e);
     Emits the bytecode for `lhs op rhs`.
 
  Arguments:
-    op  [in]
+    op_token  [in]
     lhs [in, out] - The final output state (register or pc) goes here.
     rhs [in, out] - May be transformed, but does not store the main output.
  */
 LULU_INTERNAL_FUNC void
 compiler_binary(Compiler *c,
-    Token const &  op,
+    Token const &  op_token,
     Expr *restrict lhs,
     Expr *restrict rhs);
 

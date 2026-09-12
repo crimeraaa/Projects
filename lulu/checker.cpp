@@ -249,7 +249,7 @@ checker_fold_binary(Token const &  op, Expr *restrict lhs, Expr *restrict rhs)
 }
 
 
-LULU_INTERNAL_FUNC CheckerBinary
+LULU_INTERNAL_FUNC CheckerBinaryResult
 checker_fix_binary(Token const &op, Expr *restrict lhs, Expr *restrict rhs)
 {
     // Ensure both arguments are of the same underyling type so that we
@@ -261,72 +261,286 @@ checker_fix_binary(Token const &op, Expr *restrict lhs, Expr *restrict rhs)
         checker_coerce_rhs(lhs, rhs);
     }
 
+    // Neither lhs nor rhs are necessarily a literal by this point!
+    CheckerBinaryResult r{};
+
+    // The simplest (and strictest!) type-checking possible.
     if (lhs->type != rhs->type) {
-        return {};
+        return r;
     }
 
-    // Neither lhs nor rhs are necessarily a literal by this point!
-    CheckerBinary b{};
     switch (op.kind) {
-    case Token_Ampersand: b.opcode = Op_band; break;
-    case Token_Pipe:      b.opcode = Op_bor;  break;
-    case Token_Caret:     b.opcode = Op_bxor; break;
-    case Token_Plus:      b.opcode = Op_add;  break;
-    case Token_Dash:      b.opcode = Op_sub;  break;
-    case Token_Asterisk:  b.opcode = Op_mul;  break;
-    case Token_Slash:     b.opcode = Op_div;  break;
-    case Token_Percent:   b.opcode = Op_mod;  break;
+    case Token_Ampersand: r.op = Op_band; break;
+    case Token_Pipe:      r.op = Op_bor;  break;
+    case Token_Caret:     r.op = Op_bxor; break;
+    case Token_Plus:      r.op = Op_add;  break;
+    case Token_Dash:      r.op = Op_sub;  break;
+    case Token_Asterisk:  r.op = Op_mul;  break;
+    case Token_Slash:     r.op = Op_div;  break;
+    case Token_Percent:   r.op = Op_mod;  break;
     case Token_Tilde_Equal:
-        b.is_not = true;
+        r.is_not = true;
         [[fallthrough]];
     case Token_Equal_Equal:
-        b.is_compare = true;
-        b.opcode     = Op_eq;
+        r.is_compare = true;
+        r.op         = Op_eq;
         break;
 
     // x >= y <=> !(x < y)
     case Token_Greater_Equal:
-        b.is_not = true;
+        r.is_not = true;
         [[fallthrough]];
     case Token_Less_Than:
-        b.is_compare = true;
-        b.opcode     = Op_lt;
+        r.is_compare = true;
+        r.op         = Op_lt;
         break;
 
     // x > y <=> !(x <= y)
     case Token_Greater_Than:
-        b.is_not = true;
+        r.is_not = true;
         [[fallthrough]];
     case Token_Less_Equal:
-        b.is_compare = true;
-        b.opcode     = Op_leq;
+        r.is_compare = true;
+        r.op         = Op_leq;
         break;
     default:
         LULU_UNREACHABLE();
         break;
     }
 
-    b.ok = true;
+    r.ok = true;
     if (type_is_basic(lhs->type)) switch (expr_basic_kind(lhs)) {
     case Value_bool:
         // We don't allow ordered comparisons on booleans.
-        if (b.opcode == Op_eq) {
-            return b;
+        if (r.op == Op_eq) {
+            return r;
         }
         break;
     case Value_real:
         // Don't allow bitwise operations on reals.
-        if (Op_add <= b.opcode && b.opcode <= Op_leq) {
-            b.opcode = b.opcode + (Op_fadd - Op_add);
-            return b;
+        if (!(Op_band <= r.op && r.op <= Op_bxor)) {
+            r.op = r.op + (Op_fadd - Op_add);
+            return r;
         }
         break;
     case Value_int:
-        return b;
+        return r;
     default:
         break;
     }
 
-    b.ok = false;
-    return b;
+    r.ok = false;
+    return r;
 }
+
+LULU_INTERNAL_FUNC CheckerBinaryIResult
+checker_fix_arithi(OpCode *op, Expr *restrict lhs, Expr *restrict rhs)
+{
+    CheckerBinaryIResult r{};
+
+    /*
+     Consider the following forms:
+     1)   imm  & y <=> y &   imm
+     2)   imm  | y <=> y |   imm
+     3)   imm  ^ y <=> y ^   imm
+     4)   imm  + y <=> y +   imm
+     5) (-imm) + y <=> y + (-imm) <=> y - |imm|
+     6)   imm  - y <=> imm + (-y)
+     7) (-imm) - y <=> -(|imm| + (-y))    <=> -((-y) + |imm|)
+
+     4 can be safely inverted because addition is commutative.
+     5 can be safely converted because we can decompose it into a subtraction.
+     6 and 7 cannot be converted because they require a negation. It's easier
+     just delegate to register-register arithmetic at that point.
+     */
+    if (expr_is_literal(lhs)) {
+        if (*op == Op_subi || *op == Op_fsubi) {
+            return {};
+        }
+
+        /*
+         NOTE(2026-09-11)
+            Don't just swap the pointers, swap the contents! We want this
+            change to reflect to the caller and their parents as well.
+         */
+        swap(lhs, rhs);
+        r.swapped = true;
+    }
+
+    if (!expr_try_int(rhs, -cast(lulu_int)ARG_C_MAX, ARG_C_MAX, &r.imm)) {
+        return r;
+    }
+
+    switch (*op) {
+    case Op_addi:
+    case Op_faddi:
+        // Assumes that the corresponding sub opcode is 1 above us.
+        if (r.imm < 0) {
+            r.imm = -r.imm;
+            *op   = *op + 1;
+        }
+        break;
+    case Op_subi:
+    case Op_fsubi:
+        // Assumes that the corresponding add opcode is 1 below us.
+        if (r.imm < 0) {
+            r.imm = -r.imm;
+            *op   = *op - 1;
+        }
+        break;
+    default:
+        LULU_UNREACHABLE();
+        return r;
+    }
+
+    r.ok = true;
+    return r;
+}
+
+LULU_INTERNAL_FUNC CheckerBinaryIResult
+checker_fix_comparei(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k)
+{
+    CheckerBinaryIResult r{};
+ 
+    /*
+     Consider the following forms:
+
+     1)   imm == y  <=>   y == imm
+     2) !(imm == y) <=>   y ~= imm
+     3)   imm <  y  <=>   y >  imm  <=> !(y <= imm)
+     4) !(imm <  y) <=> !(y >  imm) <=>   y <= imm
+     5)   imm <= y  <=>   y >= imm  <=> !(y <  imm)
+     6) !(imm <= y) <=> !(y >= imm) <=>   y <  imm
+
+     1) and 2) can remain as-is but we do need to swap them so we can assume
+     that `lhs` has a register. However, 2) through 6) require us to swap
+     the operands. `Op_[f]lti` becomes `Op_[f]leqi` and vice-versa, while
+     `k` gets flipped.
+     */
+    if (expr_is_literal(lhs)) {
+        switch (*op) {
+        case Op_eqi:   break;
+        case Op_lti:   *op = Op_leqi;  *k = !*k; break;
+        case Op_leqi:  *op = Op_lti;   *k = !*k; break;
+        case Op_feqi:  break;
+        case Op_flti:  *op = Op_fleqi; *k = !*k; break;
+        case Op_fleqi: *op = Op_flti;  *k = !*k; break;
+        default:
+            LULU_PANICF("Invalid immediate comparison OpCode(%i)", *op);
+            LULU_UNREACHABLE();
+            return {};
+        }
+        swap(lhs, rhs);
+        r.swapped = true;
+    }
+
+    if (expr_is_literal_bool(rhs)) {
+        r.ok = true;
+    } else if (expr_try_int(rhs, 0, ARG_B_MAX, &r.imm)) {
+        r.ok = true;
+    }
+    return r;
+}
+
+static TValue
+checker_get_constant(Expr *const rhs)
+{
+    switch (expr_literal_kind(rhs)) {
+    case Value_int:  return tvalue_make_int(expr_int(rhs));
+    case Value_real: return tvalue_make_real(expr_real(rhs));
+    default:
+        LULU_PANICF("Unsupported ExprKind(%i) and/or ValueKind(%i)",
+            rhs->kind, rhs->literal_kind);
+        LULU_UNREACHABLE();
+        break;
+    }
+    return {};
+}
+
+LULU_INTERNAL_FUNC CheckerBinaryKResult
+checker_fix_arithk(OpCode *op, Expr *restrict lhs, Expr *restrict rhs)
+{
+    CheckerBinaryKResult r{};
+    /*
+     Consider the following forms:
+
+     1)    k  & y <=>   y  &   k
+     2)    k  | y <=>   y  |   k
+     3)    k  ^ y <=>   y  ^   k
+     4)    k  + y <=>   y  +   k
+     5)  (-k) + y <=>   y  + (-k)
+     6)    k  - y <=>   k  + (-y) <=> -(y - k)
+     7)  (-k) - y <=> (-k) + (-y) <=> -(y + k)
+     8)    k  * y <=>   y  * k
+     9)  (-k) * y <=>   y  * (-k)
+     10)   k  / y
+     11) (-k) / y
+
+     Addition (1 and 2) and Multiplication (5 and 6) can be treated
+     commutatively, so we can safely swap the operands. Since constants
+     themselves can be negative (i.e. we aren't limited to eqkjust positives,
+     as in immediates) we don't need to get the absolute value and flip the
+     opcode.
+
+     Subtraction is not commutative as it requires an implicit negation, at
+     which point it would be easier to use register-register operations.
+
+     Division is similar to Subtraction in that it is not commutative.
+     */
+    if (expr_is_literal(lhs)) {
+        switch (*op) {
+        case Op_bandk:
+        case Op_bork:
+        case Op_bxork:
+        case Op_addk:
+        case Op_mulk:
+        case Op_faddk:
+        case Op_fmulk:
+            break;
+        default:
+            return r;
+        }
+        r.swapped = true;
+        swap(lhs, rhs);
+    }
+
+    r.constant = checker_get_constant(rhs);
+    r.ok       = true;
+    return r;
+}
+
+LULU_INTERNAL_FUNC CheckerBinaryKResult
+checker_fix_comparek(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k)
+{
+    CheckerBinaryKResult r{};
+    /*
+     Consider the following forms:
+
+     1) k == y <=>   y == k  ; kop = Op_[f]eqk,  k = true
+     2) k ~= y <=> !(y == k) ; kop = Op_[f]eqk,  k = false
+     3) k <  y <=> !(y <= k) ; kop = Op_[f]leqk, k = false
+     6) k >= y <=>   y <= k  ; kop = Op_[f]leqk, k = true
+     4) k <= y <=> !(y <  k) ; kop = Op_[f]ltk,  k = false
+     5) k >  y <=>   y <  k  ; kop = Op_[f]ltk,  k = true
+     */
+    if (expr_is_literal(lhs)) {
+        switch (*op) {
+        case Op_eqk:    break;
+        case Op_ltk:    *op = Op_leqk;  *k = !*k; break;
+        case Op_leqk:   *op = Op_ltk;   *k = !*k; break;
+        case Op_feqk:   break;
+        case Op_fltk:   *op = Op_fleqk; *k = !*k; break;
+        case Op_fleqk:  *op = Op_fltk;  *k = !*k; break;
+        default:
+            LULU_UNREACHABLE();
+            return r;
+        }
+        r.swapped = true;
+        swap(lhs, rhs);
+    }
+
+    r.constant = checker_get_constant(rhs);
+    r.ok       = true;
+    return r;
+}
+

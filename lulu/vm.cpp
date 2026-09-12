@@ -3,12 +3,6 @@
 #include "debug.hpp"
 #include "value.hpp"
 
-#define RB(i)   R[getarg_B(i)]
-#define RC(i)   R[getarg_C(i)]
-#define KBx(i)  K[getarg_Bx(i)]
-#define KB(i)   K[getarg_B(i)]
-#define KC(i)   K[getarg_C(i)]
-
 template<class T> static inline void
 vm_arith1(T (*op)(T a), Value *RA, Value RB)
 {
@@ -59,6 +53,12 @@ vm_dump_stack(Slice<Value> regs)
     }
 }
 
+#define RB(i)   R[getarg_B(i)]
+#define RC(i)   R[getarg_C(i)]
+#define KBx(i)  K[getarg_Bx(i)]
+#define KB(i)   K[getarg_B(i)]
+#define KC(i)   K[getarg_C(i)]
+
 LULU_INTERNAL_FUNC void
 vm_execute(lulu_State *L, Chunk *c)
 {
@@ -93,7 +93,7 @@ vm_execute(lulu_State *L, Chunk *c)
 // Arithmetic
 #define un(T, f)    vm_arith1<T>(f<T>, RA, RB(i))
 #define bin(T, f)   vm_arith2<T>(f<T>, RA, RB(i), RC(i))
-#define bini(T, f)  vm_arithi<T>(f<T>, RA, RB(i), cast(T)getarg_vC(i))
+#define bini(T, f)  vm_arithi<T>(f<T>, RA, RB(i), cast(T)getarg_C(i))
 #define bink(T, f)  vm_arith2<T>(f<T>, RA, RB(i), KC(i).value)
 
         // Integer arithmetic
@@ -112,6 +112,14 @@ vm_execute(lulu_State *L, Chunk *c)
         case Op_bxori: bini(lulu_int, num_bxor); break;
         case Op_addi:  bini(lulu_int, num_add);  break;
         case Op_subi:  bini(lulu_int, num_sub);  break;
+        case Op_bandk: bink(lulu_int, num_band); break;
+        case Op_bork:  bink(lulu_int, num_bor);  break;
+        case Op_bxork: bink(lulu_int, num_bxor); break;
+        case Op_addk:  bink(lulu_int, num_add);  break;
+        case Op_subk:  bink(lulu_int, num_sub);  break;
+        case Op_mulk:  bink(lulu_int, num_mul);  break;
+        case Op_divk:  bink(lulu_int, num_div);  break;
+        case Op_modk:  bink(lulu_int, num_mod);  break;
         
         // Floating-point arithmetic
         case Op_fneg:  un  (lulu_real, num_neg); break;
@@ -122,6 +130,11 @@ vm_execute(lulu_State *L, Chunk *c)
         case Op_fmod:  bin (lulu_real, num_mod); break;
         case Op_faddi: bini(lulu_real, num_add); break;
         case Op_fsubi: bini(lulu_real, num_sub); break;
+        case Op_faddk: bink(lulu_real, num_add); break;
+        case Op_fsubk: bink(lulu_real, num_sub); break;
+        case Op_fmulk: bink(lulu_real, num_mul); break;
+        case Op_fdivk: bink(lulu_real, num_div); break;
+        case Op_fmodk: bink(lulu_real, num_mod); break;
         
 #undef bink
 #undef bini
@@ -129,19 +142,18 @@ vm_execute(lulu_State *L, Chunk *c)
 #undef un
 
 // Comparison
-#define B           getarg_B(i)
-#define C           getarg_C(i)
-#define vC          getarg_vC(i)
-#define k           getarg_k(i)
-#define bin(T, f)   if (vm_compare <T>(f<T>, *RA, RB(i))    != k) ip++
-#define bini(T, f)  if (vm_comparei<T>(f<T>, *RA, cast(T)B) != k) ip++
-#define bink(T, f)  if (vm_compare <T>(f<T>, *RA, KB(i).value))   ip++
+#define bin(T, f)   if (vm_compare <T>(f<T>, *RA, RB(i))              != getarg_k(i)) ip++
+#define bini(T, f)  if (vm_comparei<T>(f<T>, *RA, cast(T)getarg_B(i)) != getarg_k(i)) ip++
+#define bink(T, f)  if (vm_compare <T>(f<T>, *RA, KB(i).value)        != getarg_k(i)) ip++
         case Op_eq:    bin (lulu_int,  num_eq);  break;
         case Op_lt:    bin (lulu_int,  num_lt);  break;
         case Op_leq:   bin (lulu_int,  num_leq); break;
         case Op_eqi:   bini(lulu_int,  num_eq);  break;
         case Op_lti:   bini(lulu_int,  num_lt);  break;
         case Op_leqi:  bini(lulu_int,  num_leq); break;
+        case Op_eqk:   bink(lulu_int,  num_eq);  break;
+        case Op_ltk:   bink(lulu_int,  num_lt);  break;
+        case Op_leqk:  bink(lulu_int,  num_leq); break;
 
         case Op_feq:   bin (lulu_real, num_eq);  break;
         case Op_flt:   bin (lulu_real, num_lt);  break;
@@ -149,14 +161,15 @@ vm_execute(lulu_State *L, Chunk *c)
         case Op_feqi:  bini(lulu_real, num_eq);  break;
         case Op_flti:  bini(lulu_real, num_lt);  break;
         case Op_fleqi: bini(lulu_real, num_leq); break;
-#undef k
-#undef C
+        case Op_feqk:  bink(lulu_real, num_eq);  break;
+        case Op_fltk:  bink(lulu_real, num_lt);  break;
+        case Op_fleqk: bink(lulu_real, num_leq); break;
 #undef bink
 #undef bini
 #undef bin
 
         case Op_return0: vm_dump_stack(slice_array(R, 0, c->stack_size)); return;
-        case Op_return:  vm_dump_stack(slice_array(R, getarg_A(i), B)); return;
+        case Op_return:  vm_dump_stack(slice_array(R, getarg_A(i), getarg_B(i))); return;
         }
     }
 }
@@ -166,3 +179,4 @@ vm_execute(lulu_State *L, Chunk *c)
 #undef KBx
 #undef RC
 #undef RB
+

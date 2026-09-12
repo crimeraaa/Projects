@@ -1,7 +1,6 @@
 #include "lulu.h"
 #include "internal.hpp"
 #include "mem.hpp"
-#include "strings.hpp"
 #include "value.hpp"
 #include "opcode.hpp"
 #include "type.hpp"
@@ -241,7 +240,7 @@ compiler_cast(Compiler *c, Expr *restrict t, Expr *restrict arg)
     }
 
     // Report the bad type, not the variable?
-    arg->token.lexeme = t->token.lexeme;
+    arg->token = t->token;
     compiler_error(c, "Cannot cast to type", arg);
 }
 
@@ -513,32 +512,9 @@ struct CompilerBinaryResult {
 static CompilerBinaryResult
 compiler_arithi(Compiler *c, OpCode iop, Expr *restrict lhs, Expr *restrict rhs)
 {
-    bool swapped{};
-
-    /*
-     Consider the following forms:
-     1)   imm  + y <=> y +   imm
-     2) (-imm) + y <=> y + (-imm) <=> y - |imm|
-     3    imm  - y <=> imm + (-y)
-     4) (-imm) - y <=> -(|imm| + (-y))    <=> -((-y) + |imm|)
-
-     1 can be safely inverted because addition is commutative.
-     2 can be safely converted because we can decompose it into a subtraction.
-     3 and 4 cannot be converted because they require a negation. It's easier
-     just delegate to register-register arithmetic at that point.
-     */
-    if (expr_is_literal(lhs)) {
-        if (iop == Op_subi || iop == Op_fsubi) {
-            return {};
-        }
-
-        /*
-         NOTE(2026-09-11)
-            Don't just swap the pointers, swap the contents! We want this
-            change to reflect to the caller and their parents as well.
-         */
-        swap(lhs, rhs);
-        swapped = true;
+    auto r = checker_fix_arithi(&iop, lhs, rhs);
+    if (!r.ok) {
+        return {/*ok=*/false, r.swapped};
     }
 
     /*
@@ -556,36 +532,9 @@ compiler_arithi(Compiler *c, OpCode iop, Expr *restrict lhs, Expr *restrict rhs)
     u16 reg = compiler_expr_any_reg(c, lhs);
     compiler_expr_pop(c, lhs);
 
-    lulu_int imm;
-    if (!expr_int_safe(rhs, -cast(lulu_int)ARG_C_MAX, ARG_C_MAX, &imm)) {
-        return {/*ok=*/false, swapped};
-    }
-
-    switch (iop) {
-    case Op_addi:
-    case Op_faddi:
-        // Assumes that the corresponding sub opcode is 1 above us.
-        if (imm < 0) {
-            imm = -imm;
-            iop = iop + 1;
-        }
-        break;
-    case Op_subi:
-    case Op_fsubi:
-        // Assumes that the corresponding add opcode is 1 below us.
-        if (imm < 0) {
-            imm = -imm;
-            iop = iop - 1;
-        }
-        break;
-    default:
-        LULU_UNREACHABLE();
-        return {};
-    }
-
     lhs->kind  = Expr_Pending;
-    lhs->pc    = compiler_code_ABC(c, iop, REG_NONE, reg, cast(u16)imm);
-    return {/*ok=*/true, swapped};
+    lhs->pc    = compiler_code_ABC(c, iop, REG_NONE, reg, cast(u16)r.imm);
+    return {/*ok=*/true, r.swapped};
 }
 
 static CompilerBinaryResult
@@ -595,38 +544,9 @@ compiler_comparei(Compiler *c,
     Expr *restrict rhs,
     bool           k)
 {
-    bool swapped{};
-
-    /*
-     Consider the following forms:
-
-     1)   imm == y  <=>   y == imm
-     2) !(imm == y) <=>   y ~= imm
-     3)   imm <  y  <=>   y >  imm  <=> !(y <= imm)
-     4) !(imm <  y) <=> !(y >  imm) <=>   y <= imm
-     5)   imm <= y  <=>   y >= imm  <=> !(y <  imm)
-     6) !(imm <= y) <=> !(y >= imm) <=>   y <  imm
-
-     1) and 2) can remain as-is but we do need to swap them so we can assume
-     that `lhs` has a register. However, 2) through 6) require us to swap
-     the operands. `Op_[f]lti` becomes `Op_[f]leqi` and vice-versa, while
-     `k` gets flipped.
-     */
-    if (expr_is_literal(lhs)) {
-        switch (iop) {
-        case Op_eqi:   break;
-        case Op_lti:   iop = Op_leqi;  k = !k; break;
-        case Op_leqi:  iop = Op_lti;   k = !k; break;
-        case Op_feqi:  break;
-        case Op_flti:  iop = Op_fleqi; k = !k; break;
-        case Op_fleqi: iop = Op_flti;  k = !k; break;
-        default:
-            LULU_PANICF("Invalid immediate comparison OpCode(%i)", iop);
-            LULU_UNREACHABLE();
-            return {};
-        }
-        swap(lhs, rhs);
-        swapped = true;
+    auto r = checker_fix_comparei(&iop, lhs, rhs, &k);
+    if (!r.ok) {
+        return {/*ok=*/false, r.swapped};
     }
 
     u16 reg = compiler_expr_any_reg(c, lhs);
@@ -640,26 +560,21 @@ compiler_comparei(Compiler *c,
      2) x == false <=> not x ; b = false, k = true
      4) x ~= false <=>     x ; b = false, k = false
 
-     We assumme that for ordered comparisons, i.e. < and <=, we already threw
-     an error.
+     We assume that for ordered comparisons, i.e. < and <=, we already threw
+     an error. So we can guarantee that boolean comparisons are only ever
+     checking for equality.
      */
     if (expr_is_literal_bool(rhs)) {
         bool b = expr_bool(rhs);
         if (b != k) {
-            lhs->kind  = Expr_Pending;
-            lhs->pc    = compiler_code_ABC(c, Op_not, REG_NONE, reg, 0);
+            lhs->kind = Expr_Pending;
+            lhs->pc   = compiler_code_ABC(c, Op_not, REG_NONE, reg, 0);
         }
-        return {true, swapped};
+    } else {
+        lhs->kind  = Expr_Compare;
+        lhs->pc    = compiler_code_vABC(c, iop, reg, cast(u16)r.imm, 0, k);
     }
-
-    lulu_int imm;
-    if (!expr_int_safe(rhs, 0, ARG_B_MAX, &imm)) {
-        return {false, swapped};
-    }
-
-    lhs->kind  = Expr_Compare;
-    lhs->pc    = compiler_code_vABC(c, iop, reg, cast(u16)imm, 0, k);
-    return {true, swapped};
+    return {/*ok=*/true, r.swapped};
 }
 
 /*
@@ -683,7 +598,6 @@ compiler_binary_imm(Compiler *c,
     switch (op) {
     // For the bitwise operators, we assume that reals already caused
     // an error previously.
-    // TODO(2026-07-20): Check for negatives in bitwise operations?
     case Op_band: return compiler_arithi  (c, Op_bandi, lhs, rhs);
     case Op_bor:  return compiler_arithi  (c, Op_bori,  lhs, rhs);
     case Op_bxor: return compiler_arithi  (c, Op_bxori, lhs, rhs);
@@ -701,6 +615,83 @@ compiler_binary_imm(Compiler *c,
     }
 }
 
+static CompilerBinaryResult
+compiler_arithk(Compiler *c, OpCode kop, Expr *restrict lhs, Expr *restrict rhs)
+{
+    auto r = checker_fix_arithk(&kop, lhs, rhs);
+    if (!r.ok) {
+        return {/*ok=*/false, r.swapped};
+    }
+
+    // May be a temporary register.
+    u16 reg = compiler_expr_any_reg(c, lhs);
+    compiler_expr_pop(c, lhs);
+
+    u32 i = compiler_add_constant(c, r.constant);
+    // TODO(2026-09-13): Handle resolving their registers later on?
+    rhs->kind     = Expr_Constant;
+    rhs->constant = i;
+    if (i > ARG_C_MAX) {
+        return {/*ok=*/false, r.swapped};
+    }
+
+    lhs->kind = Expr_Pending;
+    lhs->pc   = compiler_code_ABC(c, kop, REG_NONE, reg, cast(u16)i);
+    return {/*ok=*/true, r.swapped};
+}
+
+static CompilerBinaryResult
+compiler_comparek(Compiler *c, OpCode kop, Expr *restrict lhs, Expr *restrict rhs, bool k)
+{
+    auto r = checker_fix_comparek(&kop, lhs, rhs, &k);
+    if (!r.ok) {
+        return {/*ok=*/false, r.swapped};
+    }
+
+    u16 reg = compiler_expr_any_reg(c, lhs);
+    compiler_expr_pop(c, lhs);
+
+    u32 i = compiler_add_constant(c, r.constant);
+    // TODO(2026-09-13): Handle resolving their registers later on?
+    rhs->kind     = Expr_Constant;
+    rhs->constant = i;
+    if (i > ARG_C_MAX) {
+        return {/*ok=*/false, r.swapped};
+    }
+
+    lhs->kind = Expr_Compare;
+    lhs->pc   = compiler_code_vABC(c, kop, reg, cast(u16)i, 0, k);
+    return {/*ok=*/true, r.swapped};
+}
+
+static CompilerBinaryResult
+compiler_binary_k(Compiler *c, OpCode op, Expr *restrict lhs, Expr *restrict rhs, bool k)
+{
+    LULU_ASSERT(expr_is_literal(lhs) != expr_is_literal(rhs));
+    switch (op) {
+    case Op_band:   return compiler_arithk  (c, Op_bandk, lhs, rhs);
+    case Op_bor:    return compiler_arithk  (c, Op_bork,  lhs, rhs);
+    case Op_bxor:   return compiler_arithk  (c, Op_bxork, lhs, rhs);
+    case Op_add:    return compiler_arithk  (c, Op_addk,  lhs, rhs);
+    case Op_sub:    return compiler_arithk  (c, Op_subk,  lhs, rhs);
+    case Op_mul:    return compiler_arithk  (c, Op_mulk,  lhs, rhs);
+    case Op_div:    return compiler_arithk  (c, Op_divk,  lhs, rhs);
+    case Op_mod:    return compiler_arithk  (c, Op_modk,  lhs, rhs);
+    case Op_eq:     return compiler_comparek(c, Op_eqk,   lhs, rhs, k);
+    case Op_lt:     return compiler_comparek(c, Op_ltk,   lhs, rhs, k);
+    case Op_leq:    return compiler_comparek(c, Op_leqk,  lhs, rhs, k);
+    case Op_fadd:   return compiler_arithk  (c, Op_faddk, lhs, rhs);
+    case Op_fsub:   return compiler_arithk  (c, Op_fsubk, lhs, rhs);
+    case Op_fmul:   return compiler_arithk  (c, Op_fmulk, lhs, rhs);
+    case Op_fdiv:   return compiler_arithk  (c, Op_fdivk, lhs, rhs);
+    case Op_fmod:   return compiler_arithk  (c, Op_fmodk, lhs, rhs);
+    case Op_feq:    return compiler_comparek(c, Op_feqk,  lhs, rhs, k);
+    case Op_flt:    return compiler_comparek(c, Op_fltk,  lhs, rhs, k);
+    case Op_fleq:   return compiler_comparek(c, Op_fleqk, lhs, rhs, k);
+    default:        return {};
+    }
+}
+
 LULU_INTERNAL_FUNC void
 compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict rhs)
 {
@@ -715,10 +706,10 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
         break;
     }
 
-    CheckerBinary b = checker_fix_binary(op, lhs, rhs);
-    if (!b.ok) {
+    auto r = checker_fix_binary(op, lhs, rhs);
+    if (!r.ok) {
         // Leaky abstraction but who tf cares amirite
-        if (b.opcode) {
+        if (r.op) {
             compiler_error(c, "Invalid left hand side operand", lhs);
         } else {
             compiler_error(c, "Inconsistent right hand side type", rhs);
@@ -726,13 +717,31 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
     }
 
     if (expr_is_literal(lhs) || expr_is_literal(rhs)) {
-        CompilerBinaryResult cb = compiler_binary_imm(c, b.opcode, lhs, rhs, !b.is_not);
-        if (cb.ok) {
-            if (!cb.swapped) {
+        bool k = !r.is_not;
+        auto [ok, swapped] = compiler_binary_imm(c, r.op, lhs, rhs, k);
+        if (ok) {
+            if (!swapped) {
                 // Propagate this change because we won't do it any place else.
                 lhs->token = rhs->token;
             }
             return;
+        }
+
+        // If we didn't emit an immediate-addressed opcode, ensure we reset the
+        // order of the operands to their original.
+        if (swapped) {
+            swap(lhs, rhs);
+        }
+        
+        // Necessary to avoid shadowing
+        {
+            auto [ok, swapped] = compiler_binary_k(c, r.op, lhs, rhs, k);
+            if (ok) {
+                if (!swapped) {
+                    lhs->token = rhs->token;
+                }
+                return;
+            }
         }
     }
 
@@ -746,25 +755,25 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
         compiler_expr_pop(c, lhs);
     }
 
-    if (b.is_compare) {
+    if (r.is_compare) {
         /*
-            ALlows us to implement complements of the 3 basic comparison
-            instructions. This is useful for both assignments and
-            conditional blocks.
+         Allows us to implement complements of the 3 basic comparison
+         instructions. This is useful for both assignments and conditional 
+         locks.
 
-            0 = proceed label(true) if not result else goto label(false)
-            1 = proceed label(true) if     result else goto label(false)
+         0 = proceed label(true) if not result else goto label(false)
+         1 = proceed label(true) if     result else goto label(false)
          */
-        bool k     = !b.is_not;
+        bool k     = !r.is_not;
         lhs->type  = basic_type_get(Value_bool);
         lhs->token = rhs->token;
 
         // R(A) is not a destination register here!
-        lhs->pc    = compiler_code_vABC(c, b.opcode, r1, r2, 0, k);
+        lhs->pc    = compiler_code_vABC(c, r.op, r1, r2, 0, k);
         lhs->kind  = Expr_Compare;
     } else {
         lhs->token = rhs->token;
-        lhs->pc    = compiler_code_ABC(c, b.opcode, REG_NONE, r1, r2);
+        lhs->pc    = compiler_code_ABC(c, r.op, REG_NONE, r1, r2);
         lhs->kind  = Expr_Pending;
     }
 }
