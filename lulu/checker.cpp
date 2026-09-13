@@ -5,6 +5,44 @@
 #include "checker.hpp"
 
 LULU_INTERNAL_FUNC bool
+checker_negate_expr(Expr *e)
+{
+    if (expr_is_literal(e)) switch (expr_literal_kind(e)) {
+    case Value_int:  value_set_int (&e->literal, -expr_int (e)); break;
+    case Value_real: value_set_real(&e->literal, -expr_real(e)); break;
+    default:
+        return false;
+    }
+    return true;
+}
+
+LULU_INTERNAL_FUNC bool
+checker_try_get_int(Expr *e, lulu_int min, lulu_int max, lulu_int *out)
+{
+    lulu_int imm = 0;
+    switch (expr_literal_kind(e)) {
+    case Value_int:
+        imm = expr_int(e);
+        break;
+    case Value_real: {
+        lulu_real r = expr_real(e);
+
+        // Conversion results in data loss?
+        imm = cast(lulu_int)r;
+        if (cast(lulu_real)imm != r) {
+            return false;
+        }
+        break;
+    }
+    default:
+        return false;
+    }
+
+    *out = imm;
+    return min <= imm && imm <= max;
+}
+
+LULU_INTERNAL_FUNC bool
 checker_cast_literal(Expr *e, ValueKind basic_kind)
 {
     switch (expr_literal_kind(e)) {
@@ -216,20 +254,19 @@ checker_fold_binary(Token const &  op, Expr *restrict lhs, Expr *restrict rhs)
         could be WITHOUT templates!
      */
     switch (expr_literal_kind(lhs)) {
-    case Value_bool: {
-        bool a    = expr_bool(lhs);
-        bool b    = expr_bool(rhs);
-        bool flip = false;
+    case Value_bool:
+    {
+        bool a = expr_bool(lhs);
+        bool b = expr_bool(rhs);
         switch (op.kind) {
-        case Token_Tilde_Equal: flip = true; [[fallthrough]];
-        case Token_Equal_Equal: value_set_bool(&lhs->literal, flip ? (a != b) : (a == b)); break;
+        case Token_Tilde_Equal: value_set_bool(&lhs->literal, a != b); break;
+        case Token_Equal_Equal: value_set_bool(&lhs->literal, a == b); break;
         case Token_and:         value_set_bool(&lhs->literal, a && b); break;
         case Token_or:          value_set_bool(&lhs->literal, a || b); break;
         default:
             return Checker_Cannot_Fold;
         }
-        break;
-    }
+    } break;
     case Value_int:
         switch (op.kind) {
         // Bitwise
@@ -355,7 +392,7 @@ checker_fix_arithi(OpCode *op, Expr *restrict lhs, Expr *restrict rhs)
      */
     if (expr_is_literal(lhs)) {
         if (*op == Op_subi || *op == Op_fsubi) {
-            return {};
+            return r;
         }
 
         /*
@@ -367,7 +404,7 @@ checker_fix_arithi(OpCode *op, Expr *restrict lhs, Expr *restrict rhs)
         r.swapped = true;
     }
 
-    if (!expr_try_int(rhs, -cast(lulu_int)ARG_C_MAX, ARG_C_MAX, &r.imm)) {
+    if (!checker_try_get_int(rhs, -cast(lulu_int)ARG_C.MAX, ARG_C.MAX, &r.imm)) {
         return r;
     }
 
@@ -436,7 +473,7 @@ checker_fix_comparei(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k
 
     if (expr_is_literal_bool(rhs)) {
         r.ok = true;
-    } else if (expr_try_int(rhs, 0, ARG_B_MAX, &r.imm)) {
+    } else if (checker_try_get_int(rhs, 0, ARG_B.MAX, &r.imm)) {
         r.ok = true;
     }
     return r;
@@ -476,11 +513,11 @@ checker_fix_arithk(OpCode *op, Expr *restrict lhs, Expr *restrict rhs)
      10)   k  / y
      11) (-k) / y
 
-     Addition (1 and 2) and Multiplication (5 and 6) can be treated
-     commutatively, so we can safely swap the operands. Since constants
-     themselves can be negative (i.e. we aren't limited to eqkjust positives,
-     as in immediates) we don't need to get the absolute value and flip the
-     opcode.
+     Bitwise (1, 2, and 3), Addition (4 and 5) and Multiplication (8 and 9)
+     can be treated commutatively, so we can safely swap the operands. Since
+     constants themselves can be negative (i.e. we aren't limited to just
+     positives, as in immediates) we don't need to get the absolute value and
+     flip the opcode.
 
      Subtraction is not commutative as it requires an implicit negation, at
      which point it would be easier to use register-register operations.
@@ -513,15 +550,16 @@ LULU_INTERNAL_FUNC CheckerBinaryKResult
 checker_fix_comparek(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k)
 {
     CheckerBinaryKResult r{};
+
     /*
      Consider the following forms:
 
-     1) k == y <=>   y == k  ; kop = Op_[f]eqk,  k = true
-     2) k ~= y <=> !(y == k) ; kop = Op_[f]eqk,  k = false
-     3) k <  y <=> !(y <= k) ; kop = Op_[f]leqk, k = false
-     6) k >= y <=>   y <= k  ; kop = Op_[f]leqk, k = true
-     4) k <= y <=> !(y <  k) ; kop = Op_[f]ltk,  k = false
-     5) k >  y <=>   y <  k  ; kop = Op_[f]ltk,  k = true
+     1) k == y <=>   y == k  ; *op = Op_[f]eqk,  k = true
+     2) k ~= y <=> !(y == k) ; *op = Op_[f]eqk,  k = false
+     3) k <  y <=> !(y <= k) ; *op = Op_[f]leqk, k = false
+     6) k >= y <=>   y <= k  ; *op = Op_[f]leqk, k = true
+     4) k <= y <=> !(y <  k) ; *op = Op_[f]ltk,  k = false
+     5) k >  y <=>   y <  k  ; *op = Op_[f]ltk,  k = true
      */
     if (expr_is_literal(lhs)) {
         switch (*op) {

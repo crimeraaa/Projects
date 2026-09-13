@@ -53,35 +53,35 @@ vm_dump_stack(Slice<Value> regs)
     }
 }
 
-#define RB(i)   R[getarg_B(i)]
-#define RC(i)   R[getarg_C(i)]
-#define KBx(i)  K[getarg_Bx(i)]
-#define KB(i)   K[getarg_B(i)]
-#define KC(i)   K[getarg_C(i)]
+#define RB(i)   R[(i).B()]
+#define RC(i)   R[(i).C()]
+#define KBx(i)  K[(i).Bx()]
+#define KB(i)   K[(i).B()]
+#define KC(i)   K[(i).C()]
 
 LULU_INTERNAL_FUNC void
 vm_execute(lulu_State *L, Chunk *c)
 {
-    Value        R[ARG_A_MAX];
+    Value        R[ARG_A.MAX];
     Instruction *start_ip = raw_data(c->code);
     Instruction *ip       = start_ip;
     TValue *     K        = raw_data(c->constants);
     printf("======== EXECUTION ========\n");
     for (;;) {
         Instruction i  = *ip++;
-        Value      *RA = &R[getarg_A(i)];
+        Value      *RA = &R[i.A()];
 
         // Since we incremented the ip, undo that to get the actual index.
         debug_disassemble_at(c, ip - start_ip - 1);
-        switch (get_opcode(i)) {
+        switch (i.Op()) {
         case Op_move: *RA = RB(i); break;
         case Op_bool: 
-            value_set_bool(RA, cast(bool)getarg_B(i));
-            if (getarg_k(i)) {
+            value_set_bool(RA, cast(bool)i.B());
+            if (i.k()) {
                 ip++;
             }
             break;
-        case Op_int_imm:  value_set_int (RA, getarg_sBx(i)); break;
+        case Op_int_imm:  value_set_int (RA, i.sBx()); break;
         // TODO(2026-07-13): Can we just copy the union directly?
         case Op_int_k:    value_set_int( RA, tvalue_int (KBx(i)) ); break;
         case Op_real:     value_set_real(RA, tvalue_real(KBx(i)) ); break;
@@ -93,7 +93,7 @@ vm_execute(lulu_State *L, Chunk *c)
 // Arithmetic
 #define un(T, f)    vm_arith1<T>(f<T>, RA, RB(i))
 #define bin(T, f)   vm_arith2<T>(f<T>, RA, RB(i), RC(i))
-#define bini(T, f)  vm_arithi<T>(f<T>, RA, RB(i), cast(T)getarg_C(i))
+#define bini(T, f)  vm_arithi<T>(f<T>, RA, RB(i), cast(T)i.C())
 #define bink(T, f)  vm_arith2<T>(f<T>, RA, RB(i), KC(i).value)
 
         // Integer arithmetic
@@ -142,9 +142,9 @@ vm_execute(lulu_State *L, Chunk *c)
 #undef un
 
 // Comparison
-#define bin(T, f)   if (vm_compare <T>(f<T>, *RA, RB(i))              != getarg_k(i)) ip++
-#define bini(T, f)  if (vm_comparei<T>(f<T>, *RA, cast(T)getarg_B(i)) != getarg_k(i)) ip++
-#define bink(T, f)  if (vm_compare <T>(f<T>, *RA, KB(i).value)        != getarg_k(i)) ip++
+#define bin(T, f)   if (vm_compare <T>(f<T>, *RA, RB(i))        != i.k()) ip++
+#define bini(T, f)  if (vm_comparei<T>(f<T>, *RA, cast(T)i.B()) != i.k()) ip++
+#define bink(T, f)  if (vm_compare <T>(f<T>, *RA, KB(i).value)  != i.k()) ip++
         case Op_eq:    bin (lulu_int,  num_eq);  break;
         case Op_lt:    bin (lulu_int,  num_lt);  break;
         case Op_leq:   bin (lulu_int,  num_leq); break;
@@ -169,7 +169,7 @@ vm_execute(lulu_State *L, Chunk *c)
 #undef bin
 
         case Op_return0: vm_dump_stack(slice_array(R, 0, c->stack_size)); return;
-        case Op_return:  vm_dump_stack(slice_array(R, getarg_A(i), getarg_B(i))); return;
+        case Op_return:  vm_dump_stack(slice_array(R, i.A(), i.B())); return;
         }
     }
 }

@@ -119,22 +119,22 @@ LULU_INTERNAL_FUNC void
 debug_disassemble_at(Chunk const *c, usize offset)
 {
     Instruction i  = c->code[offset];
-    OpCode      op = get_opcode(i);
-    u8          A  = getarg_A(i);
+    OpCode      op = i.Op();
+    u8          A  = i.A();
 
     printf("[%zu] %-8s %-3u ", offset, OPCODE_CSTRINGS[op], A);
-    switch (OPCODE_INFO_FORMAT(op)) {
+    switch (opcode_info(op).FORMAT) {
     case OpForm_ABC:
-        printf("%-3u %-7u", getarg_B(i), getarg_C(i));
+        printf("%-3u %-7u", i.B(), i.C());
         break;
     case OpForm_ABx:
-        printf("%-11u", getarg_Bx(i));
+        printf("%-11u", i.Bx());
         break;
     case OpForm_AsBx:
-        printf("%-11i", getarg_sBx(i));
+        printf("%-11i", i.sBx());
         break;
     case OpForm_vABC:
-        printf("%-3u %-3u k=%u", getarg_B(i), getarg_vC(i), getarg_k(i));
+        printf("%-3u %-3u k=%u", i.B(), i.vC(), i.k());
         break;
     }
 

@@ -14,6 +14,30 @@ enum CheckerError {
 
 /*
  Description:
+    Attempts to negate the given-expression in place, which can only be done
+    if it's an integer or real literal.
+
+ Returns:
+    `true` if the negation could be performed. In this case, the given expression
+    is modified. Otherwise, `false` is returned and the expression is unchanged.
+ */
+LULU_INTERNAL_FUNC bool
+checker_negate_expr(Expr *e);
+
+/*
+ Description:
+    Tries to get an integer from the given expression. This can only be done if
+    it's already an integer literal, or a real literal represents a valid
+    integer.
+
+ Returns:
+    `true` if an integer could be retrieved, otherwise `false`.
+ */
+LULU_INTERNAL_FUNC bool
+checker_try_get_int(Expr *e, lulu_int min, lulu_int max, lulu_int *out);
+
+/*
+ Description:
     Explicitly casts the given literal expression to some basic type. This
     operation is assumed to never fail- all literals can be (explicitly) cast
     to all other basic types. It is also assumed that the caller does not

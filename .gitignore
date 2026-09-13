@@ -9,3 +9,7 @@ log.txt
 
 # RadDebugger
 *.rdi
+
+# Rust
+**/target/**
+

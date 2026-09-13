@@ -67,10 +67,10 @@ static i32
 compiler_code_ABC(Compiler *c, OpCode Op, u16 A, u16 B, u16 C)
 {
     LULU_ASSERT(opcode_is_ABC(Op));
-    LULU_ASSERT(A <= ARG_A_MAX);
-    LULU_ASSERT(B <= ARG_B_MAX);
-    LULU_ASSERT(C <= ARG_C_MAX);
-    return compiler_code(c, make_ABC(Op, A, B, C));
+    LULU_ASSERT(A <= ARG_A.MAX);
+    LULU_ASSERT(B <= ARG_B.MAX);
+    LULU_ASSERT(C <= ARG_C.MAX);
+    return compiler_code(c, Instruction::ABC(Op, A, B, C));
 }
 
 static i32
@@ -80,31 +80,31 @@ compiler_code_AB0(Compiler *c, OpCode Op, u16 A, u16 B)
 }
 
 static i32
-compiler_code_vABC(Compiler *c, OpCode Op, u16 A, u16 B, u16 C, bool k)
+compiler_code_vABC(Compiler *c, OpCode Op, u16 A, u16 B, u16 vC, bool k)
 {
     LULU_ASSERT(opcode_is_vABC(Op));
-    LULU_ASSERT(A <= ARG_A_MAX);
-    LULU_ASSERT(B <= ARG_B_MAX);
-    LULU_ASSERT(C <= ARG_vC_MAX);
-    return compiler_code(c, make_vABC(Op, A, B, C, cast(u8)k));
+    LULU_ASSERT(A <= ARG_A.MAX);
+    LULU_ASSERT(B <= ARG_B.MAX);
+    LULU_ASSERT(vC <= ARG_vC.MAX);
+    return compiler_code(c, Instruction::vABC(Op, A, B, vC, cast(u8)k));
 }
 
 static i32
 compiler_code_ABx(Compiler *c, OpCode Op, u16 A, u32 Bx)
 {
     LULU_ASSERT(opcode_is_ABx(Op));
-    LULU_ASSERT(A  <= ARG_A_MAX);
-    LULU_ASSERT(Bx <= ARG_Bx_MAX);
-    return compiler_code(c, make_ABx(Op, A, Bx));
+    LULU_ASSERT(A  <= ARG_A.MAX);
+    LULU_ASSERT(Bx <= ARG_Bx.MAX);
+    return compiler_code(c, Instruction::ABx(Op, A, Bx));
 }
 
 static i32
 compiler_code_AsBx(Compiler *c, OpCode Op, u16 A, i32 sBx)
 {
     LULU_ASSERT(opcode_is_AsBx(Op));
-    LULU_ASSERT(A <= ARG_A_MAX);
-    LULU_ASSERT(ARG_sBx_MIN <= sBx && sBx <= ARG_sBx_MAX);
-    return compiler_code(c, make_AsBx(Op, A, sBx));
+    LULU_ASSERT(A <= ARG_A.MAX);
+    LULU_ASSERT(ARG_sBx.MIN <= sBx && sBx <= cast(i32)ARG_sBx.MAX);
+    return compiler_code(c, Instruction::AsBx(Op, A, sBx));
 }
 
 static bool
@@ -317,7 +317,7 @@ compiler_load_bool(Compiler *c, u16 reg, bool b, bool skip = false)
 static void
 compiler_load_int(Compiler *c, u16 reg, lulu_int i)
 {
-    if (ARG_sBx_MIN <= i && i <= ARG_sBx_MAX) {
+    if (ARG_sBx.MIN <= i && i <= ARG_sBx.MAX) {
         compiler_code_AsBx(c, Op_int_imm, reg, cast(i32)i);
     } else {
         TValue tv = tvalue_make_int(i);
@@ -372,7 +372,7 @@ expr_discharge_reg(Compiler *c, Expr *e, u16 reg)
         break;
     case Expr_Pending: {
         Instruction *ip = &c->chunk->code[expr_pc(e)];
-        setarg_A(ip, reg);
+        ip->A(reg);
         break;
     }
     default:
@@ -435,19 +435,17 @@ compiler_unary_bnot(Compiler *c, Expr *e)
 static bool
 compiler_unary_neg(Compiler *c, Expr *e)
 {
-    if (expr_is_literal(e)) {
-        return expr_neg(e);
+    if (!checker_negate_expr(e)) {
+        u16    reg = compiler_expr_any_reg(c, e);
+        OpCode op;
+        if (expr_has_basic_type(e)) switch (expr_basic_kind(e)) {
+        case Value_int:  op = Op_neg;  break;
+        case Value_real: op = Op_fneg; break;
+        default:         return false;
+        }
+        e->pc   = compiler_code_ABC(c, op, REG_NONE, reg, 0);
+        e->kind = Expr_Pending;
     }
-
-    u16    reg = compiler_expr_any_reg(c, e);
-    OpCode op;
-    if (expr_has_basic_type(e)) switch (expr_basic_kind(e)) {
-    case Value_int:  op = Op_neg;  break;
-    case Value_real: op = Op_fneg; break;
-    default:         return false;
-    }
-    e->pc   = compiler_code_ABC(c, op, REG_NONE, reg, 0);
-    e->kind = Expr_Pending;
     return true;
 }
 
@@ -465,8 +463,8 @@ compiler_unary_not(Compiler *c, Expr *e)
     case Expr_Compare: {
         // E.g. `not (x == y)`
         Instruction *ip = &c->chunk->code[e->pc];
-        bool const   k  = getarg_k(*ip);
-        setarg_k(ip, !k);
+        bool const   k  = ip->k();
+        ip->k(!k);
         return true;
     }
     default:
@@ -631,13 +629,13 @@ compiler_arithk(Compiler *c, OpCode kop, Expr *restrict lhs, Expr *restrict rhs)
     // TODO(2026-09-13): Handle resolving their registers later on?
     rhs->kind     = Expr_Constant;
     rhs->constant = i;
-    if (i > ARG_C_MAX) {
-        return {/*ok=*/false, r.swapped};
-    }
 
-    lhs->kind = Expr_Pending;
-    lhs->pc   = compiler_code_ABC(c, kop, REG_NONE, reg, cast(u16)i);
-    return {/*ok=*/true, r.swapped};
+    bool fits = (i <= ARG_C.MAX);
+    if (fits) {
+        lhs->kind = Expr_Pending;
+        lhs->pc   = compiler_code_ABC(c, kop, REG_NONE, reg, cast(u16)i);
+    }
+    return {/*ok=*/fits, r.swapped};
 }
 
 static CompilerBinaryResult
@@ -655,17 +653,17 @@ compiler_comparek(Compiler *c, OpCode kop, Expr *restrict lhs, Expr *restrict rh
     // TODO(2026-09-13): Handle resolving their registers later on?
     rhs->kind     = Expr_Constant;
     rhs->constant = i;
-    if (i > ARG_C_MAX) {
-        return {/*ok=*/false, r.swapped};
-    }
 
-    lhs->kind = Expr_Compare;
-    lhs->pc   = compiler_code_vABC(c, kop, reg, cast(u16)i, 0, k);
-    return {/*ok=*/true, r.swapped};
+    bool fits = (i > ARG_C.MAX);
+    if (fits) {
+        lhs->kind = Expr_Compare;
+        lhs->pc   = compiler_code_vABC(c, kop, reg, cast(u16)i, 0, k);
+    }
+    return {/*ok=*/fits, r.swapped};
 }
 
 static CompilerBinaryResult
-compiler_binary_k(Compiler *c, OpCode op, Expr *restrict lhs, Expr *restrict rhs, bool k)
+compiler_binaryk(Compiler *c, OpCode op, Expr *restrict lhs, Expr *restrict rhs, bool k)
 {
     LULU_ASSERT(expr_is_literal(lhs) != expr_is_literal(rhs));
     switch (op) {
@@ -716,8 +714,8 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
         }
     }
 
+    bool k = !r.is_not;
     if (expr_is_literal(lhs) || expr_is_literal(rhs)) {
-        bool k = !r.is_not;
         auto [ok, swapped] = compiler_binary_imm(c, r.op, lhs, rhs, k);
         if (ok) {
             if (!swapped) {
@@ -735,7 +733,7 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
         
         // Necessary to avoid shadowing
         {
-            auto [ok, swapped] = compiler_binary_k(c, r.op, lhs, rhs, k);
+            auto [ok, swapped] = compiler_binaryk(c, r.op, lhs, rhs, k);
             if (ok) {
                 if (!swapped) {
                     lhs->token = rhs->token;
@@ -764,7 +762,6 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
          0 = proceed label(true) if not result else goto label(false)
          1 = proceed label(true) if     result else goto label(false)
          */
-        bool k     = !r.is_not;
         lhs->type  = basic_type_get(Value_bool);
         lhs->token = rhs->token;
 

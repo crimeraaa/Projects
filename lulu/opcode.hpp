@@ -111,7 +111,7 @@ operator-(OpCode a, int b)
     return cast(OpCode)e;
 }
 
-enum OpCode_FormFlag : u8 {
+enum OpFormFlag : u8 {
     OpForm_Variant  = (1 << 0), // 001
     OpForm_Extended = (1 << 1), // 010
     OpForm_Signed   = (1 << 2), // 100
@@ -134,34 +134,96 @@ enum OpCode_FormFlag : u8 {
 
  3) 'x' means extended.
  */
-enum OpCode_Format : u8 {
+enum OpForm : u8 {
     OpForm_ABC,
-    OpForm_ABx   =                  OpForm_Extended,                 // 010
-    OpForm_AsBx  =                  OpForm_Extended | OpForm_Signed, // 110
-    OpForm_vABC  = OpForm_Variant,                                   // 001
+    OpForm_ABx   = OpForm_Extended,
+    OpForm_AsBx  = OpForm_Extended | OpForm_Signed,
+    OpForm_vABC  = OpForm_Variant,
 };
 
-enum OpCode_Arg : u8 {
+enum OpArg : u8 {
     OpArg_Unused,
     OpArg_Reg,   // Input-only register, e.g. `B` in `R(A) := R(B)`.
     OpArg_Imm,   // Immediate integer, e.g. Bx in `R(A) := Bx`.
     OpArg_Const, // Index of constant value, e.g. Bx in `R(A) := K(Bx)`.
 };
 
-LULU_INTERNAL_FUNC OpCode_Format
-OPCODE_INFO_FORMAT(OpCode op);
+struct OpCodeInfo {
+    OpForm FORMAT;
+    bool   A;
+    OpArg  B;
+    OpArg  C;
+    bool   k;
+};
 
-LULU_INTERNAL_FUNC bool
-OPCODE_INFO_A(OpCode op);
+LULU_INTERNAL_FUNC OpCodeInfo
+opcode_info(OpCode op);
 
-LULU_INTERNAL_FUNC OpCode_Arg
-OPCODE_INFO_B(OpCode op);
+struct InstructionInfo {
+    u8  const WIDTH;
+    u8  const OFFSET;
+    i32 MIN;
+    u32 MAX;
 
-LULU_INTERNAL_FUNC OpCode_Arg
-OPCODE_INFO_C(OpCode op);
 
-LULU_INTERNAL_FUNC bool
-OPCODE_INFO_k(OpCode op);
+    // One-masks help us read just the argument.
+    // Zero-masks help clear the arguments so we can overwrite them.
+    u32 const MASK1, MASK0;
+
+    constexpr
+    InstructionInfo(u8 width, u8 offset)
+        : WIDTH {width}
+        , OFFSET{offset}
+        , MIN   {0}
+        , MAX   {cast(u32)(1 << width) - 1}
+        , MASK1 {MAX << offset}
+        , MASK0 {~MASK1}
+    {}
+
+    constexpr
+    InstructionInfo(u8 width, InstructionInfo prev)
+        : InstructionInfo(width, prev.OFFSET + prev.WIDTH)
+    {}
+
+    constexpr
+    InstructionInfo(InstructionInfo prev, int)
+        : InstructionInfo(prev.WIDTH, prev.OFFSET)
+    {
+        this->MAX = prev.MAX / 2;
+        this->MIN = -cast(i32)this->MAX;
+    }
+
+    constexpr InstructionInfo
+    operator+(InstructionInfo other) const
+    {
+        u8 width = this->WIDTH + other.WIDTH;
+        return InstructionInfo(width, /*offset=*/this->OFFSET);
+    }
+};
+
+static InstructionInfo constexpr
+// Instruction argument bitfield sizes and limits.
+ARG_OP {7,                     0},
+ARG_A  {8,                     ARG_OP},
+ARG_B  {8,                     ARG_A},
+ARG_C  {9,                     ARG_B},
+ARG_k  {1,                     ARG_B}, // vABC: flag k
+ARG_vC {ARG_C.WIDTH - 1,       ARG_k}, // vABC: variant C
+ARG_Bx {(ARG_B + ARG_C).WIDTH, ARG_A},
+ARG_sBx{ARG_Bx, -1};
+
+// We reserve this value for agument A as an invalid argument.
+static inline u16 constexpr
+REG_NONE = ARG_A.MAX;
+
+static_assert(ARG_OP.WIDTH + ARG_A.WIDTH + ARG_B.WIDTH + ARG_C.WIDTH == 32);
+
+#define opcode_is_(op, f) (opcode_info(op).FORMAT == (OpForm_##f))
+static inline bool opcode_is_ABC (OpCode op) { return opcode_is_(op, ABC);   }
+static inline bool opcode_is_vABC(OpCode op) { return opcode_is_(op, vABC);  }
+static inline bool opcode_is_ABx (OpCode op) { return opcode_is_(op, ABx);   }
+static inline bool opcode_is_AsBx(OpCode op) { return opcode_is_(op, AsBx);  }
+#undef opcode_is_
 
 /*
  Instruction format, in big-endian form:
@@ -175,203 +237,71 @@ OPCODE_INFO_k(OpCode op);
  | AsBx  |          sBx (signed) (17)       |     A(8)      |     Op(7)    |
  +-------------------------------------------------------------------------+
  */
-using Instruction = u32;
-static Instruction constexpr
-// Instruction argument bitfield sizes and limits.
-ARG_OP_WIDTH = 7, ARG_OP_MAX = (1 << ARG_OP_WIDTH) - 1,
-ARG_A_WIDTH  = 8, ARG_A_MAX  = (1 << ARG_A_WIDTH)  - 1,
-ARG_B_WIDTH  = 8, ARG_B_MAX  = (1 << ARG_B_WIDTH)  - 1,
-ARG_C_WIDTH  = 9, ARG_C_MAX  = (1 << ARG_C_WIDTH)  - 1,
+struct Instruction {
+    u32 data;
 
-// Instruction argument bitfield offsets.
-ARG_OP_OFFSET = 0,
-ARG_A_OFFSET  = ARG_OP_OFFSET + ARG_OP_WIDTH,
-ARG_B_OFFSET  = ARG_A_OFFSET  + ARG_A_WIDTH,
-ARG_C_OFFSET  = ARG_B_OFFSET  + ARG_B_WIDTH,
+    static inline Instruction
+    ABC(OpCode Op, u16 A, u16 B, u16 C)
+    {
+        return {(cast(u32)Op << ARG_OP.OFFSET)
+            |   (cast(u32)A  << ARG_A.OFFSET)
+            |   (cast(u32)B  << ARG_B.OFFSET)
+            |   (cast(u32)C  << ARG_C.OFFSET)};
+    }
 
-// Variant bits
-// vABC: flag k
-ARG_k_WIDTH  = 1,
-ARG_k_MAX    = (1 << ARG_k_WIDTH) - 1,
-ARG_k_OFFSET = ARG_C_OFFSET,
+    static inline Instruction
+    vABC(OpCode Op, u16 A, u16 B, u16 vC, bool k)
+    {
+        return {(cast(u32)Op << ARG_OP.OFFSET)
+            |   (cast(u32)A  << ARG_A.OFFSET)
+            |   (cast(u32)B  << ARG_B.OFFSET)
+            |   (cast(u32)k  << ARG_k.OFFSET) 
+            |   (cast(u32)vC << ARG_vC.OFFSET)};
+    }
 
-// vABC: variant C
-ARG_vC_WIDTH  = ARG_C_WIDTH - 1,
-ARG_vC_MAX    = (1 << ARG_vC_WIDTH) - 1,
-ARG_vC_OFFSET = ARG_k_OFFSET + 1,
+    static inline Instruction
+    ABx(OpCode Op, u16 A, u32 Bx)
+    {
+        return {(cast(u32)Op << ARG_OP.OFFSET)
+            |   (cast(u32)A  << ARG_A.OFFSET)
+            |   (cast(u32)Bx << ARG_Bx.OFFSET)};
+    }
 
-// Bx (extended B, unsigned)
-ARG_Bx_WIDTH  = ARG_B_WIDTH + ARG_C_WIDTH,
-ARG_Bx_OFFSET = ARG_B_OFFSET,
-ARG_Bx_MAX    = (1 << ARG_Bx_WIDTH) - 1;
+    static inline Instruction
+    AsBx(OpCode Op, u16 A, i32 sBx)
+    {
+        return ABx(Op, A, cast(u32)(sBx + cast(i32)ARG_sBx.MAX));
+    }
 
+    inline OpCode Op() const { return this->get_arg<OpCode>(ARG_OP); }
+    inline u8     A () const { return this->get_arg<u8>    (ARG_A);  }
+    inline u8     B () const { return this->get_arg<u8>    (ARG_B);  }
+    inline u16    C () const { return this->get_arg<u16>   (ARG_C);  }
+    inline bool   k () const { return this->get_arg<bool>  (ARG_k);  }
+    inline u16   vC () const { return this->get_arg<u16>   (ARG_vC); }
+    inline u32    Bx() const { return this->get_arg<u32>   (ARG_Bx); }
+    inline i32   sBx() const { return cast(i32)this->Bx() - cast(i32)ARG_sBx.MAX; }
 
-static inline i32 constexpr
-// sBx (extended B, signed)
-ARG_sBx_MAX  = cast(i32)ARG_Bx_MAX  / 2, ARG_sBx_MIN  = -ARG_sBx_MAX;
+    template<class T>
+    inline T
+    get_arg(InstructionInfo info) const
+    {
+        return cast(T)((this->data >> cast(u32)info.OFFSET) & info.MAX);
+    }
+    
+    template<class T>
+    inline void
+    set_arg(T arg, InstructionInfo info)
+    {
+        this->data = (this->data & info.MASK0) | (cast(u32)arg << info.OFFSET);
+    }
 
-#define MASK1(max, offset)  ((max) << (offset))
-#define MASK0(max, offset)  (~(MASK1(max, offset)))
-
-static inline Instruction constexpr
-// Zero-masks to help clear out the arguments when setting them.
-ARG_OP_MASK0  = MASK0(ARG_OP_MAX,  ARG_OP_OFFSET),
-ARG_A_MASK0   = MASK0(ARG_A_MAX,   ARG_A_OFFSET),
-ARG_B_MASK0   = MASK0(ARG_B_MAX,   ARG_B_OFFSET),
-ARG_C_MASK0   = MASK0(ARG_C_MAX,   ARG_C_OFFSET),
-ARG_vC_MASK0  = MASK0(ARG_vC_MAX,  ARG_vC_OFFSET),
-ARG_k_MASK0   = MASK0(ARG_k_MAX,   ARG_k_OFFSET),
-ARG_Bx_MASK0  = MASK0(ARG_Bx_MAX,  ARG_Bx_OFFSET);
-
-// We reserve this value for agument A as an invalid argument.
-static inline u16 constexpr
-REG_NONE = ARG_A_MAX;
-
-#undef MASK0
-#undef MASK1
-
-static_assert(ARG_OP_WIDTH + ARG_A_WIDTH + ARG_B_WIDTH + ARG_C_WIDTH == 32);
-
-#define opcode_is_(op, f) (OPCODE_INFO_FORMAT(op) == (OpForm_##f))
-static inline bool opcode_is_ABC  (OpCode op) { return opcode_is_(op, ABC);   }
-static inline bool opcode_is_vABC (OpCode op) { return opcode_is_(op, vABC);  }
-static inline bool opcode_is_ABx  (OpCode op) { return opcode_is_(op, ABx);   }
-static inline bool opcode_is_AsBx (OpCode op) { return opcode_is_(op, AsBx);  }
-#undef opcode_is_
-
-static inline Instruction
-make_ABC(OpCode Op, u16 A, u16 B, u16 C)
-{
-    return (cast(Instruction)Op << ARG_OP_OFFSET)
-        |  (cast(Instruction)A  << ARG_A_OFFSET)
-        |  (cast(Instruction)B  << ARG_B_OFFSET)
-        |  (cast(Instruction)C  << ARG_C_OFFSET);
-}
-
-static inline Instruction
-make_vABC(OpCode Op, u16 A, u16 B, u16 vC, bool k)
-{
-    return (cast(Instruction)Op << ARG_OP_OFFSET)
-        |  (cast(Instruction)A  << ARG_A_OFFSET)
-        |  (cast(Instruction)B  << ARG_B_OFFSET)
-        |  (cast(Instruction)k  << ARG_k_OFFSET) 
-        |  (cast(Instruction)vC << ARG_vC_OFFSET);
-}
-
-static inline Instruction
-make_ABx(OpCode Op, u16 A, u32 Bx)
-{
-    return (cast(Instruction)Op << ARG_OP_OFFSET)
-        |  (cast(Instruction)A  << ARG_A_OFFSET)
-        |  (cast(Instruction)Bx << ARG_Bx_OFFSET);
-}
-
-static inline Instruction
-make_AsBx(OpCode Op, u16 A, i32 sBx)
-{
-    u32 Bx = cast(u32)(sBx + ARG_sBx_MAX);
-    return make_ABx(Op, cast(u8)A, Bx);
-}
-
-static inline OpCode
-get_opcode(Instruction i)
-{
-    return cast(OpCode)((i >> ARG_OP_OFFSET) & ARG_OP_MAX);
-}
-
-static inline u8
-getarg_A(Instruction i)
-{
-    return cast(u8)((i >> ARG_A_OFFSET) & ARG_A_MAX);
-}
-
-static inline u8
-getarg_B(Instruction i)
-{
-    return cast(u16)((i >> ARG_B_OFFSET) & ARG_B_MAX);
-}
-
-static inline u16
-getarg_C(Instruction i)
-{
-    return cast(u16)((i >> ARG_C_OFFSET) & ARG_C_MAX);
-}
-
-static inline bool
-getarg_k(Instruction i)
-{
-    return cast(bool)((i >> ARG_k_OFFSET) & ARG_k_MAX);
-}
-
-static inline u16
-getarg_vC(Instruction i)
-{
-    return cast(u16)((i >> ARG_vC_OFFSET) & ARG_vC_MAX);
-}
-
-static inline u32
-getarg_Bx(Instruction i)
-{
-    return cast(u32)((i >> ARG_Bx_OFFSET) & ARG_Bx_MAX);
-}
-
-static inline i32
-getarg_sBx(Instruction i)
-{
-    return cast(i32)(getarg_Bx(i)) - ARG_sBx_MAX;
-}
-
-static inline void
-set_opcode(Instruction *ip, OpCode Op)
-{
-    *ip = (*ip & ARG_OP_MASK0) | (cast(Instruction)Op << ARG_OP_OFFSET);
-}
-
-static inline void
-setarg_A(Instruction *ip, u16 A)
-{
-    *ip = (*ip & ARG_A_MASK0) | (cast(Instruction)A << ARG_A_OFFSET);
-}
-
-static inline void
-setarg_B(Instruction *ip, u16 B)
-{
-    *ip = (*ip & ARG_B_MASK0) | (cast(Instruction)B << ARG_B_OFFSET);
-}
-
-static inline void
-setarg_C(Instruction *ip, u16 B)
-{
-    *ip = (*ip & ARG_C_MASK0) | (cast(Instruction)B << ARG_C_OFFSET);
-}
-
-static inline void
-setarg_k(Instruction *ip, bool k)
-{
-    *ip = (*ip & ARG_k_MASK0) | (cast(Instruction)k << ARG_k_OFFSET);
-}
-
-static inline void
-setarg_Bx(Instruction *ip, u32 B)
-{
-    *ip = (*ip & ARG_Bx_MASK0) | (cast(Instruction)B << ARG_Bx_OFFSET);
-}
-
-static inline void
-setarg_sBx(Instruction *ip, i32 sBx)
-{
-    setarg_Bx(ip, cast(u32)(sBx + ARG_sBx_MAX));
-}
-
-#define setarg_safe(ip, arg_name, arg_value)                                   \
-do {                                                                           \
-    Instruction *_ip = (ip);                                                   \
-    OpCode       _op = get_opcode(*_ip);                                       \
-    LULU_ASSERT(OPCODE_INFO_##arg_name(_op));                                  \
-    setarg_##arg_name(_ip, arg_value);                                         \
-} while (0)
-
-#define setarg_k(ip, arg)   setarg_safe(ip, k,   arg)
-#define setarg_Bx(ip, arg)  setarg_safe(ip, Bx,  arg)
-#define setarg_sBx(ip, arg) setarg_safe(ip, sBx, arg)
+    // inline void  Op(OpCode Op) { this->set_arg(Op, ARG_OP); }
+    inline void  A (u16    A)  { this->set_arg(A,  ARG_A);  }
+    inline void  B (u16    B)  { this->set_arg(B,  ARG_B);  }
+    inline void  C (u16    C)  { this->set_arg(C,  ARG_C);  }
+    inline void  k (bool   k)  { this->set_arg(k,  ARG_k);  }
+    inline void  Bx(u32    Bx) { this->set_arg(Bx, ARG_Bx); }
+    inline void sBx(i32   sBx) { this->Bx(cast(u32)(sBx + ARG_sBx.MAX)); }
+};
 
