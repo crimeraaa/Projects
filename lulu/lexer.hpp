@@ -120,8 +120,8 @@ LULU_INTERNAL_FUNC LexerError
 lexer_scan_token(Lexer *x, Token *out);
 
 LULU_INTERNAL_FUNC LexerError
-lexer_parse_int(String s, lulu_int *out);
+lexer_parse_int(String s, intr *out);
 
 LULU_INTERNAL_FUNC LexerError
-lexer_parse_real(String s, lulu_real *out);
+lexer_parse_real(String s, real *out);
 

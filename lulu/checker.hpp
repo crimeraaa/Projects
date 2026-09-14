@@ -34,7 +34,7 @@ checker_negate_expr(Expr *e);
     `true` if an integer could be retrieved, otherwise `false`.
  */
 LULU_INTERNAL_FUNC bool
-checker_try_get_int(Expr *e, lulu_int min, lulu_int max, lulu_int *out);
+checker_try_get_int(Expr *e, intr min, intr max, intr *out);
 
 /*
  Description:
@@ -84,9 +84,9 @@ LULU_INTERNAL_FUNC CheckerBinaryResult
 checker_fix_binary(Token const &op, Expr *restrict lhs, Expr *restrict rhs);
 
 struct CheckerBinaryIResult {
-    bool     ok;
-    bool     swapped;
-    lulu_int imm;
+    bool ok;
+    bool swapped;
+    intr imm;
 };
 
 LULU_INTERNAL_FUNC CheckerBinaryIResult

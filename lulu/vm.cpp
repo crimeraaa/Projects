@@ -6,32 +6,32 @@
 template<class T> static inline void
 vm_arith1(T (*op)(T a), Value *RA, Value RB)
 {
-    auto res = (*op)(value_get<T>(RB));
-    value_set<T>(RA, res);
+    auto res = (*op)(RB.get<T>());
+    RA->set<T>(res);
 }
 
 template<class T>
 static inline void
 vm_arith2(T (*op)(T a, T b), Value *RA, Value RB, Value RC)
 {
-    auto res = (*op)(value_get<T>(RB), value_get<T>(RC));
-    value_set<T>(RA, res);
+    auto res = (*op)(RB.get<T>(), RC.get<T>());
+    RA->set<T>(res);
 }
 
 template<class T>
 static inline void
 vm_arithi(T (*op)(T a, T b), Value *RA, Value RB, T imm)
 {
-    auto res = (*op)(value_get<T>(RB), imm);
-    value_set<T>(RA, res);
+    auto res = (*op)(RB.get<T>(), imm);
+    RA->set<T>(res);
 }
 
 template<class T>
 static inline bool
 vm_compare(bool (*op)(T a, T b), Value RA, Value RB)
 {
-    auto lhs = value_get<T>(RA);
-    auto rhs = value_get<T>(RB);
+    auto lhs = RA.get<T>();
+    auto rhs = RB.get<T>();
     return (*op)(lhs, rhs);
 }
 
@@ -39,7 +39,7 @@ template<class T>
 static inline bool
 vm_comparei(bool (*op)(T a, T b), Value RA, T imm)
 {
-    return (*op)(value_get<T>(RA), imm);
+    return (*op)(RA.get<T>(), imm);
 }
 
 static void
@@ -76,20 +76,20 @@ vm_execute(lulu_State *L, Chunk *c)
         switch (i.Op()) {
         case Op_move: *RA = RB(i); break;
         case Op_bool: 
-            value_set_bool(RA, cast(bool)i.B());
+            RA->set_bool(cast(bool)i.B());
             if (i.k()) {
                 ip++;
             }
             break;
-        case Op_int_imm:  value_set_int (RA, i.sBx()); break;
+        case Op_int_imm:  RA->set_intr(i.sBx()); break;
         // TODO(2026-07-13): Can we just copy the union directly?
-        case Op_int_k:    value_set_int( RA, tvalue_int (KBx(i)) ); break;
-        case Op_real:     value_set_real(RA, tvalue_real(KBx(i)) ); break;
+        case Op_int_k:    RA->set_intr(KBx(i).get_intr()); break;
+        case Op_real:     RA->set_real(KBx(i).get_real()); break;
 
         // Conversion operations
-        case Op_not:      value_set_bool(RA, !value_bool(RB(i))); break;
-        case Op_int2real: value_set_real(RA, cast(lulu_real)value_int (RB(i))); break;
-        case Op_real2int: value_set_int (RA, cast(lulu_int) value_real(RB(i))); break;
+        case Op_not:      RA->set_bool(!RB(i).get_bool()); break;
+        case Op_int2real: RA->set_real(cast(real)RB(i).get_intr()); break;
+        case Op_real2int: RA->set_intr(cast(intr)RB(i).get_real()); break;
 // Arithmetic
 #define un(T, f)    vm_arith1<T>(f<T>, RA, RB(i))
 #define bin(T, f)   vm_arith2<T>(f<T>, RA, RB(i), RC(i))
@@ -97,44 +97,44 @@ vm_execute(lulu_State *L, Chunk *c)
 #define bink(T, f)  vm_arith2<T>(f<T>, RA, RB(i), KC(i).value)
 
         // Integer arithmetic
-        case Op_bnot:  un  (lulu_int, num_bnot); break;
-        case Op_band:  bin (lulu_int, num_band); break;
-        case Op_bor:   bin (lulu_int, num_bor);  break;
-        case Op_bxor:  bin (lulu_int, num_bxor); break;
-        case Op_neg:   un  (lulu_int, num_neg);  break;
-        case Op_add:   bin (lulu_int, num_add);  break;
-        case Op_sub:   bin (lulu_int, num_sub);  break;
-        case Op_mul:   bin (lulu_int, num_mul);  break;
-        case Op_div:   bin (lulu_int, num_div);  break;
-        case Op_mod:   bin (lulu_int, num_mod);  break;
-        case Op_bandi: bini(lulu_int, num_band); break;
-        case Op_bori:  bini(lulu_int, num_bor);  break;
-        case Op_bxori: bini(lulu_int, num_bxor); break;
-        case Op_addi:  bini(lulu_int, num_add);  break;
-        case Op_subi:  bini(lulu_int, num_sub);  break;
-        case Op_bandk: bink(lulu_int, num_band); break;
-        case Op_bork:  bink(lulu_int, num_bor);  break;
-        case Op_bxork: bink(lulu_int, num_bxor); break;
-        case Op_addk:  bink(lulu_int, num_add);  break;
-        case Op_subk:  bink(lulu_int, num_sub);  break;
-        case Op_mulk:  bink(lulu_int, num_mul);  break;
-        case Op_divk:  bink(lulu_int, num_div);  break;
-        case Op_modk:  bink(lulu_int, num_mod);  break;
+        case Op_bnot:  un  (intr, num_bnot); break;
+        case Op_band:  bin (intr, num_band); break;
+        case Op_bor:   bin (intr, num_bor);  break;
+        case Op_bxor:  bin (intr, num_bxor); break;
+        case Op_neg:   un  (intr, num_neg);  break;
+        case Op_add:   bin (intr, num_add);  break;
+        case Op_sub:   bin (intr, num_sub);  break;
+        case Op_mul:   bin (intr, num_mul);  break;
+        case Op_div:   bin (intr, num_div);  break;
+        case Op_mod:   bin (intr, num_mod);  break;
+        case Op_bandi: bini(intr, num_band); break;
+        case Op_bori:  bini(intr, num_bor);  break;
+        case Op_bxori: bini(intr, num_bxor); break;
+        case Op_addi:  bini(intr, num_add);  break;
+        case Op_subi:  bini(intr, num_sub);  break;
+        case Op_bandk: bink(intr, num_band); break;
+        case Op_bork:  bink(intr, num_bor);  break;
+        case Op_bxork: bink(intr, num_bxor); break;
+        case Op_addk:  bink(intr, num_add);  break;
+        case Op_subk:  bink(intr, num_sub);  break;
+        case Op_mulk:  bink(intr, num_mul);  break;
+        case Op_divk:  bink(intr, num_div);  break;
+        case Op_modk:  bink(intr, num_mod);  break;
         
         // Floating-point arithmetic
-        case Op_fneg:  un  (lulu_real, num_neg); break;
-        case Op_fadd:  bin (lulu_real, num_add); break;
-        case Op_fsub:  bin (lulu_real, num_sub); break;
-        case Op_fmul:  bin (lulu_real, num_mul); break;
-        case Op_fdiv:  bin (lulu_real, num_div); break;
-        case Op_fmod:  bin (lulu_real, num_mod); break;
-        case Op_faddi: bini(lulu_real, num_add); break;
-        case Op_fsubi: bini(lulu_real, num_sub); break;
-        case Op_faddk: bink(lulu_real, num_add); break;
-        case Op_fsubk: bink(lulu_real, num_sub); break;
-        case Op_fmulk: bink(lulu_real, num_mul); break;
-        case Op_fdivk: bink(lulu_real, num_div); break;
-        case Op_fmodk: bink(lulu_real, num_mod); break;
+        case Op_fneg:  un  (real, num_neg); break;
+        case Op_fadd:  bin (real, num_add); break;
+        case Op_fsub:  bin (real, num_sub); break;
+        case Op_fmul:  bin (real, num_mul); break;
+        case Op_fdiv:  bin (real, num_div); break;
+        case Op_fmod:  bin (real, num_mod); break;
+        case Op_faddi: bini(real, num_add); break;
+        case Op_fsubi: bini(real, num_sub); break;
+        case Op_faddk: bink(real, num_add); break;
+        case Op_fsubk: bink(real, num_sub); break;
+        case Op_fmulk: bink(real, num_mul); break;
+        case Op_fdivk: bink(real, num_div); break;
+        case Op_fmodk: bink(real, num_mod); break;
         
 #undef bink
 #undef bini
@@ -145,25 +145,25 @@ vm_execute(lulu_State *L, Chunk *c)
 #define bin(T, f)   if (vm_compare <T>(f<T>, *RA, RB(i))        != i.k()) ip++
 #define bini(T, f)  if (vm_comparei<T>(f<T>, *RA, cast(T)i.B()) != i.k()) ip++
 #define bink(T, f)  if (vm_compare <T>(f<T>, *RA, KB(i).value)  != i.k()) ip++
-        case Op_eq:    bin (lulu_int,  num_eq);  break;
-        case Op_lt:    bin (lulu_int,  num_lt);  break;
-        case Op_leq:   bin (lulu_int,  num_leq); break;
-        case Op_eqi:   bini(lulu_int,  num_eq);  break;
-        case Op_lti:   bini(lulu_int,  num_lt);  break;
-        case Op_leqi:  bini(lulu_int,  num_leq); break;
-        case Op_eqk:   bink(lulu_int,  num_eq);  break;
-        case Op_ltk:   bink(lulu_int,  num_lt);  break;
-        case Op_leqk:  bink(lulu_int,  num_leq); break;
+        case Op_eq:    bin (intr,  num_eq);  break;
+        case Op_lt:    bin (intr,  num_lt);  break;
+        case Op_leq:   bin (intr,  num_leq); break;
+        case Op_eqi:   bini(intr,  num_eq);  break;
+        case Op_lti:   bini(intr,  num_lt);  break;
+        case Op_leqi:  bini(intr,  num_leq); break;
+        case Op_eqk:   bink(intr,  num_eq);  break;
+        case Op_ltk:   bink(intr,  num_lt);  break;
+        case Op_leqk:  bink(intr,  num_leq); break;
 
-        case Op_feq:   bin (lulu_real, num_eq);  break;
-        case Op_flt:   bin (lulu_real, num_lt);  break;
-        case Op_fleq:  bin (lulu_real, num_leq); break;
-        case Op_feqi:  bini(lulu_real, num_eq);  break;
-        case Op_flti:  bini(lulu_real, num_lt);  break;
-        case Op_fleqi: bini(lulu_real, num_leq); break;
-        case Op_feqk:  bink(lulu_real, num_eq);  break;
-        case Op_fltk:  bink(lulu_real, num_lt);  break;
-        case Op_fleqk: bink(lulu_real, num_leq); break;
+        case Op_feq:   bin (real, num_eq);  break;
+        case Op_flt:   bin (real, num_lt);  break;
+        case Op_fleq:  bin (real, num_leq); break;
+        case Op_feqi:  bini(real, num_eq);  break;
+        case Op_flti:  bini(real, num_lt);  break;
+        case Op_fleqi: bini(real, num_leq); break;
+        case Op_feqk:  bink(real, num_eq);  break;
+        case Op_fltk:  bink(real, num_lt);  break;
+        case Op_fleqk: bink(real, num_leq); break;
 #undef bink
 #undef bini
 #undef bin

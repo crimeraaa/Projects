@@ -53,7 +53,7 @@ compiler_add_constant(Compiler *c, TValue tv)
 
     // Try to reuse an existing value.
     for (u32 i = 0; i < n; i++) {
-        if (tvalue_eq(tv, K[i])) {
+        if (tv == K[i]) {
             // LULU_LOGF("Reused constant index %u", i);
             return i;
         }
@@ -110,33 +110,30 @@ compiler_code_AsBx(Compiler *c, OpCode Op, u16 A, i32 sBx)
 static bool
 compiler_cast_bool(Compiler *c, Expr *e)
 {
-    u16    reg = expr_reg(e);
+    u16    reg = e->get_reg();
     OpCode op;
-    switch (expr_basic_kind(e)) {
+    switch (e->type_get_basic_kind()) {
     case Value_bool: LULU_UNREACHABLE(); return false;
     case Value_int:  op = Op_eqi;        break;
     case Value_real: op = Op_feqi;       break;
     default:         return false;
     }
     // Comparison: R(A) == B
-    e->pc   = compiler_code_vABC(c, op, reg, 1, 0, true);
-    e->kind = Expr_Compare;
+    e->set_compare(compiler_code_vABC(c, op, reg, 1, 0, true));
     return true;
 }
 
 static bool
 compiler_cast_int(Compiler *c, Expr *e)
 {
-    u16 reg = expr_reg(e);
-    switch (expr_basic_kind(e)) {
+    u16 reg = e->get_reg();
+    switch (e->type_get_basic_kind()) {
     case Value_bool:
-        e->pc   = compiler_code_ABC(c, Op_bandi, REG_NONE, reg, 1);
-        e->kind = Expr_Pending;
+        e->set_pending(compiler_code_ABC(c, Op_bandi, REG_NONE, reg, 1));
         return true;
     case Value_int:  LULU_UNREACHABLE(); break;
     case Value_real:
-        e->pc   = compiler_code_AB0(c, Op_real2int, REG_NONE, reg);
-        e->kind = Expr_Pending;
+        e->set_pending(compiler_code_AB0(c, Op_real2int, REG_NONE, reg));
         return true;
     default:
         break;
@@ -147,13 +144,12 @@ compiler_cast_int(Compiler *c, Expr *e)
 static bool
 compiler_cast_real(Compiler *c, Expr *e)
 {
-    u16 reg = expr_reg(e);
-    switch (expr_basic_kind(e)) {
+    u16 reg = e->get_reg();
+    switch (e->type_get_basic_kind()) {
     // Since bool is just implemented in terms of int, use that conversion.
     case Value_bool:
     case Value_int:
-        e->pc   = compiler_code_AB0(c, Op_int2real, REG_NONE, reg);
-        e->kind = Expr_Pending;
+        e->set_pending(compiler_code_AB0(c, Op_int2real, REG_NONE, reg));
         return true;
     case Value_real: LULU_UNREACHABLE(); break;
     default:         break;
@@ -262,8 +258,7 @@ static bool
 reg_pop(Compiler *c, u16 reg)
 {
     if (reg >= c->active_locals_len) {
-        c->free_reg--;
-        return reg == c->free_reg;
+        return reg == --c->free_reg;
     }
     return true;
 }
@@ -288,9 +283,7 @@ LULU_INTERNAL_FUNC void
 compiler_expr_pop(Compiler *c, Expr *e)
 {
     if (e->kind == Expr_Discharged) {
-        u16 reg = expr_reg(e);
-        LULU_LOGF("Popping R(%u) ; free_reg = %u, active_len = %u",
-            reg, c->free_reg, c->active_locals_len);
+        u16 reg = e->get_reg();
         reg_pop(c, reg);
     }
 }
@@ -315,21 +308,21 @@ compiler_load_bool(Compiler *c, u16 reg, bool b, bool skip = false)
 }
 
 static void
-compiler_load_int(Compiler *c, u16 reg, lulu_int i)
+compiler_load_int(Compiler *c, u16 reg, intr i)
 {
     if (ARG_sBx.MIN <= i && i <= ARG_sBx.MAX) {
         compiler_code_AsBx(c, Op_int_imm, reg, cast(i32)i);
     } else {
-        TValue tv = tvalue_make_int(i);
+        TValue tv = TValue::make_intr(i);
         u32    k  = compiler_add_constant(c, tv);
         compiler_code_ABx(c, Op_int_k, reg, k);
     }
 }
 
 static void
-compiler_load_real(Compiler *c, u16 reg, lulu_real r)
+compiler_load_real(Compiler *c, u16 reg, real r)
 {
-    TValue tv = tvalue_make_real(r);
+    TValue tv = TValue::make_real(r);
     u32    k  = compiler_add_constant(c, tv);
     compiler_code_ABx(c, Op_real, reg, k);
 }
@@ -351,10 +344,10 @@ expr_discharge_reg(Compiler *c, Expr *e, u16 reg)
     case Expr_Literal: 
         // CHECK(2026-07-16): Literal is typed or untyped
         LULU_ASSERT(e->type != nullptr);
-        switch (expr_literal_kind(e)) {
-        case Value_bool: compiler_load_bool(c, reg, expr_bool(e)); break;
-        case Value_int:  compiler_load_int (c, reg, expr_int (e)); break;
-        case Value_real: compiler_load_real(c, reg, expr_real(e)); break;
+        switch (e->get_literal_kind()) {
+        case Value_bool: compiler_load_bool(c, reg, e->get_bool()); break;
+        case Value_int:  compiler_load_int (c, reg, e->get_intr()); break;
+        case Value_real: compiler_load_real(c, reg, e->get_real()); break;
         default:
             compiler_error(c, "Unsupported literal", e);
             break;
@@ -370,26 +363,21 @@ expr_discharge_reg(Compiler *c, Expr *e, u16 reg)
         compiler_load_bool(c, reg, true, /*skip=*/true);
         compiler_load_bool(c, reg, false);
         break;
-    case Expr_Pending: {
-        Instruction *ip = &c->chunk->code[expr_pc(e)];
-        ip->A(reg);
+    case Expr_Pending:
+        c->chunk->code[e->get_pc()].set_A(reg);
         break;
-    }
     default:
         LULU_ASSERTF(!e->kind, "Got ExprKind(%i)", e->kind);
         break;
     }
-
-    e->kind = Expr_Discharged;
-    e->reg  = reg;
+    e->set_discharged(reg);
 }
 
 static u16
 expr_to_reg(Compiler *c, Expr *e, u16 reg)
 {
     expr_discharge_reg(c, e, reg);
-    e->kind = Expr_Discharged;
-    e->reg  = reg;
+    e->set_discharged(reg);
     return reg;
 }
 
@@ -408,9 +396,9 @@ compiler_expr_any_reg(Compiler *c, Expr *e)
 {
     expr_discharge_vars(c, e);
     // Already have a register?
-    if (expr_is_reg(e)) {
+    if (e->is_reg()) {
         // TODO(2026-07-13): Handle jumps
-        return expr_reg(e);
+        return e->get_reg();
     }
     return compiler_expr_next_reg(c, e);
 }
@@ -418,16 +406,15 @@ compiler_expr_any_reg(Compiler *c, Expr *e)
 static bool
 compiler_unary_bnot(Compiler *c, Expr *e)
 {
-    if (expr_is_literal_int(e)) {
-        value_set_int(&e->literal, ~expr_int(e));
+    if (e->is_literal_intr()) {
+        e->set_intr(~e->get_intr());
     } else {
         // Non-literal (e.g. discharged register) that is NOT of type `int`?
-        if (!expr_has_basic_kind(e, Value_int)) {
+        if (!e->type_is_basic_kind(Value_int)) {
             return false;
         }
         u16 reg = compiler_expr_any_reg(c, e);
-        e->pc   = compiler_code_AB0(c, Op_bnot, REG_NONE, reg);
-        e->kind = Expr_Pending;
+        e->set_pending(compiler_code_AB0(c, Op_bnot, REG_NONE, reg));
     }
     return true;
 }
@@ -438,13 +425,12 @@ compiler_unary_neg(Compiler *c, Expr *e)
     if (!checker_negate_expr(e)) {
         u16    reg = compiler_expr_any_reg(c, e);
         OpCode op;
-        if (expr_has_basic_type(e)) switch (expr_basic_kind(e)) {
+        if (e->type_is_basic()) switch (e->type_get_basic_kind()) {
         case Value_int:  op = Op_neg;  break;
         case Value_real: op = Op_fneg; break;
         default:         return false;
         }
-        e->pc   = compiler_code_ABC(c, op, REG_NONE, reg, 0);
-        e->kind = Expr_Pending;
+        e->set_pending(compiler_code_ABC(c, op, REG_NONE, reg, 0));
     }
     return true;
 }
@@ -455,16 +441,16 @@ compiler_unary_not(Compiler *c, Expr *e)
     switch (e->kind) {
     case Expr_Literal:
         // Only boolean literals can have `not` applied to them.
-        if (!expr_has_basic_kind(e, Value_bool)) {
+        if (!e->type_is_basic_kind(Value_bool)) {
             return false;
         }
-        value_set_bool(&e->literal, !value_bool(e->literal));
+        e->set_bool(!e->literal.get_bool());
         return true;
     case Expr_Compare: {
         // E.g. `not (x == y)`
         Instruction *ip = &c->chunk->code[e->pc];
         bool const   k  = ip->k();
-        ip->k(!k);
+        ip->set_k(!k);
         return true;
     }
     default:
@@ -472,9 +458,8 @@ compiler_unary_not(Compiler *c, Expr *e)
     }
 
     u16 reg = compiler_expr_any_reg(c, e);
-    if (expr_has_basic_kind(e, Value_bool)) {
-        e->pc   = compiler_code_ABC(c, Op_not, REG_NONE, reg, 0);
-        e->kind = Expr_Pending;
+    if (e->type_is_basic_kind(Value_bool)) {
+        e->set_pending(compiler_code_ABC(c, Op_not, REG_NONE, reg, 0));
         return true;
     }
     return false;
@@ -529,9 +514,7 @@ compiler_arithi(Compiler *c, OpCode iop, Expr *restrict lhs, Expr *restrict rhs)
      */
     u16 reg = compiler_expr_any_reg(c, lhs);
     compiler_expr_pop(c, lhs);
-
-    lhs->kind  = Expr_Pending;
-    lhs->pc    = compiler_code_ABC(c, iop, REG_NONE, reg, cast(u16)r.imm);
+    lhs->set_pending(compiler_code_ABC(c, iop, REG_NONE, reg, cast(u16)r.imm));
     return {/*ok=*/true, r.swapped};
 }
 
@@ -562,15 +545,13 @@ compiler_comparei(Compiler *c,
      an error. So we can guarantee that boolean comparisons are only ever
      checking for equality.
      */
-    if (expr_is_literal_bool(rhs)) {
-        bool b = expr_bool(rhs);
+    if (rhs->is_literal_bool()) {
+        bool b = rhs->get_bool();
         if (b != k) {
-            lhs->kind = Expr_Pending;
-            lhs->pc   = compiler_code_ABC(c, Op_not, REG_NONE, reg, 0);
+            lhs->set_pending(compiler_code_ABC(c, Op_not, REG_NONE, reg, 0));
         }
     } else {
-        lhs->kind  = Expr_Compare;
-        lhs->pc    = compiler_code_vABC(c, iop, reg, cast(u16)r.imm, 0, k);
+        lhs->set_compare(compiler_code_vABC(c, iop, reg, cast(u16)r.imm, 0, k));
     }
     return {/*ok=*/true, r.swapped};
 }
@@ -592,7 +573,7 @@ compiler_binary_imm(Compiler *c,
 {
     // If both are literals, then we should've folded them.
     // If they are both discharged or pending, we shouldn't have called this.
-    LULU_ASSERT(expr_is_literal(lhs) != expr_is_literal(rhs));
+    LULU_ASSERT(lhs->is_literal() != rhs->is_literal());
     switch (op) {
     // For the bitwise operators, we assume that reals already caused
     // an error previously.
@@ -632,8 +613,7 @@ compiler_arithk(Compiler *c, OpCode kop, Expr *restrict lhs, Expr *restrict rhs)
 
     bool fits = (i <= ARG_C.MAX);
     if (fits) {
-        lhs->kind = Expr_Pending;
-        lhs->pc   = compiler_code_ABC(c, kop, REG_NONE, reg, cast(u16)i);
+        lhs->set_pending(compiler_code_ABC(c, kop, REG_NONE, reg, cast(u16)i));
     }
     return {/*ok=*/fits, r.swapped};
 }
@@ -656,8 +636,7 @@ compiler_comparek(Compiler *c, OpCode kop, Expr *restrict lhs, Expr *restrict rh
 
     bool fits = (i > ARG_C.MAX);
     if (fits) {
-        lhs->kind = Expr_Compare;
-        lhs->pc   = compiler_code_vABC(c, kop, reg, cast(u16)i, 0, k);
+        lhs->set_compare(compiler_code_vABC(c, kop, reg, cast(u16)i, 0, k));
     }
     return {/*ok=*/fits, r.swapped};
 }
@@ -665,7 +644,7 @@ compiler_comparek(Compiler *c, OpCode kop, Expr *restrict lhs, Expr *restrict rh
 static CompilerBinaryResult
 compiler_binaryk(Compiler *c, OpCode op, Expr *restrict lhs, Expr *restrict rhs, bool k)
 {
-    LULU_ASSERT(expr_is_literal(lhs) != expr_is_literal(rhs));
+    LULU_ASSERT(lhs->is_literal() != rhs->is_literal());
     switch (op) {
     case Op_band:   return compiler_arithk  (c, Op_bandk, lhs, rhs);
     case Op_bor:    return compiler_arithk  (c, Op_bork,  lhs, rhs);
@@ -715,10 +694,10 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
     }
 
     bool k = !r.is_not;
-    if (expr_is_literal(lhs) || expr_is_literal(rhs)) {
-        auto [ok, swapped] = compiler_binary_imm(c, r.op, lhs, rhs, k);
-        if (ok) {
-            if (!swapped) {
+    if (lhs->is_literal() || rhs->is_literal()) {
+        auto immr = compiler_binary_imm(c, r.op, lhs, rhs, k);
+        if (immr.ok) {
+            if (!immr.swapped) {
                 // Propagate this change because we won't do it any place else.
                 lhs->token = rhs->token;
             }
@@ -727,23 +706,20 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
 
         // If we didn't emit an immediate-addressed opcode, ensure we reset the
         // order of the operands to their original.
-        if (swapped) {
+        if (immr.swapped) {
             swap(lhs, rhs);
         }
         
-        // Necessary to avoid shadowing
-        {
-            auto [ok, swapped] = compiler_binaryk(c, r.op, lhs, rhs, k);
-            if (ok) {
-                if (!swapped) {
-                    lhs->token = rhs->token;
-                }
-                return;
+        auto kr = compiler_binaryk(c, r.op, lhs, rhs, k);
+        if (kr.ok) {
+            if (!kr.swapped) {
+                lhs->token = rhs->token;
             }
+            return;
         }
     }
 
-    u16 r1 = expr_reg(lhs);
+    u16 r1 = lhs->get_reg();
     u16 r2 = compiler_expr_any_reg(c, rhs);
     if (r1 > r2) {
         compiler_expr_pop(c, lhs);
@@ -766,12 +742,10 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
         lhs->token = rhs->token;
 
         // R(A) is not a destination register here!
-        lhs->pc    = compiler_code_vABC(c, r.op, r1, r2, 0, k);
-        lhs->kind  = Expr_Compare;
+        lhs->set_compare(compiler_code_vABC(c, r.op, r1, r2, 0, k));
     } else {
         lhs->token = rhs->token;
-        lhs->pc    = compiler_code_ABC(c, r.op, REG_NONE, r1, r2);
-        lhs->kind  = Expr_Pending;
+        lhs->set_pending(compiler_code_ABC(c, r.op, REG_NONE, r1, r2));
     }
 }
 
@@ -801,14 +775,10 @@ compiler_return(Compiler *c, ExprList list)
     start_reg  = stop_reg - cast(u16)list.count;
     compiler_code_ABC(c, Op_return, start_reg, stop_reg, 0);
 
-    LULU_LOGLN("here");
-
     // The range is exclusive, so the actual last register is off-by-one.
     for (u16 reg = stop_reg; reg-- >= start_reg;) {
         reg_pop(c, reg);
     }
-
-    LULU_LOGLN("done");
 }
 
 LULU_INTERNAL_FUNC void
@@ -877,12 +847,7 @@ compiler_define_local(Compiler *c, ExprList lhs_list, ExprList rhs_list)
 
         LULU_ASSERT(rhs.type == lhs.type);
 
-        LULU_LOGF("Pushing local '%.*s' to R(%u)... ; free_reg = %u, active_count = %u",
-            EXPR_EXPAND(lhs), c->free_reg, c->free_reg, c->active_locals_len);
-        
         u16 tmp = compiler_expr_next_reg(c, &rhs);
-        LULU_LOGF("...success! See R(%u).", tmp);
-
         VarInfo *v = &active_locals[reg++];
         v->scope   = scope;
         v->type    = lhs.type;
@@ -908,7 +873,7 @@ compiler_assign(Compiler *c, ExprList lhs_list, ExprList rhs_list)
         switch (lhs.kind) {
         case Expr_Local:
             lhs.kind = Expr_Discharged;
-            expr_to_reg(c, &rhs, expr_reg(&lhs));
+            expr_to_reg(c, &rhs, lhs.get_reg());
             break;
         default:
             compiler_error(c, "Invalid assignment target", &lhs);

@@ -23,79 +23,74 @@ struct type2vk {
     static constexpr auto kind = Value_nil;
 };
 
-template<> struct type2vk<bool>      { static constexpr auto kind = Value_bool; };
-template<> struct type2vk<lulu_int>  { static constexpr auto kind = Value_int;  };
-template<> struct type2vk<lulu_real> { static constexpr auto kind = Value_real; };
+template<> struct type2vk<bool> { static constexpr auto kind = Value_bool; };
+template<> struct type2vk<intr> { static constexpr auto kind = Value_int;  };
+template<> struct type2vk<real> { static constexpr auto kind = Value_real; };
 
 // Helper variable template is a C++14 thing.
 template<class T>
 constexpr auto trait_ValueKind = type2vk<T>::kind;
 
-using Value = lulu_Value;
+union Value {
+    /* Two-fold (2-fold) job: actual (signed) integers, and booleans. This
+       allows us to implement boolean operations in terms of integer ones. */
+    intr  i;
+    real  r;
+    void *p;
 
-static inline bool      value_bool(Value v) { return cast(bool)v.i;  }
-static inline lulu_int  value_int (Value v) { return v.i;  }
-static inline lulu_real value_real(Value v) { return v.r; }
 
-static inline void value_set_bool(Value *v, bool      arg) { v->i = cast(lulu_int)arg; }
-static inline void value_set_int (Value *v, lulu_int  arg) { v->i = arg; }
-static inline void value_set_real(Value *v, lulu_real arg) { v->r = arg; }
+    bool get_bool() const { return cast(bool)this->i;  }
+    intr get_intr() const { return this->i;  }
+    real get_real() const { return this->r; }
 
-// Only necesary for other template shenanigans. Otherwise, use the named versions.
-template<class T> inline T
-value_get(Value v);
+    void set_bool(bool arg) { this->i = cast(intr)arg; }
+    void set_intr(intr arg) { this->i = arg; }
+    void set_real(real arg) { this->r = arg; }
 
-template<> inline bool      value_get(Value v)  { return value_bool(v); }
-template<> inline lulu_int  value_get(Value v)  { return value_int (v); }
-template<> inline lulu_real value_get(Value v)  { return value_real(v); }
+    // Only necesary for other template shenanigans. Otherwise, use the named versions.
+    template<class T> T    get() const;
+    template<>        bool get() const { return this->get_bool(); }
+    template<>        intr get() const { return this->get_intr(); }
+    template<>        real get() const { return this->get_real(); }
 
-// Only necesary for other template shenanigans. Otherwise, use the named versions.
-template<class T>
-inline void
-value_set(Value *v, T arg);
-
-template<> inline void value_set(Value *v, bool      arg) { value_set_bool(v, arg); }
-template<> inline void value_set(Value *v, lulu_int  arg) { value_set_int (v, arg); }
-template<> inline void value_set(Value *v, lulu_real arg) { value_set_real(v, arg); }
+    // Only necesary for other template shenanigans. Otherwise, use the named versions.
+    template<class T> void set(T    arg);
+    template<>        void set(bool arg) { this->set_bool(arg); }
+    template<>        void set(intr arg) { this->set_intr(arg); }
+    template<>        void set(real arg) { this->set_real(arg); }
+};
 
 // Tagged value.
 struct TValue {
     ValueKind kind  = Value_nil;
     Value     value = {0};
+
+    static TValue make_bool(bool b) { return make(b);  }
+    static TValue make_real(real r) { return make(r);  }
+    static TValue make_intr(intr i) { return make(i);  }
+
+    // This is just for template shenanigans. Don't use it directly- prefer using
+    // the named variants.
+    template<class T>
+    static TValue
+    make(T arg)
+    {
+        TValue tv = {trait_ValueKind<T>, {0}};
+        tv.value.set(arg);
+        return tv;
+    }
+
+    bool is_nil () const { return this->kind == Value_nil;   }
+    bool is_bool() const { return this->kind == Value_bool;  }
+    bool is_intr() const { return this->kind == Value_int;   }
+    bool is_real() const { return this->kind == Value_real;  }
+
+#define get(T, p)   (LULU_ASSERT(p->is_##T()), (p)->value.get_##T())
+    bool get_bool() const { return get(bool, this); }
+    intr get_intr() const { return get(intr, this); }
+    real get_real() const { return get(real, this); }
+#undef get
 };
 
-#define tvalue_is_(tv, k)   ((tv).kind == (k))
-static inline bool tvalue_is_nil (TValue tv) { return tvalue_is_(tv, Value_nil);   }
-static inline bool tvalue_is_bool(TValue tv) { return tvalue_is_(tv, Value_bool);  }
-static inline bool tvalue_is_int (TValue tv) { return tvalue_is_(tv, Value_int);   }
-static inline bool tvalue_is_real(TValue tv) { return tvalue_is_(tv, Value_real);  }
-#undef tvalue_is_
-
-
-// If assertions are disabled then said assertion will expand to a no-op.
-#define tvalue_get(tv, T)   (LULU_ASSERT(tvalue_is_##T(tv)), value_##T((tv).value))
-
-// We use macros because we want the assertion location to be at the point of usage.
-#define tvalue_bool(tv)     tvalue_get(tv, bool)
-#define tvalue_int(tv)      tvalue_get(tv, int)
-#define tvalue_real(tv)     tvalue_get(tv, real)
-
-// This is just for template shenanigans. Don't use it directly- prefer using
-// the named variants.
-template<class T>
-inline TValue
-tvalue_make(T arg)
-{
-    TValue tv = {trait_ValueKind<T>, {0}};
-    value_set<T>(&tv.value, arg);
-    return tv;
-}
-
-static inline TValue tvalue_make_nil (void)        { return {Value_nil, {0}}; }
-static inline TValue tvalue_make_bool(bool b)      { return tvalue_make(b); }
-static inline TValue tvalue_make_int (lulu_int  i) { return tvalue_make(i); }
-static inline TValue tvalue_make_real(lulu_real r) { return tvalue_make(r); }
-
 LULU_INTERNAL_FUNC bool
-tvalue_eq(TValue a, TValue b);
-
+operator==(TValue a, TValue b);

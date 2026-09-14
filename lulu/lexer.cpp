@@ -341,9 +341,9 @@ char_to_digit(char c, int base)
     (if we even have that!).
  */
 LULU_INTERNAL_FUNC LexerError
-lexer_parse_int(String s, lulu_int *out)
+lexer_parse_int(String s, intr *out)
 {
-    int  base   = 0;
+    int  base     = 0;
     bool sep_prev = false;
     if (len(s) > 2 && s[0] == '0') switch (s[1]) {
         case 'b': case 'B': base = 2;  break;
@@ -389,8 +389,8 @@ lexer_parse_int(String s, lulu_int *out)
         if (digit < 0) {
             return Lexer_Invalid_Base_Digit;
         }
-        *out *= cast(lulu_int)base;
-        *out += cast(lulu_int)digit;
+        *out *= cast(intr)base;
+        *out += cast(intr)digit;
     }
 
     /*
@@ -410,7 +410,7 @@ lexer_parse_int(String s, lulu_int *out)
 #define FLAG_FLOAT  (FLAG_FRAC | FLAG_EXP)
 
 LULU_INTERNAL_FUNC LexerError
-lexer_parse_real(String s, lulu_real *out)
+lexer_parse_real(String s, real *out)
 {
     char *pend;
 
@@ -498,7 +498,7 @@ lexer_scan_token(Lexer *x, Token *out)
     c        = lexer_next_char(x);
 
     /* TODO(2025-06-29)
-        If we're assuming ASCII only (which is a dangerous assumptiuon!) then
+        If we're assuming ASCII only (which is a dangerous assumption!) then
         can we just make use of the bitsets? Is that more efficient, or is it
         a meaningless optimization?
      */

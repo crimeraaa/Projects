@@ -185,19 +185,20 @@ struct InstructionInfo {
         : InstructionInfo(width, prev.OFFSET + prev.WIDTH)
     {}
 
-    constexpr
-    InstructionInfo(InstructionInfo prev, int)
-        : InstructionInfo(prev.WIDTH, prev.OFFSET)
-    {
-        this->MAX = prev.MAX / 2;
-        this->MIN = -cast(i32)this->MAX;
-    }
-
     constexpr InstructionInfo
     operator+(InstructionInfo other) const
     {
         u8 width = this->WIDTH + other.WIDTH;
         return InstructionInfo(width, /*offset=*/this->OFFSET);
+    }
+
+    constexpr InstructionInfo
+    to_signed() const
+    {
+        InstructionInfo tmp = *this;
+        tmp.MAX = tmp.MAX / 2;
+        tmp.MIN = -cast(i32)tmp.MAX;
+        return tmp;
     }
 };
 
@@ -210,7 +211,7 @@ ARG_C  {9,                     ARG_B},
 ARG_k  {1,                     ARG_B}, // vABC: flag k
 ARG_vC {ARG_C.WIDTH - 1,       ARG_k}, // vABC: variant C
 ARG_Bx {(ARG_B + ARG_C).WIDTH, ARG_A},
-ARG_sBx{ARG_Bx, -1};
+ARG_sBx = ARG_Bx.to_signed();
 
 // We reserve this value for agument A as an invalid argument.
 static inline u16 constexpr
@@ -273,35 +274,35 @@ struct Instruction {
         return ABx(Op, A, cast(u32)(sBx + cast(i32)ARG_sBx.MAX));
     }
 
-    inline OpCode Op() const { return this->get_arg<OpCode>(ARG_OP); }
-    inline u8     A () const { return this->get_arg<u8>    (ARG_A);  }
-    inline u8     B () const { return this->get_arg<u8>    (ARG_B);  }
-    inline u16    C () const { return this->get_arg<u16>   (ARG_C);  }
-    inline bool   k () const { return this->get_arg<bool>  (ARG_k);  }
-    inline u16   vC () const { return this->get_arg<u16>   (ARG_vC); }
-    inline u32    Bx() const { return this->get_arg<u32>   (ARG_Bx); }
-    inline i32   sBx() const { return cast(i32)this->Bx() - cast(i32)ARG_sBx.MAX; }
+    OpCode Op() const { return this->get_arg<OpCode>(ARG_OP); }
+    u8     A () const { return this->get_arg<u8>    (ARG_A);  }
+    u8     B () const { return this->get_arg<u8>    (ARG_B);  }
+    u16    C () const { return this->get_arg<u16>   (ARG_C);  }
+    bool   k () const { return this->get_arg<bool>  (ARG_k);  }
+    u16   vC () const { return this->get_arg<u16>   (ARG_vC); }
+    u32    Bx() const { return this->get_arg<u32>   (ARG_Bx); }
+    i32   sBx() const { return cast(i32)this->Bx() - cast(i32)ARG_sBx.MAX; }
 
     template<class T>
-    inline T
+    T
     get_arg(InstructionInfo info) const
     {
         return cast(T)((this->data >> cast(u32)info.OFFSET) & info.MAX);
     }
     
     template<class T>
-    inline void
+    void
     set_arg(T arg, InstructionInfo info)
     {
         this->data = (this->data & info.MASK0) | (cast(u32)arg << info.OFFSET);
     }
 
     // inline void  Op(OpCode Op) { this->set_arg(Op, ARG_OP); }
-    inline void  A (u16    A)  { this->set_arg(A,  ARG_A);  }
-    inline void  B (u16    B)  { this->set_arg(B,  ARG_B);  }
-    inline void  C (u16    C)  { this->set_arg(C,  ARG_C);  }
-    inline void  k (bool   k)  { this->set_arg(k,  ARG_k);  }
-    inline void  Bx(u32    Bx) { this->set_arg(Bx, ARG_Bx); }
-    inline void sBx(i32   sBx) { this->Bx(cast(u32)(sBx + ARG_sBx.MAX)); }
+    void set_A  (u16  A)  { this->set_arg(A,  ARG_A);  }
+    void set_B  (u16  B)  { this->set_arg(B,  ARG_B);  }
+    void set_C  (u16  C)  { this->set_arg(C,  ARG_C);  }
+    void set_k  (bool k)  { this->set_arg(k,  ARG_k);  }
+    void set_Bx (u32  Bx) { this->set_arg(Bx, ARG_Bx); }
+    void set_sBx(i32 sBx) { this->set_Bx(cast(u32)(sBx + ARG_sBx.MAX)); }
 };
 

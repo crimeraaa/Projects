@@ -7,29 +7,32 @@
 LULU_INTERNAL_FUNC bool
 checker_negate_expr(Expr *e)
 {
-    if (expr_is_literal(e)) switch (expr_literal_kind(e)) {
-    case Value_int:  value_set_int (&e->literal, -expr_int (e)); break;
-    case Value_real: value_set_real(&e->literal, -expr_real(e)); break;
+    bool ok = e->is_literal();
+    if (ok) switch (e->get_literal_kind()) {
+    case Value_int:  e->literal.set_intr(-e->get_intr()); break;
+    case Value_real: e->literal.set_real(-e->get_real()); break;
     default:
-        return false;
+        // Can't negate this type!
+        ok = false;
+        break;
     }
-    return true;
+    return ok;
 }
 
 LULU_INTERNAL_FUNC bool
-checker_try_get_int(Expr *e, lulu_int min, lulu_int max, lulu_int *out)
+checker_try_get_int(Expr *e, intr min, intr max, intr *out)
 {
-    lulu_int imm = 0;
-    switch (expr_literal_kind(e)) {
+    intr imm = 0;
+    switch (e->get_literal_kind()) {
     case Value_int:
-        imm = expr_int(e);
+        imm = e->get_intr();
         break;
     case Value_real: {
-        lulu_real r = expr_real(e);
+        real r = e->get_real();
 
         // Conversion results in data loss?
-        imm = cast(lulu_int)r;
-        if (cast(lulu_real)imm != r) {
+        imm = cast(intr)r;
+        if (cast(real)imm != r) {
             return false;
         }
         break;
@@ -45,29 +48,29 @@ checker_try_get_int(Expr *e, lulu_int min, lulu_int max, lulu_int *out)
 LULU_INTERNAL_FUNC bool
 checker_cast_literal(Expr *e, ValueKind basic_kind)
 {
-    switch (expr_literal_kind(e)) {
+    switch (e->get_literal_kind()) {
     case Value_bool: {
-        bool b = expr_bool(e);
+        bool b = e->get_bool();
         switch (basic_kind) {
-        case Value_int:  expr_set_int (e, cast(lulu_int) b); break;
-        case Value_real: expr_set_real(e, cast(lulu_real)b); break;
-        default:         LULU_UNREACHABLE();                 break;
+        case Value_int:  e->set_intr(cast(intr)b); break;
+        case Value_real: e->set_real(cast(real)b); break;
+        default:         LULU_UNREACHABLE();       break;
         }
     }
     case Value_int: {
-        lulu_int i = expr_int(e);
+        intr i = e->get_intr();
         switch (basic_kind) {
-        case Value_bool: expr_set_bool(e, cast(bool)i);      break;
-        case Value_real: expr_set_real(e, cast(lulu_real)i); break;
-        default:         LULU_UNREACHABLE();                 break;
+        case Value_bool: e->set_bool(cast(bool)i); break;
+        case Value_real: e->set_real(cast(real)i); break;
+        default:         LULU_UNREACHABLE();       break;
         }
     }
     case Value_real: {
-        lulu_real r = expr_real(e);
+        real r = e->get_real();
         switch (basic_kind) {
-        case Value_bool: expr_set_bool(e, cast(bool)r);     break;
-        case Value_int:  expr_set_int (e, cast(lulu_int)r); break;
-        default:         LULU_UNREACHABLE();                break;
+        case Value_bool: e->set_bool(cast(bool)r); break;
+        case Value_int:  e->set_intr(cast(intr)r); break;
+        default:         LULU_UNREACHABLE();       break;
         }
     }
     default:
@@ -94,8 +97,8 @@ template<class Src, class Dst>
 static bool
 checker_coerce_expr(Expr *e)
 {
-    LULU_ASSERT(expr_is_literal(e));
-    auto src_arg = value_get<Src>(e->literal);
+    LULU_ASSERT(e->is_literal());
+    auto src_arg = e->get_literal<Src>();
     auto dst_arg = cast(Dst)src_arg;
 
     // Conversion results in data loss?
@@ -103,7 +106,7 @@ checker_coerce_expr(Expr *e)
         return false;
     }
 
-    expr_set<Dst>(e, dst_arg);
+    e->set_literal(dst_arg);
     return true;
 }
 
@@ -113,15 +116,15 @@ checker_coerce_rhs(Expr *restrict lhs, Expr *restrict rhs)
 {
     // If rhs isn't a literal and it's of the wrong type, then we don't
     // allow it to assign to lhs as implicit casts are error-prone.
-    if (!type_is_basic(lhs->type) || !expr_is_literal(rhs)) {
+    if (!type_is_basic(lhs->type) || !rhs->is_literal()) {
         return false;
     }
 
-    switch (expr_basic_kind(lhs)) {
-    // E.g. `x: int = 1.0` should succeed, but `x: int = 1.2` should fail.
+    switch (lhs->type_get_basic_kind()) {
+    // E.g. `x: intr = 1.0` should succeed, but `x: intr = 1.2` should fail.
     case Value_int:
         if (rhs->literal_kind == Value_real) {
-            return checker_coerce_expr<lulu_real, lulu_int>(rhs);
+            return checker_coerce_expr<real, intr>(rhs);
         }
         break;
 
@@ -129,7 +132,7 @@ checker_coerce_rhs(Expr *restrict lhs, Expr *restrict rhs)
     // but  `x: real = 90_071_992_454_740_993` should fail.
     case Value_real:
         if (rhs->literal_kind == Value_int) {
-            return checker_coerce_expr<lulu_int, lulu_real>(rhs);
+            return checker_coerce_expr<intr, real>(rhs);
         }
         break;
     default:
@@ -142,12 +145,12 @@ checker_coerce_rhs(Expr *restrict lhs, Expr *restrict rhs)
 LULU_INTERNAL_FUNC bool
 checker_coerce_numeric(Expr *restrict lhs, Expr *restrict rhs)
 {
-    ValueKind rhs_kind = expr_literal_kind(rhs);
-    switch (expr_literal_kind(lhs)) {
+    ValueKind rhs_kind = rhs->get_literal_kind();
+    switch (lhs->get_literal_kind()) {
     case Value_int:
         switch (rhs_kind) {
         case Value_int:  LULU_UNREACHABLE(); break;
-        case Value_real: return checker_coerce_expr<lulu_real, lulu_int>(rhs);
+        case Value_real: return checker_coerce_expr<real, intr>(rhs);
         default:
             break;
         }
@@ -155,7 +158,7 @@ checker_coerce_numeric(Expr *restrict lhs, Expr *restrict rhs)
     case Value_real:
         // TODO(2026-07-08): Do we really want propagation?
         switch (rhs_kind) {
-        case Value_int:  return checker_coerce_expr<lulu_int, lulu_real>(rhs);
+        case Value_int:  return checker_coerce_expr<intr, real>(rhs);
         case Value_real: LULU_UNREACHABLE(); break;
         default:
             break;
@@ -176,13 +179,13 @@ template<class T>
 static inline CheckerError
 checker_divmod(T (*op)(T a, T b), Expr *restrict lhs, Expr *restrict rhs)
 {
-    auto lhs_literal = expr_literal<T>(lhs);
-    auto rhs_literal = expr_literal<T>(rhs);
+    auto lhs_literal = lhs->get_literal<T>();
+    auto rhs_literal = rhs->get_literal<T>();
     // Although well-defined for IEEE, it's usually a bad idea regardless.
     if (rhs_literal == 0) {
         return Checker_Divide_By_Zero;
     }
-    value_set<T>(&lhs->literal, (*op)(lhs_literal, rhs_literal));
+    lhs->set_literal((*op)(lhs_literal, rhs_literal));
     return Checker_Ok;
 }
 
@@ -190,16 +193,16 @@ template<class T>
 static inline void
 checker_arith(T (*op)(T a, T b), Expr *restrict lhs, Expr *restrict rhs)
 {
-    auto res = (*op)(expr_literal<T>(lhs), expr_literal<T>(rhs));
-    value_set<T>(&lhs->literal, res);
+    auto res = (*op)(lhs->get_literal<T>(), lhs->get_literal<T>());
+    lhs->set_literal(res);
 }
 
 template<class T>
 static inline void
 checker_compare(bool (*op)(T a, T b), Expr *restrict lhs, Expr *restrict rhs, bool flip)
 {
-    bool b = (*op)(expr_literal<T>(lhs), expr_literal<T>(rhs));
-    value_set<T>(&lhs->literal, (flip) ? !b : b);
+    bool b = (*op)(lhs->get_literal<T>(), rhs->get_literal<T>());
+    lhs->set_literal<T>(flip ? !b : b);
 }
 
 /*
@@ -235,7 +238,7 @@ checker_fold_binary_literals(Token const &op, Expr *restrict lhs, Expr *restrict
 LULU_INTERNAL_FUNC CheckerError
 checker_fold_binary(Token const &  op, Expr *restrict lhs, Expr *restrict rhs)
 {
-    if (!(expr_is_literal(lhs) && expr_is_literal(rhs))) {
+    if (!(lhs->is_literal() && rhs->is_literal())) {
         return Checker_Cannot_Fold;
     }
 
@@ -253,16 +256,16 @@ checker_fold_binary(Token const &  op, Expr *restrict lhs, Expr *restrict rhs)
         If you think the following code is atrocious, just imagine how bad it
         could be WITHOUT templates!
      */
-    switch (expr_literal_kind(lhs)) {
+    switch (lhs->get_literal_kind()) {
     case Value_bool:
     {
-        bool a = expr_bool(lhs);
-        bool b = expr_bool(rhs);
+        bool a = lhs->get_bool();
+        bool b = rhs->get_bool();
         switch (op.kind) {
-        case Token_Tilde_Equal: value_set_bool(&lhs->literal, a != b); break;
-        case Token_Equal_Equal: value_set_bool(&lhs->literal, a == b); break;
-        case Token_and:         value_set_bool(&lhs->literal, a && b); break;
-        case Token_or:          value_set_bool(&lhs->literal, a || b); break;
+        case Token_Tilde_Equal: lhs->literal.set_bool(a != b); break;
+        case Token_Equal_Equal: lhs->literal.set_bool(a == b); break;
+        case Token_and:         lhs->literal.set_bool(a && b); break;
+        case Token_or:          lhs->literal.set_bool(a || b); break;
         default:
             return Checker_Cannot_Fold;
         }
@@ -270,15 +273,15 @@ checker_fold_binary(Token const &  op, Expr *restrict lhs, Expr *restrict rhs)
     case Value_int:
         switch (op.kind) {
         // Bitwise
-        case Token_Ampersand: checker_arith(num_band<lulu_int>, lhs, rhs); break;
-        case Token_Pipe:      checker_arith(num_bor <lulu_int>, lhs, rhs); break;
-        case Token_Caret:     checker_arith(num_bxor<lulu_int>, lhs, rhs); break;
+        case Token_Ampersand: checker_arith(num_band<intr>, lhs, rhs); break;
+        case Token_Pipe:      checker_arith(num_bor <intr>, lhs, rhs); break;
+        case Token_Caret:     checker_arith(num_bxor<intr>, lhs, rhs); break;
         default:
-            return checker_fold_binary_literals<lulu_int> (op, lhs, rhs);
+            return checker_fold_binary_literals<intr> (op, lhs, rhs);
         }
         break;
 
-    case Value_real: return checker_fold_binary_literals<lulu_real>(op, lhs, rhs);
+    case Value_real: return checker_fold_binary_literals<real>(op, lhs, rhs);
     default:
         return Checker_Cannot_Fold;
     }
@@ -291,10 +294,10 @@ checker_fix_binary(Token const &op, Expr *restrict lhs, Expr *restrict rhs)
 {
     // Ensure both arguments are of the same underyling type so that we
     // can dispatch the correct opcodes. Only literals can be coerced.
-    if (expr_is_literal(lhs)) {
+    if (lhs->is_literal()) {
         // E.g. `1 + x` so we want to coerce `1` to the type of `x`.
         checker_coerce_rhs(rhs, lhs);
-    } else if (expr_is_literal(rhs)) {
+    } else if (rhs->is_literal()) {
         checker_coerce_rhs(lhs, rhs);
     }
 
@@ -346,7 +349,10 @@ checker_fix_binary(Token const &op, Expr *restrict lhs, Expr *restrict rhs)
     }
 
     r.ok = true;
-    if (type_is_basic(lhs->type)) switch (expr_basic_kind(lhs)) {
+
+    // TODO(2026-09-15): Check for literals so we can already tell which kind
+    // of addressing mode we need (register, constant, or literal).
+    if (lhs->type_is_basic()) switch (lhs->type_get_basic_kind()) {
     case Value_bool:
         // We don't allow ordered comparisons on booleans.
         if (r.op == Op_eq) {
@@ -390,7 +396,7 @@ checker_fix_arithi(OpCode *op, Expr *restrict lhs, Expr *restrict rhs)
      6 and 7 cannot be converted because they require a negation. It's easier
      just delegate to register-register arithmetic at that point.
      */
-    if (expr_is_literal(lhs)) {
+    if (lhs->is_literal()) {
         if (*op == Op_subi || *op == Op_fsubi) {
             return r;
         }
@@ -404,7 +410,7 @@ checker_fix_arithi(OpCode *op, Expr *restrict lhs, Expr *restrict rhs)
         r.swapped = true;
     }
 
-    if (!checker_try_get_int(rhs, -cast(lulu_int)ARG_C.MAX, ARG_C.MAX, &r.imm)) {
+    if (!checker_try_get_int(rhs, -cast(intr)ARG_C.MAX, ARG_C.MAX, &r.imm)) {
         return r;
     }
 
@@ -454,7 +460,7 @@ checker_fix_comparei(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k
      the operands. `Op_[f]lti` becomes `Op_[f]leqi` and vice-versa, while
      `k` gets flipped.
      */
-    if (expr_is_literal(lhs)) {
+    if (lhs->is_literal()) {
         switch (*op) {
         case Op_eqi:   break;
         case Op_lti:   *op = Op_leqi;  *k = !*k; break;
@@ -471,7 +477,7 @@ checker_fix_comparei(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k
         r.swapped = true;
     }
 
-    if (expr_is_literal_bool(rhs)) {
+    if (rhs->is_literal_bool()) {
         r.ok = true;
     } else if (checker_try_get_int(rhs, 0, ARG_B.MAX, &r.imm)) {
         r.ok = true;
@@ -482,9 +488,9 @@ checker_fix_comparei(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k
 static TValue
 checker_get_constant(Expr *const rhs)
 {
-    switch (expr_literal_kind(rhs)) {
-    case Value_int:  return tvalue_make_int(expr_int(rhs));
-    case Value_real: return tvalue_make_real(expr_real(rhs));
+    switch (rhs->get_literal_kind()) {
+    case Value_int:  return TValue::make_intr(rhs->get_intr());
+    case Value_real: return TValue::make_real(rhs->get_real());
     default:
         LULU_PANICF("Unsupported ExprKind(%i) and/or ValueKind(%i)",
             rhs->kind, rhs->literal_kind);
@@ -524,7 +530,7 @@ checker_fix_arithk(OpCode *op, Expr *restrict lhs, Expr *restrict rhs)
 
      Division is similar to Subtraction in that it is not commutative.
      */
-    if (expr_is_literal(lhs)) {
+    if (lhs->is_literal()) {
         switch (*op) {
         case Op_bandk:
         case Op_bork:
@@ -561,7 +567,7 @@ checker_fix_comparek(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k
      4) k <= y <=> !(y <  k) ; *op = Op_[f]ltk,  k = false
      5) k >  y <=>   y <  k  ; *op = Op_[f]ltk,  k = true
      */
-    if (expr_is_literal(lhs)) {
+    if (lhs->is_literal()) {
         switch (*op) {
         case Op_eqk:    break;
         case Op_ltk:    *op = Op_leqk;  *k = !*k; break;

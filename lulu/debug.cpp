@@ -46,7 +46,7 @@ print_uint(u64 value, u64 base, bool print_type)
 }
 
 static void
-print_int(lulu_int i)
+print_int(intr i)
 {
     auto u = cast(u64)i;
     fputs("int = ", stdout);
@@ -60,7 +60,7 @@ print_int(lulu_int i)
 }
 
 static void
-print_real(lulu_real r)
+print_real(real r)
 {
     printf("real = %.14g", r);
 }
@@ -69,10 +69,10 @@ static void
 print_tvalue(TValue v)
 {
     switch (v.kind) {
-    case Value_nil:  fputs("nil", stdout);       break;
-    case Value_bool: print_bool(tvalue_bool(v)); break;
-    case Value_int:  print_int (tvalue_int(v));  break;
-    case Value_real: print_real(tvalue_real(v)); break;
+    case Value_nil:  fputs("nil", stdout);     break;
+    case Value_bool: print_bool(v.get_bool()); break;
+    case Value_int:  print_int (v.get_intr()); break;
+    case Value_real: print_real(v.get_real()); break;
     default:
         LULU_PANICF("Unprintable ValueKind(%i)", v.kind);
         break;

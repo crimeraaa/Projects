@@ -57,15 +57,6 @@
 
 typedef LULU_INT_TYPE    lulu_int;
 typedef LULU_REAL_TYPE   lulu_real;
-typedef union lulu_Value lulu_Value;
-
-union lulu_Value {
-    /* Two-fold (2-fold) job: actual (signed) integers, and booleans. This
-       allows us to implement boolean operations in terms of integer ones. */
-    lulu_int  i;
-    lulu_real r;
-    void *    p;
-};
 
 typedef enum lulu_Error {
     LULU_OK, /* No error occured. */

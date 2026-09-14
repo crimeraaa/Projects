@@ -139,27 +139,27 @@ parser_operand(Parser *p, Expr *out, bool is_lhs)
     Token token = p->token;
     parser_advance(p);
     switch (token.kind) {
-    case Token_nil:     *out = expr_make_nil (token);        break;
-    case Token_false:   *out = expr_make_bool(token, false); break;
-    case Token_true:    *out = expr_make_bool(token, true);  break;
+    case Token_nil:     *out = Expr::make_nil (token);        break;
+    case Token_false:   *out = Expr::make_bool(token, false); break;
+    case Token_true:    *out = Expr::make_bool(token, true);  break;
     case Token_Int: {
-        lulu_int   tmp = 0;
+        intr       tmp = 0;
         LexerError err = lexer_parse_int(token.lexeme, &tmp);
         if (err) {
             char const *info = lexer_error_string(err);
             parser_error_at(p, info, token);
         }
-        *out = expr_make_int(token, tmp);
+        *out = Expr::make_int(token, tmp);
         break;
     }
     case Token_Float: {
-        lulu_real  tmp = 0;
+        real tmp = 0;
         LexerError err = lexer_parse_real(token.lexeme, &tmp);
         if (err) {
             char const *info = lexer_error_string(err);
             parser_error_at(p, info, token);
         }
-        *out = expr_make_real(token, tmp);
+        *out = Expr::make_real(token, tmp);
         break;
     }
     case Token_Open_Paren:
@@ -177,7 +177,7 @@ parser_operand(Parser *p, Expr *out, bool is_lhs)
         String      ident = token.lexeme;
         Type const *type  = type_get(p->L, ident);
         if (type) {
-            *out = expr_make_type(token, type);
+            *out = Expr::make_type(token, type);
         } else {
             u16      i;
             VarInfo *v = parser_find_variable(p, ident, &i);
@@ -193,7 +193,7 @@ parser_operand(Parser *p, Expr *out, bool is_lhs)
             if (!v && !is_lhs) {
                 parser_error_at(p, "Unknown identifier", token);
             }
-            *out = expr_make_local(token, (v) ? v->type : nullptr, i);
+            *out = Expr::make_local(token, (v) ? v->type : nullptr, i);
         }
         break;
     }
@@ -249,7 +249,7 @@ parser_type(Parser *p, Expr *out)
     if (!type) {
         parser_error(p, "Unknown type name");
     }
-    *out = expr_make_type(token, type);
+    *out = Expr::make_type(token, type);
 }
 
 // Must be higher than all other precedences in `parser_prec()`.
@@ -356,7 +356,7 @@ parser_expr(Parser *p, Expr *out, bool is_lhs, int prec_in)
         }
 
         parser_advance(p);
-        if (!expr_is_literal(out)) {
+        if (!out->is_literal()) {
             compiler_expr_any_reg(c, out);
         }
 
@@ -366,8 +366,6 @@ parser_expr(Parser *p, Expr *out, bool is_lhs, int prec_in)
             exponentiation.
          */
         parser_expr(p, &rhs, /*is_lhs=*/false, prec_out + 1);
-
-        LULU_LOGF("ExprKind(%i) = '%.*s'", rhs.kind, EXPR_EXPAND(rhs));
         compiler_binary(c, op, out, &rhs);
     }
     parser_recurse_pop(p);
@@ -446,21 +444,21 @@ parser_make_zero_values(Parser *p, Type const *t, int count)
         zero.kind         = Expr_Literal;
         zero.literal_kind = t->basic.kind;
         zero.type         = t;
-        switch (t->basic.kind) {
+        switch (zero.literal_kind) {
         case Value_bool:
-            value_set_bool(&zero.literal, false);
+            zero.set_bool(false);
             zero.token.lexeme = "false"_s;
             break;
         case Value_int:
-            value_set_int(&zero.literal, 0);
+            zero.set_intr(0);
             zero.token.lexeme = "0"_s;
             break;
         case Value_real:
-            value_set_real(&zero.literal, 0.0);
+            zero.set_real(0.0);
             zero.token.lexeme = "0.0"_s;
             break;
         default:
-            LULU_PANICF("Unsupported zero type for ValueType(%i)", t->basic.kind);
+            LULU_PANICF("Unsupported zero type for ValueType(%i)", zero.literal_kind);
             break;
         }
         break;
@@ -498,9 +496,6 @@ parser_decl(Parser *p, ExprList lhs_list)
     ExprList rhs_list;
     if (parser_match(p, Token_Assign)) {
         rhs_list = parser_expr_list(p);
-        for (Expr rhs : rhs_list) {
-            LULU_LOGF("ExprKind(%u) = '%.*s'", rhs.kind, EXPR_EXPAND(rhs));
-        }
     }
 
     // We don't have a type, so we need to infer it from the assigning
@@ -524,18 +519,6 @@ parser_decl(Parser *p, ExprList lhs_list)
 
     // Temporary until we can figure out how to handle function calls.
     LULU_ASSERT(lhs_list.count == rhs_list.count);
-    
-    // Temporary because we still need the original list.
-    ExprList tmp = rhs_list;
-    for (Expr const &lhs : lhs_list) {
-        Expr const &rhs = *tmp++;
-        LULU_LOGF("%.*s: %s = %s(%.*s)",
-            EXPR_EXPAND(lhs),
-            type_cstring(lhs.type),
-            type_cstring(rhs.type),
-            EXPR_EXPAND(rhs));
-    }
-
     compiler_define_local(c, lhs_list, rhs_list);
 }
 
@@ -570,10 +553,6 @@ static void
 parser_ident_stmt(Parser *p)
 {
     ExprList lhs_list = parser_primary_expr_list(p, /*is_lhs=*/true);
-    for (Expr lhs : lhs_list) {
-        LULU_LOGF("ExprKind(%u) = local '%.*s'", lhs.kind, EXPR_EXPAND(lhs));
-    }
-
     switch (p->token.kind) {
     case Token_Colon:
         // Consume ':'

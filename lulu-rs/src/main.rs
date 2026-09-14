@@ -1,4 +1,6 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+};
 
 mod lex;
 
@@ -7,10 +9,14 @@ fn tokenize(name: &str, input: &str) {
     println!("Parsing \"{name}\"...");
     loop {
         let t = x.scan_token();
-        if t.kind == lex::TokenKind::Eof {
-            break;
+        match t.kind {
+            lex::TokenKind::Eof => break,
+            lex::TokenKind::Invalid(_) => {
+                println!("{}:{}", name, t);
+                break;
+            }
+            _ => println!("{}:{}", name, t),
         }
-        println!("{}:{}:{}: {:?}\"{}\"", name, t.pos.line, t.pos.col, t.kind, t.lexeme);
     }
 }
 

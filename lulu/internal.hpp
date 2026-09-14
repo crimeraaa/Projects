@@ -5,6 +5,8 @@
 #include <cstdint>   //  u?int\d+_t
 #include <cmath>     // floor
 
+#include "lulu.h"
+
 #if defined(__GNUC__) || defined(__clang__)
 
 #define LULU_UNREACHABLE()  __builtin_trap()
@@ -28,6 +30,12 @@
 
 // Always works but may not be good for debuggers.
 #define LULU__ASSERT_IMPL() std::abort()
+#endif
+
+#ifdef __SANITIZE_ADDRESS__
+#pragma message("Using intentional segault for assertion failures!")
+#undef LULU__ASSERT_IMPL
+#define LULU__ASSERT_IMPL() cast(void)(*(volatile int *)0 = 67)
 #endif
 
 #define cast(T)         (T)
@@ -95,9 +103,9 @@ using f64 = double;
 using usize   = std::size_t;
 using uintptr = std::uintptr_t;
 
-// TODO(2026-07-08): Make configurable?
-using lulu_int  = i64;
-using lulu_real = f64;
+// Stupid typedef because we can't redefine `int`.
+using intr = lulu_int;
+using real = lulu_real;
 
 // #define LULU_UINT_MAX   (cast(lulu_uint)-1)
 #define LULU_INT_MAX    INT64_MAX
@@ -140,8 +148,8 @@ template<class T> static inline T num_mod(T a, T b)  { return a % b; }
 
 // Specialization for reals becuase C/C++ doesn't allow direct modulo.
 template<>
-inline lulu_real
-num_mod(lulu_real a, lulu_real b)
+inline real
+num_mod(real a, real b)
 {
     return std::floor(a / b) * b;
 }
