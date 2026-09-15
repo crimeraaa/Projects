@@ -5,6 +5,7 @@
 #include "opcode.hpp"
 #include "expr.hpp"
 #include "lexer.hpp"
+#include "option.hpp"
 
 enum CheckerError {
     Checker_Ok,
@@ -33,8 +34,8 @@ checker_negate_expr(Expr *e);
  Returns:
     `true` if an integer could be retrieved, otherwise `false`.
  */
-LULU_INTERNAL_FUNC bool
-checker_try_get_int(Expr *e, intr min, intr max, intr *out);
+LULU_INTERNAL_FUNC Option<intr>
+checker_try_get_int(Expr *e, intr min, intr max);
 
 /*
  Description:

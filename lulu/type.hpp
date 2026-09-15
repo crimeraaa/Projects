@@ -4,6 +4,7 @@
 #include "internal.hpp"
 #include "strings.hpp"
 #include "value.hpp"
+#include "option.hpp"
 
 /*
  Description:
@@ -53,7 +54,7 @@ type_env_init(lulu_State *L, TypeEnv *env);
 LULU_INTERNAL_FUNC void
 type_env_destroy(lulu_State *L, TypeEnv *env);
 
-LULU_INTERNAL_FUNC Type const *
+LULU_INTERNAL_FUNC Option<Type const *>
 type_get(lulu_State *L, String key);
 
 LULU_INTERNAL_FUNC void

@@ -3,6 +3,7 @@
 #include "state.hpp"
 #include "mem.hpp"
 #include "strings.hpp"
+#include "option.hpp"
 
 #define type_size_of(T) offsetof(Type, basic) + sizeof(T)
 #define type_new(L, T)  cast(Type *)mem_arena_alloc_bytes(L, type_size_of(T))
@@ -106,7 +107,7 @@ type_rehash(lulu_State *L, TypeEnv *env, usize cap)
     env->used    = new_used;
 }
 
-LULU_INTERNAL_FUNC Type const *
+LULU_INTERNAL_FUNC Option<Type const *>
 type_get(lulu_State *L, String key)
 {
     TypeEnv *env  = &L->types;

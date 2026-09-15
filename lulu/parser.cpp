@@ -142,26 +142,26 @@ parser_operand(Parser *p, Expr *out, bool is_lhs)
     case Token_nil:     *out = Expr::make_nil (token);        break;
     case Token_false:   *out = Expr::make_bool(token, false); break;
     case Token_true:    *out = Expr::make_bool(token, true);  break;
-    case Token_Int: {
-        intr       tmp = 0;
-        LexerError err = lexer_parse_int(token.lexeme, &tmp);
-        if (err) {
-            char const *info = lexer_error_string(err);
-            parser_error_at(p, info, token);
-        }
-        *out = Expr::make_int(token, tmp);
+    case Token_Int:
+        *out = Expr::make_int(
+            token,
+            lexer_parse_int(token.lexeme)
+            .unwrap_or_else_err([=](auto e) {
+                char const *info = lexer_error_string(e);
+                parser_error_at(p, info, token);
+            })
+        );
         break;
-    }
-    case Token_Float: {
-        real tmp = 0;
-        LexerError err = lexer_parse_real(token.lexeme, &tmp);
-        if (err) {
-            char const *info = lexer_error_string(err);
-            parser_error_at(p, info, token);
-        }
-        *out = Expr::make_real(token, tmp);
+    case Token_Float:
+        *out = Expr::make_real(
+            token,
+            lexer_parse_real(token.lexeme)
+            .unwrap_or_else_err([=](auto e) {
+                char const *info = lexer_error_string(e);
+                parser_error_at(p, info, token);
+            })
+        );
         break;
-    }
     case Token_Open_Paren:
         parser_expr(p, out, is_lhs);
         parser_expect(p, Token_Close_Paren);
@@ -174,10 +174,10 @@ parser_operand(Parser *p, Expr *out, bool is_lhs)
         }
         break;
     case Token_Ident: {
-        String      ident = token.lexeme;
-        Type const *type  = type_get(p->L, ident);
-        if (type) {
-            *out = Expr::make_type(token, type);
+        String ident = token.lexeme;
+        auto t = type_get(p->L, ident);
+        if (t.is_some()) {
+            *out = Expr::make_type(token, t.unwrap());
         } else {
             u16      i;
             VarInfo *v = parser_find_variable(p, ident, &i);
@@ -244,12 +244,12 @@ parser_type(Parser *p, Expr *out)
 {
     Token const  token = p->token;
     parser_expect(p, Token_Ident);
-
-    Type const *type = type_get(p->L, token.lexeme);
-    if (!type) {
-        parser_error(p, "Unknown type name");
-    }
-    *out = Expr::make_type(token, type);
+    *out = Expr::make_type(token,
+        type_get(p->L, token.lexeme)
+        .unwrap_or_else_err([p](auto _) {
+            parser_error(p, "Unknown type name");
+        })
+    );
 }
 
 // Must be higher than all other precedences in `parser_prec()`.

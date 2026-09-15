@@ -340,8 +340,8 @@ char_to_digit(char c, int base)
     unary negation on literals only occurs during constant folding
     (if we even have that!).
  */
-LULU_INTERNAL_FUNC LexerError
-lexer_parse_int(String s, intr *out)
+LULU_INTERNAL_FUNC Result<intr, LexerError>
+lexer_parse_int(String s)
 {
     int  base     = 0;
     bool sep_prev = false;
@@ -366,7 +366,7 @@ lexer_parse_int(String s, intr *out)
     }
 
     // Avoid reading from and writing to garbage values.
-    *out = 0;
+    i64 i = 0;
 
     // Work from the most significant to least significant digits.
     for (auto c : s) {
@@ -389,8 +389,8 @@ lexer_parse_int(String s, intr *out)
         if (digit < 0) {
             return Lexer_Invalid_Base_Digit;
         }
-        *out *= cast(intr)base;
-        *out += cast(intr)digit;
+        i *= cast(intr)base;
+        i += cast(intr)digit;
     }
 
     /*
@@ -401,7 +401,7 @@ lexer_parse_int(String s, intr *out)
         over values. The higher up we go, the more values are skipped due
         to imprecision.
      */
-    return Lexer_Ok;
+    return i;
 }
 
 #define FLAG_FRAC   (1 << 0)
@@ -409,8 +409,8 @@ lexer_parse_int(String s, intr *out)
 #define FLAG_SIGN   (1 << 2)
 #define FLAG_FLOAT  (FLAG_FRAC | FLAG_EXP)
 
-LULU_INTERNAL_FUNC LexerError
-lexer_parse_real(String s, real *out)
+LULU_INTERNAL_FUNC Result<real, LexerError>
+lexer_parse_real(String s)
 {
     char *pend;
 
@@ -418,10 +418,14 @@ lexer_parse_real(String s, real *out)
      TODO(2026-06-30):
         Implement our own `strtod` that doesn't assume nul-termination!
      */
-    *out = std::strtod(s.data, &pend);
+    real r = std::strtod(s.data, &pend);
 
     // Could point to the nul terminator, so don't use the index operator.
-    return pend == end(s) ? Lexer_Ok : Lexer_Invalid_Number;
+    if (pend == end(s)) {
+        return r;
+    } else {
+        return Lexer_Invalid_Number;
+    }
 }
 
 static LexerError

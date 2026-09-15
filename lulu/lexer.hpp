@@ -3,6 +3,7 @@
 #include "lulu.h"
 #include "internal.hpp"
 #include "strings.hpp"
+#include "option.hpp"
 
 // Although we wish to implement a typed version of Lua, the base types
 // themsleves are not keywords and can be re-assigned. This is similar to how
@@ -119,9 +120,9 @@ lexer_error_string(LexerError err);
 LULU_INTERNAL_FUNC LexerError
 lexer_scan_token(Lexer *x, Token *out);
 
-LULU_INTERNAL_FUNC LexerError
-lexer_parse_int(String s, intr *out);
+LULU_INTERNAL_FUNC Result<intr, LexerError>
+lexer_parse_int(String s);
 
-LULU_INTERNAL_FUNC LexerError
-lexer_parse_real(String s, real *out);
+LULU_INTERNAL_FUNC Result<real, LexerError>
+lexer_parse_real(String s);
 

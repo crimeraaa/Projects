@@ -497,25 +497,23 @@ compiler_arithi(Compiler *c, OpCode iop, Expr *restrict lhs, Expr *restrict rhs)
 {
     auto r = checker_fix_arithi(&iop, lhs, rhs);
     if (!r.ok) {
-        return {/*ok=*/false, r.swapped};
+        /*
+         Assumes any of the following forms:
+         1) x +   imm
+         2) x + (-imm) <=> x - |imm|
+         3) x -   imm
+         4) x - (-imm) <=> x + |imm|
+
+         Note that since we may have swapped the expressions, there's no guarantee
+         that what was once `rhs` was already discharged, e.g. it could be a local.
+         Remember that we don't automatically discharge rhs expressions for binary
+         so we have to manually manage them.
+         */
+        u16 reg = compiler_expr_any_reg(c, lhs);
+        compiler_expr_pop(c, lhs);
+        lhs->set_pending(compiler_code_ABC(c, iop, REG_NONE, reg, cast(u16)r.imm));
     }
-
-    /*
-     Assumes any of the following forms:
-     1) x +   imm
-     2) x + (-imm) <=> x - |imm|
-     3) x -   imm
-     4) x - (-imm) <=> x + |imm|
-
-     Note that since we may have swapped the expressions, there's no guarantee
-     that what was once `rhs` was already discharged, e.g. it could be a local.
-     Remember that we don't automatically discharge rhs expressions for binary
-     so we have to manually manage them.
-     */
-    u16 reg = compiler_expr_any_reg(c, lhs);
-    compiler_expr_pop(c, lhs);
-    lhs->set_pending(compiler_code_ABC(c, iop, REG_NONE, reg, cast(u16)r.imm));
-    return {/*ok=*/true, r.swapped};
+    return {r.ok, r.swapped};
 }
 
 static CompilerBinaryResult
@@ -526,34 +524,32 @@ compiler_comparei(Compiler *c,
     bool           k)
 {
     auto r = checker_fix_comparei(&iop, lhs, rhs, &k);
-    if (!r.ok) {
-        return {/*ok=*/false, r.swapped};
-    }
+    if (r.ok) {
+        u16 reg = compiler_expr_any_reg(c, lhs);
+        compiler_expr_pop(c, lhs);
 
-    u16 reg = compiler_expr_any_reg(c, lhs);
-    compiler_expr_pop(c, lhs);
+        /*
+         Consider the following forms:
 
-    /*
-     Consider the following forms:
+         1) x == true  <=>     x ; b = true,  k = true
+         2) x ~= true  <=> not x ; b = true,  k = false
+         2) x == false <=> not x ; b = false, k = true
+         4) x ~= false <=>     x ; b = false, k = false
 
-     1) x == true  <=>     x ; b = true,  k = true
-     2) x ~= true  <=> not x ; b = true,  k = false
-     2) x == false <=> not x ; b = false, k = true
-     4) x ~= false <=>     x ; b = false, k = false
-
-     We assume that for ordered comparisons, i.e. < and <=, we already threw
-     an error. So we can guarantee that boolean comparisons are only ever
-     checking for equality.
-     */
-    if (rhs->is_literal_bool()) {
-        bool b = rhs->get_bool();
-        if (b != k) {
-            lhs->set_pending(compiler_code_ABC(c, Op_not, REG_NONE, reg, 0));
+         We assume that for ordered comparisons, i.e. < and <=, we already threw
+         an error. So we can guarantee that boolean comparisons are only ever
+         checking for equality.
+         */
+        if (rhs->is_literal_bool()) {
+            bool b = rhs->get_bool();
+            if (b != k) {
+                lhs->set_pending(compiler_code_ABC(c, Op_not, REG_NONE, reg, 0));
+            }
+        } else {
+            lhs->set_compare(compiler_code_vABC(c, iop, reg, cast(u16)r.imm, 0, k));
         }
-    } else {
-        lhs->set_compare(compiler_code_vABC(c, iop, reg, cast(u16)r.imm, 0, k));
     }
-    return {/*ok=*/true, r.swapped};
+    return {r.ok, r.swapped};
 }
 
 /*
@@ -598,47 +594,44 @@ static CompilerBinaryResult
 compiler_arithk(Compiler *c, OpCode kop, Expr *restrict lhs, Expr *restrict rhs)
 {
     auto r = checker_fix_arithk(&kop, lhs, rhs);
-    if (!r.ok) {
-        return {/*ok=*/false, r.swapped};
+    if (r.ok) {
+        // May be a temporary register.
+        u16 reg = compiler_expr_any_reg(c, lhs);
+        compiler_expr_pop(c, lhs);
+
+        u32 i = compiler_add_constant(c, r.constant);
+        // TODO(2026-09-13): Handle resolving their registers later on?
+        rhs->kind     = Expr_Constant;
+        rhs->constant = i;
+
+        r.ok = (i <= ARG_C.MAX);
+        if (r.ok) {
+            lhs->set_pending(compiler_code_ABC(c, kop, REG_NONE, reg, cast(u16)i));
+        }
     }
-
-    // May be a temporary register.
-    u16 reg = compiler_expr_any_reg(c, lhs);
-    compiler_expr_pop(c, lhs);
-
-    u32 i = compiler_add_constant(c, r.constant);
-    // TODO(2026-09-13): Handle resolving their registers later on?
-    rhs->kind     = Expr_Constant;
-    rhs->constant = i;
-
-    bool fits = (i <= ARG_C.MAX);
-    if (fits) {
-        lhs->set_pending(compiler_code_ABC(c, kop, REG_NONE, reg, cast(u16)i));
-    }
-    return {/*ok=*/fits, r.swapped};
+    return {r.ok, r.swapped};
 }
 
 static CompilerBinaryResult
 compiler_comparek(Compiler *c, OpCode kop, Expr *restrict lhs, Expr *restrict rhs, bool k)
 {
     auto r = checker_fix_comparek(&kop, lhs, rhs, &k);
-    if (!r.ok) {
-        return {/*ok=*/false, r.swapped};
+    if (r.ok) {
+        u16 reg = compiler_expr_any_reg(c, lhs);
+        compiler_expr_pop(c, lhs);
+
+        u32 i = compiler_add_constant(c, r.constant);
+        // TODO(2026-09-13): Handle resolving their registers later on?
+        rhs->kind     = Expr_Constant;
+        rhs->constant = i;
+
+        r.ok = (i <= ARG_C.MAX);
+        if (r.ok) {
+            lhs->set_compare(compiler_code_vABC(c, kop, reg, cast(u16)i, 0, k));
+        }
     }
+    return {r.ok, r.swapped};
 
-    u16 reg = compiler_expr_any_reg(c, lhs);
-    compiler_expr_pop(c, lhs);
-
-    u32 i = compiler_add_constant(c, r.constant);
-    // TODO(2026-09-13): Handle resolving their registers later on?
-    rhs->kind     = Expr_Constant;
-    rhs->constant = i;
-
-    bool fits = (i > ARG_C.MAX);
-    if (fits) {
-        lhs->set_compare(compiler_code_vABC(c, kop, reg, cast(u16)i, 0, k));
-    }
-    return {/*ok=*/fits, r.swapped};
 }
 
 static CompilerBinaryResult

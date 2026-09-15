@@ -19,8 +19,8 @@ checker_negate_expr(Expr *e)
     return ok;
 }
 
-LULU_INTERNAL_FUNC bool
-checker_try_get_int(Expr *e, intr min, intr max, intr *out)
+LULU_INTERNAL_FUNC Option<intr>
+checker_try_get_int(Expr *e, intr min, intr max)
 {
     intr imm = 0;
     switch (e->get_literal_kind()) {
@@ -41,8 +41,11 @@ checker_try_get_int(Expr *e, intr min, intr max, intr *out)
         return false;
     }
 
-    *out = imm;
-    return min <= imm && imm <= max;
+    if (min <= imm && imm <= max) {
+        return imm;
+    } else {
+        return false;
+    }
 }
 
 LULU_INTERNAL_FUNC bool
@@ -410,10 +413,12 @@ checker_fix_arithi(OpCode *op, Expr *restrict lhs, Expr *restrict rhs)
         r.swapped = true;
     }
 
-    if (!checker_try_get_int(rhs, -cast(intr)ARG_C.MAX, ARG_C.MAX, &r.imm)) {
+    auto o = checker_try_get_int(rhs, -cast(intr)ARG_C.MAX, ARG_C.MAX);
+    if (o.is_none()) {
         return r;
     }
 
+    r.imm = o.unwrap();
     switch (*op) {
     case Op_addi:
     case Op_faddi:
@@ -479,8 +484,12 @@ checker_fix_comparei(OpCode *op, Expr *restrict lhs, Expr *restrict rhs, bool *k
 
     if (rhs->is_literal_bool()) {
         r.ok = true;
-    } else if (checker_try_get_int(rhs, 0, ARG_B.MAX, &r.imm)) {
-        r.ok = true;
+    } else {
+        auto t = checker_try_get_int(rhs, 0, ARG_B.MAX);
+        r.ok = t.is_some();
+        if (r.ok) {
+            r.imm = t.unwrap();
+        }
     }
     return r;
 }
