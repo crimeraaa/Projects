@@ -1,51 +1,138 @@
 use std::{
-    io::{self, Write},
+    io::{self, Write}, ops::{Neg, Add, Div, Mul, Rem, Sub},
 };
 
 mod lex;
 mod value;
-mod chunk;
+mod code;
 
-use chunk::{
-    OpCode,
-    Instruction,
+use code::{
+    Op,
+    Code,
     Chunk
 };
 
-use value::Value;
+use value::{Value, Stack};
 
 fn main() {
     let mut c = Chunk::new();
 
     // expr: 1 + 2*3 - 4/-5
-    c.add_instruction(Instruction::make_AsBx(OpCode::IntI, 0, 1));
-    c.add_instruction(Instruction::make_AsBx(OpCode::IntI, 1, 2));
-    c.add_instruction(Instruction::make_AsBx(OpCode::IntI, 2, 3));
-    c.add_instruction(Instruction::make_ABC (OpCode::Mul,  1, 2, 1));
-    c.add_instruction(Instruction::make_ABC (OpCode::Add,  0, 0, 1));
+    c.add_code(Code::make_AsBx(Op::LoadInt, 0, 1));
+    c.add_code(Code::make_AsBx(Op::LoadInt, 1, 2));
+    c.add_code(Code::make_AsBx(Op::LoadInt, 2, 3));
+    c.add_code(Code::make_ABC (Op::Mul,     1, 2, 1));
+    c.add_code(Code::make_ABC (Op::Add,     0, 0, 1));
 
-    c.add_instruction(Instruction::make_AsBx(OpCode::IntI, 1, 4));
-    c.add_instruction(Instruction::make_AsBx(OpCode::IntI, 2, 5));
-    c.add_instruction(Instruction::make_ABC (OpCode::Neg,  2, 2, 0));
-    c.add_instruction(Instruction::make_ABC (OpCode::Div,  1, 1, 2));
-    c.add_instruction(Instruction::make_ABC (OpCode::Sub,  0, 0, 1));
+    c.add_code(Code::make_AsBx(Op::LoadInt, 1, 4));
+    c.add_code(Code::make_AsBx(Op::LoadInt, 2, 5));
+    c.add_code(Code::make_ABC (Op::Neg,     2, 2, 0));
+    c.add_code(Code::make_ABC (Op::Div,     1, 1, 2));
+    c.add_code(Code::make_ABC (Op::Sub,     0, 0, 1));
+    c.add_code(Code::make_ABC (Op::Return,  0, 1, 0));
+
+    // must always be added
+    c.add_code(Code::make_ABC (Op::Return0, 0, 0, 0));
     c.disassemble_all();
     execute(&c);
 }
 
+macro_rules! arith_int {
+    ($r:ident, $op:ident, $a:expr, $b:expr) => ({
+        let args = $r.load2($a, $b);
+        match args {
+            (Value::Int(lhs), Value::Int(rhs)) => {
+                let res = lhs.$op(*rhs);
+                $r.store_int($a, res);
+            }
+            _ => {
+                panic!("Can't call {} on non-integers {args:?}", stringify!($op));
+            }
+        }
+    });
+}
+
+macro_rules! arith_real {
+    ($r:ident, $op:ident, $a:expr, $b:expr) => ({
+        let args = $r.load2($a, $b);
+        match args {
+            (Value::Real(lhs), Value::Real(rhs)) => {
+                let res = lhs.$op(*rhs);
+                $r.store_real($a, res);
+            }
+            _ => {
+                panic!("Can't call {} on non-reals {args:?}", stringify!($op));
+            }
+        }
+    });
+}
+
 fn execute(c: &Chunk) {
-    let mut r = [Value::Nil; 255];
-    type Op = OpCode;
+    let mut tmp = [Value::Nil; 255];
+    let mut r = Stack::new(&mut tmp);
     let k = c.constants.as_slice();
-    for pc in c.code.iter() {
-        let a = pc.A() as usize;
-        match pc.Op() {
-            Op::Move   => r[a] = r[pc.B() as usize],
-            Op::IntI   => r[a] = Value::Int(pc.sBx() as i64),
-            Op::IntK   => r[a] = k[pc.Bx() as usize],
-            Op::FloatI => r[a] = Value::Float(pc.sBx() as f64),
-            Op::FloatK => r[a] = k[pc.Bx() as usize],
-            _ => todo!(),
+
+    let mut ip = c.code.iter();
+    'exec: loop {
+        // We assume that there is always at least 1 instruction, and that
+        // once we hit some sort of return the execution terminates.
+        let pc = *ip.next().unwrap();
+
+        // We assume that this stack slot is always safe to read.
+        let a  = pc.A();
+        let op = pc.Op();
+        match op {
+            // Stores
+            Op::Move => r.store_reg(a, pc.B()),
+            Op::True => {
+                r.store_bool(a, true);
+                ip.next();
+            }
+            Op::False => r.store_bool(a, false),
+            Op::FalseSkip => {
+                r.store_bool(a, false);
+                ip.next();
+            }
+            Op::LoadInt  => r.store_int (a,   pc.sBx() as i64),
+            Op::LoadReal => r.store_real(a,   pc.sBx() as f64),
+            Op::LoadK    => r.store     (a, k[pc.Bx () as usize]),
+
+            // Integer arithmetic
+            Op::Neg => {
+                let arg = r.load(pc.B());
+                match arg {
+                    Value::Int(i) => {
+                        let i = i.neg();
+                        r.store_int(a, i);
+                    }
+                    _ => panic!("Can't negate non-integer {:?}", arg),
+                }
+            }
+            Op::Add => arith_int!(r, wrapping_add, a, pc.B()),
+            Op::Sub => arith_int!(r, wrapping_sub, a, pc.B()),
+            Op::Mul => arith_int!(r, wrapping_mul, a, pc.B()),
+            Op::Div => arith_int!(r, wrapping_div, a, pc.B()),
+            Op::Mod => arith_int!(r, rem,          a, pc.B()),
+
+            // Floating-point arithmetic
+            Op::FNeg => {
+                let arg = r.load(pc.B());
+                match arg {
+                    Value::Real(i) => {
+                        let f = i.neg();
+                        r.store_real(a, f);
+                    }
+                    _ => panic!("Can't negate non-real {:?}", arg),
+                }
+            }
+            Op::FAdd => arith_real!(r, add, a, pc.B()),
+            Op::FSub => arith_real!(r, sub, a, pc.B()),
+            Op::FMul => arith_real!(r, mul, a, pc.B()),
+            Op::FDiv => arith_real!(r, div, a, pc.B()),
+            Op::FMod => arith_real!(r, rem, a, pc.B()),
+            Op::Return0  => break 'exec,
+            Op::Return   => break 'exec,
+            _ => todo!("Can't execute {op:?} yet"),
         }
     }
 }
