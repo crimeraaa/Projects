@@ -1,18 +1,22 @@
 use std::{
     fmt::{self, Display},
-    mem::transmute
+    mem::transmute,
 };
 
 use crate::value::Value;
 
 pub struct Chunk {
-    pub code:      Vec<Code>,
-    pub constants: Vec<Value>,
+    pub code:       Vec<Code>,
+    pub constants:  Vec<Value>,
+
+    /// Track how many stack slots are needed at most to accomodate the
+    /// entire function call.
+    pub stack_used: u32,
 }
 
 impl Chunk {
     pub fn new() -> Self {
-        Self {code: Vec::new(), constants: Vec::new()}
+        Self {code: Vec::new(), constants: Vec::new(), stack_used: 0}
     }
 
     /// Appends the given instruction, returning its index. Said index can be
@@ -202,38 +206,44 @@ impl CodeInfo {
     }
 }
 
+/// Not my proudest function, but it works
+fn count_digits(n: usize, radix: usize) -> usize {
+    let mut power = radix;
+    let mut count = 1;
+
+    while n >= power {
+        count += 1;
+        if let Some(new_power) = power.checked_mul(radix) {
+            power = new_power;
+        } else {
+            break;
+        }
+    }
+    count
+}
+
 impl Chunk {
     pub fn disassemble_all(&self) {
+        println!(".constants:");
+        let pad = count_digits(self.constants.len(), 10);
         for (i, v) in self.constants.iter().enumerate() {
-            println!("K({}) = {:?}", i, *v);
+            let v = *v;
+            println!("[{i:0>0$}] {v:?}", pad);
         }
 
+        println!(".code:");
         let pad = self.get_pad();
         for (i, pc) in self.code.iter().enumerate() {
             self.disassemble_at(i, *pc, pad);
         }
     }
 
-    /// Not my proudest function, but it works
     pub fn get_pad(&self) -> usize {
-        let base = 10;
-        let mut power = base;
-        let mut count = 1;
-
-        let n = self.code.len();
-        while n >= power {
-            count += 1;
-            if let Some(new_power) = power.checked_mul(base) {
-                power = new_power;
-            } else {
-                break;
-            }
-        }
-        count
+        count_digits(self.code.len(), 10)
     }
 
-    pub fn disassemble_at(&self, i: usize, pc: Code, code_pad_width: usize) {
-        print!("[{i:0>0$}] ", code_pad_width);
+    pub fn disassemble_at(&self, i: usize, pc: Code, pad: usize) {
+        print!("[{i:0>0$}] ", pad);
 
         let op = pc.Op();
         // After ':' is: fill align width
