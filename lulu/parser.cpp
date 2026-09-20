@@ -60,7 +60,8 @@ static void
 parser_advance(Parser *p)
 {
     LexerError err = lexer_scan_token(&p->lexer, &p->token);
-    if (err) {
+    // Nonzero error?
+    if (cast(bool)err) {
         parser_error(p, lexer_error_string(err));
     }
 }
@@ -155,8 +156,7 @@ parser_operand(Parser *p, Expr *out, bool is_lhs)
         if (!type_get(p->L, ident)
             .is_some_and([=](Type const *type) {
                 *out = Expr::make_type(token, type);
-                return true;
-            }))
+                return true; }))
         {
             u16      i;
             VarInfo *v = parser_find_variable(p, ident, &i);
@@ -224,10 +224,9 @@ parser_type(Parser *p, Expr *out)
     Token const token = p->token;
     parser_expect(p, Token_Ident);
     if (!type_get(p->L, token.loc.view)
-        .is_some_and([=](Type const *type) {
+        .is_some_and([p, out, token](Type const *type) {
             *out = Expr::make_type(token, type);
-            return true;
-        }))
+            return true; }))
     {
         parser_error(p, "Unknown type name");
     }

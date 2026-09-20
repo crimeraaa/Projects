@@ -176,7 +176,7 @@ lexer_skip_whitespace(Lexer *x)
         // Return `false` to indicate we need to keep skipping whitespaces,
         // else return `true` to indicate we found a non-whitespace and
         // non-comment character.
-        if (c.is_none_or([=](char c) -> bool {
+        if (c.is_none_or([x](char c) -> bool {
             switch (c) {
             case '\n':
                 x->curr_pos.line++;
@@ -188,23 +188,28 @@ lexer_skip_whitespace(Lexer *x)
                 lexer_next_char(x);
                 return false;
             case '-':
-                if (lexer_peek_next_char(x).is_some_and([](char c) { return c == '-'; })) {
-                    // Skip "--".
-                    lexer_next_char(x);
-                    lexer_next_char(x);
-
-                    // Don't consume LF, we want to handle it in the switch.
-                    while (lexer_peek_char(x).is_some_and([](char c) { return c != '\n'; })) {
-                        lexer_next_char(x);
-                    }
-                    return false;
+                if (!lexer_peek_next_char(x)
+                    .is_some_and([](char c) { return c == '-'; }))
+                {
+                    break;
                 }
-                break;
+
+                // Skip "--".
+                lexer_next_char(x);
+                lexer_next_char(x);
+
+                // Don't consume LF, we want to handle it in the switch.
+                while (lexer_peek_char(x)
+                    .is_some_and([](char c) { return c != '\n'; }))
+                {
+                    lexer_next_char(x);
+                }
+                return false;
             default:
                 break;
             }
-            return true;
-        })) {
+            return true; }))
+        {
             return c;
         }
     }
@@ -279,7 +284,7 @@ lexer_scan_keyword_or_ident(Lexer *x, String s, Token *out)
         break;
     }
     lexer_init_token(x, out, k);
-    return Lexer_Ok;
+    return LexerError::Ok;
 }
 
 static Option<int>
@@ -314,7 +319,7 @@ char_to_digit(char c, int base)
 }
 
 static Result<intr, LexerError>
-lexer_parse_integral(Lexer *x, int base)
+lexer_parse_int(Lexer *x, int base)
 {
     intr i        = 0;
     bool sep_prev = false;
@@ -332,20 +337,18 @@ lexer_parse_integral(Lexer *x, int base)
         if (sep_curr) {
             // Don't allow multiple consecutive underscores.
             if (sep_prev) {
-                return Err(Lexer_Excess_Underscores);
+                return Err(LexerError::Excess_Underscores);
             }
             continue;
         }
 
-        bool ok = char_to_digit(c, base)
+        if (!char_to_digit(c, base)
             .is_some_and([&i, base](int digit) {
                 i *= cast(intr)base;
                 i += cast(intr)digit;
-                return true;
-            });
-
-        if (!ok) {
-            return Err(Lexer_Invalid_Digit);
+                return true; }))
+        {
+            return Err(LexerError::Invalid_Digit);
         }
     }
     return Ok(i);
@@ -369,36 +372,40 @@ lexer_parse_fraction(Lexer *x)
         sep_curr = c == '_';
         if (sep_curr) {
             if (sep_prev) {
-                return Err(Lexer_Excess_Underscores);
+                return Err(LexerError::Excess_Underscores);
             }
             continue;
         }
 
-        bool ok = char_to_digit(c, /*base=*/10)
+        if (!char_to_digit(c, /*base=*/10)
             .is_some_and([&](int digit) {
                 numerator    = numerator * 10.0 + cast(real)digit;
                 denominator *= 10.0;
                 return true;
-            });
-
-        if (!ok) {
-            return Err(Lexer_Invalid_Digit);
+            }))
+        {
+            return Err(LexerError::Invalid_Digit);
         }
     }
 
     return Ok(numerator / denominator);
 }
 
+static real
+pow10(intr exponent) { return std::pow(10.0, cast(real)exponent); }
+
 static LexerError
 lexer_scan_number(Lexer *x, Token *out, char leader)
 {
     if (leader == '0') {
+        // Skip the zero, we never need it to calculate the resulting value
+        // regardless if it's a prefixed integer or not.
         lexer_next_char(x);
         Option<char> p = lexer_peek_char(x);
         if (p.is_none()) {
             lexer_init_token(x, out, Token_Int);
             out->integer = 0;
-            return Lexer_Ok;
+            return LexerError::Ok;
         }
 
         Option<int> base   = None{};
@@ -413,27 +420,28 @@ lexer_scan_number(Lexer *x, Token *out, char leader)
             if (char_is_decimal(prefix)) {
                 break;
             }
-            return Lexer_Invalid_Base;
+            return LexerError::Invalid_Base;
         }
 
         if (base.is_some()) {
+            // We skipped the zero already, so skip the base prefix.
             lexer_next_char(x);
-            auto r = lexer_parse_integral(x, base.unwrap());
+            auto r = lexer_parse_int(x, base.unwrap());
             if (r.is_err()) {
                 return r.unwrap_err();
             }
             lexer_init_token(x, out, Token_Int);
-            return Lexer_Ok;
+            return LexerError::Ok;
         }
     }
 
     Option<intr> int_part = None{};
     if (leader != '.') {
-        auto tmp = lexer_parse_integral(x, /*base=*/10);
+        auto tmp = lexer_parse_int(x, /*base=*/10);
         if (tmp.is_err()) {
             return tmp.unwrap_err();
         }
-        int_part = Some(tmp.unwrap());
+        int_part = tmp.ok();
     }
 
     Option<real> frac_part = None{};
@@ -442,7 +450,7 @@ lexer_scan_number(Lexer *x, Token *out, char leader)
         if (tmp.is_err()) {
             return tmp.unwrap_err();
         }
-        frac_part = Some(tmp.unwrap());
+        frac_part = tmp.ok();
     }
 
     Option<intr> exp_part = None{};
@@ -450,34 +458,33 @@ lexer_scan_number(Lexer *x, Token *out, char leader)
         bool have_plus  = lexer_match_char(x, '+');
         bool have_minus = lexer_match_char(x, '-');
         if (have_plus && have_minus) {
-            return Lexer_Invalid_Exponent;
+            return LexerError::Invalid_Exponent;
         }
 
-        auto tmp = lexer_parse_integral(x, /*base=*/10);
+        auto tmp = lexer_parse_int(x, /*base=*/10);
         if (tmp.is_err()) {
             return tmp.unwrap_err();
         }
-        exp_part = Some(tmp.unwrap());
+        exp_part = tmp.ok();
     }
 
     if (int_part.is_some_and([&](intr i) {
-            if (frac_part.is_some() || exp_part.is_some()) {
-                return false;
-            }
+        if (frac_part.is_some() || exp_part.is_some()) {
+            return false;
+        }
 
-            lexer_init_token(x, out, Token_Int);
-            out->integer = i;
-            return true;
-        }))
+        lexer_init_token(x, out, Token_Int);
+        out->integer = i;
+        return true; }))
     {
-        return Lexer_Ok;
+        return LexerError::Ok;
     }
 
     real mantissa = cast(real)int_part.unwrap_or(0) + frac_part.unwrap_or(0.0);
-    real exponent = pow(10.0, exp_part.unwrap_or(0));
+    real exponent = exp_part.map_or_else(pow10, 1.0);
     lexer_init_token(x, out, Token_Float);
     out->floating = mantissa * exponent;
-    return Lexer_Ok;
+    return LexerError::Ok;
 }
 
 static LexerError
@@ -485,21 +492,18 @@ lexer_scan_string(Lexer *x, Token *out, char quote)
 {
     bool ok = false;
     for (;;) {
-        bool looping =
-            lexer_peek_char(x)
-            .is_some_and([&ok, x, quote](char c) {
-                if (c == '\n') {
-                    return false;
-                }
-                lexer_next_char(x);
-                if (c == quote) {
-                    ok = true;
-                    return false;
-                }
-                return true;
-            });
+        if (!lexer_peek_char(x).is_some_and([&ok, x, quote](char c) {
+            if (c == '\n') {
+                return false;
+            }
 
-        if (!looping) {
+            lexer_next_char(x);
+            if (c == quote) {
+                ok = true;
+                return false;
+            }
+            return true; }))
+        {
             break;
         }
     }
@@ -507,22 +511,21 @@ lexer_scan_string(Lexer *x, Token *out, char quote)
     // We can also reach here if EOF was found, meaning there was no closing quote.
     lexer_init_token(x, out, Token_String);
     if (!ok) {
-        return Lexer_Unterminated_String;
+        return LexerError::Unterminated_String;
     }
 
     // Skip the quotes.
     out->loc.view = slice(out->loc.view, 1, len(out->loc.view) - 1);
-    return Lexer_Ok;
+    return LexerError::Ok;
 }
 
 LULU_INTERNAL_FUNC LexerError
 lexer_scan_token(Lexer *x, Token *out)
 {
-    TokenKind k = Token_None;
     Option<char> p = lexer_skip_whitespace(x);
     if (p.is_none()) {
         lexer_init_token(x, out, Token_Eof);
-        return Lexer_Ok;
+        return LexerError::Ok;
     }
 
     x->prev_offset = x->curr_offset;
@@ -538,6 +541,7 @@ lexer_scan_token(Lexer *x, Token *out)
     }
 
     lexer_next_char(x);
+    TokenKind k = Token_None;
     switch (c) {
     case '&': k = Token_Ampersand;  break;
     case '|': k = Token_Pipe;       break;
@@ -580,20 +584,21 @@ lexer_scan_token(Lexer *x, Token *out)
         break;
     }
     lexer_init_token(x, out, k);
-    return k ? Lexer_Ok : Lexer_Unexpected_Character;
+    return k ? LexerError::Ok : LexerError::Unexpected_Character;
 }
 
 LULU_INTERNAL_FUNC char const *
 lexer_error_string(LexerError err)
 {
+    using E = LexerError;
     switch (err) {
-    case Lexer_Ok:                   return "No error";
-    case Lexer_Unexpected_Character: return "Unexpected character";
-    case Lexer_Invalid_Base:         return "Invalid base";
-    case Lexer_Invalid_Digit:        return "Invalid digit";
-    case Lexer_Invalid_Exponent:     return "Invalid exponent";
-    case Lexer_Excess_Underscores:   return "Consecutive underscores not supported";
-    case Lexer_Unterminated_String:  return "Unterminated string";
+    case E::Ok:                   return "No error";
+    case E::Unexpected_Character: return "Unexpected character";
+    case E::Invalid_Base:         return "Invalid base";
+    case E::Invalid_Digit:        return "Invalid digit";
+    case E::Invalid_Exponent:     return "Invalid exponent";
+    case E::Excess_Underscores:   return "Consecutive underscores not supported";
+    case E::Unterminated_String:  return "Unterminated string";
     }
     LULU_UNREACHABLE();
     return nullptr;

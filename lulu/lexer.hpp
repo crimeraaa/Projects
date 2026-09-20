@@ -98,6 +98,23 @@ struct Token {
     };
 };
 
+enum class LexerError : u8 {
+    Ok,
+    Unexpected_Character,
+    Invalid_Base,
+    Invalid_Digit,
+    Invalid_Exponent,
+    Excess_Underscores,
+    Unterminated_String,
+};
+
+// Best to have a similar layout to `Token`.
+struct TokenError {
+    LexerError kind = LexerError::Ok;
+    Loc        loc;
+};
+
+
 struct Lexer {
     // File name and contents.
     String path, input;
@@ -110,16 +127,6 @@ struct Lexer {
 
     // Position information.
     Pos prev_pos, curr_pos;
-};
-
-enum LexerError : u8 {
-    Lexer_Ok,
-    Lexer_Unexpected_Character,
-    Lexer_Invalid_Base,
-    Lexer_Invalid_Digit,
-    Lexer_Invalid_Exponent,
-    Lexer_Excess_Underscores,
-    Lexer_Unterminated_String,
 };
 
 LULU_INTERNAL_FUNC char const *
