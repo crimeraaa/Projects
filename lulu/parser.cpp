@@ -42,21 +42,15 @@ parser_clamp_string(Slice<char> buf, String s)
     return buf.data;
 }
 
-[[noreturn]] static void
-parser_error(Parser *p, char const *info)
-{
-    parser_error_at(p, info, p->token);
-}
-
 [[noreturn]] LULU_INTERNAL_FUNC void
-parser_error_at(Parser *p, char const *info, Token const &t)
+parser_error_at(Parser *p, char const *info, Loc const &where)
 {
     char name[80];
     char loc[80];
     fprintf(stderr, "%s:%i:%i: %s at '%s'\n",
         parser_clamp_string({name, sizeof(name)}, p->lexer.path),
-        t.line, t.col, info,
-        parser_clamp_string({loc, sizeof(loc)}, t.lexeme));
+        where.pos.line, where.pos.col, info,
+        parser_clamp_string({loc, sizeof(loc)}, where.view));
 
     state_throw(p->L, LULU_SYNTAX_ERROR);
 }
@@ -103,10 +97,11 @@ parser_expect(Parser *p, TokenKind k)
 static VarInfo *
 parser_find_variable(Parser *p, String name, u16 *out)
 {
-    Compiler *c      = p->compiler;
-    auto      locals = slice_array(c->active_locals, 0, c->active_locals_len);
+    // Loop invariants.
+    Compiler *     c      = p->compiler;
+    Slice<VarInfo> locals = slice_array(c->active_locals, 0, c->active_locals_len);
     for (VarInfo &v : reverse(locals)) {
-        if (name == v.token.lexeme) {
+        if (name == v.loc.view) {
             if (out) {
                 *out = cast(u16)(&v - raw_data(locals));
             }
@@ -139,46 +134,30 @@ parser_operand(Parser *p, Expr *out, bool is_lhs)
     Token token = p->token;
     parser_advance(p);
     switch (token.kind) {
-    case Token_nil:     *out = Expr::make_nil (token);        break;
-    case Token_false:   *out = Expr::make_bool(token, false); break;
-    case Token_true:    *out = Expr::make_bool(token, true);  break;
-    case Token_Int:
-        *out = Expr::make_int(
-            token,
-            lexer_parse_int(token.lexeme)
-            .unwrap_or_else_err([=](auto e) {
-                char const *info = lexer_error_string(e);
-                parser_error_at(p, info, token);
-            })
-        );
-        break;
-    case Token_Float:
-        *out = Expr::make_real(
-            token,
-            lexer_parse_real(token.lexeme)
-            .unwrap_or_else_err([=](auto e) {
-                char const *info = lexer_error_string(e);
-                parser_error_at(p, info, token);
-            })
-        );
-        break;
+    case Token_nil:     *out = Expr::make_nil (token);                 break;
+    case Token_false:   *out = Expr::make_bool(token, false);          break;
+    case Token_true:    *out = Expr::make_bool(token, true);           break;
+    case Token_Int:     *out = Expr::make_int (token, token.integer);  break;
+    case Token_Float:   *out = Expr::make_real(token, token.floating); break;
     case Token_Open_Paren:
         parser_expr(p, out, is_lhs);
         parser_expect(p, Token_Close_Paren);
         break;
     case Token_Open_Curly:
         if (is_lhs) {
-            parser_error_at(p, "Cannot assign to a compound literal", token);
+            parser_error_token(p, "Cannot assign to a compound literal", token);
         } else {
-            parser_error_at(p, "Table constructors not yet supported", token);
+            parser_error_token(p, "Table constructors not yet supported", token);
         }
         break;
     case Token_Ident: {
-        String ident = token.lexeme;
-        auto t = type_get(p->L, ident);
-        if (t.is_some()) {
-            *out = Expr::make_type(token, t.unwrap());
-        } else {
+        String ident = token.loc.view;
+        if (!type_get(p->L, ident)
+            .is_some_and([=](Type const *type) {
+                *out = Expr::make_type(token, type);
+                return true;
+            }))
+        {
             u16      i;
             VarInfo *v = parser_find_variable(p, ident, &i);
 
@@ -191,14 +170,14 @@ parser_operand(Parser *p, Expr *out, bool is_lhs)
              the identifier may not yet exist.
              */
             if (!v && !is_lhs) {
-                parser_error_at(p, "Unknown identifier", token);
+                parser_error_token(p, "Unknown identifier", token);
             }
             *out = Expr::make_local(token, (v) ? v->type : nullptr, i);
         }
         break;
     }
     default:
-        parser_error_at(p, "Expected an operand", token);
+        parser_error_token(p, "Expected an operand", token);
         break;
     }
 }
@@ -242,14 +221,16 @@ parser_primary_expr(Parser *p, Expr *out, bool is_lhs)
 static void
 parser_type(Parser *p, Expr *out)
 {
-    Token const  token = p->token;
+    Token const token = p->token;
     parser_expect(p, Token_Ident);
-    *out = Expr::make_type(token,
-        type_get(p->L, token.lexeme)
-        .unwrap_or_else_err([p](auto _) {
-            parser_error(p, "Unknown type name");
-        })
-    );
+    if (!type_get(p->L, token.loc.view)
+        .is_some_and([=](Type const *type) {
+            *out = Expr::make_type(token, type);
+            return true;
+        }))
+    {
+        parser_error(p, "Unknown type name");
+    }
 }
 
 // Must be higher than all other precedences in `parser_prec()`.
@@ -418,12 +399,12 @@ parser_infer_types(Parser *p, ExprList lhs_list, ExprList rhs_list)
     if (rhs_list.count == 0) {
         // Report the error at the *last* local variable name.
         Expr *last = list_last_elem(lhs_list);
-        parser_error_at(p, "Expected a type after ':'", last->token);
+        parser_error_expr(p, "Expected a type after ':'", last);
     }
 
     if (lhs_list.count != rhs_list.count) {
         Expr *last = list_last_elem(rhs_list);
-        parser_error_at(p, "Mismatched number of expressions", last->token);
+        parser_error_expr(p, "Mismatched number of expressions", last);
     }
 
     // Copy over all assigning expression types to the targets so the
@@ -447,15 +428,15 @@ parser_make_zero_values(Parser *p, Type const *t, int count)
         switch (zero.literal_kind) {
         case Value_bool:
             zero.set_bool(false);
-            zero.token.lexeme = "false"_s;
+            zero.loc.view = "false"_s;
             break;
         case Value_int:
             zero.set_intr(0);
-            zero.token.lexeme = "0"_s;
+            zero.loc.view = "0"_s;
             break;
         case Value_real:
             zero.set_real(0.0);
-            zero.token.lexeme = "0.0"_s;
+            zero.loc.view = "0.0"_s;
             break;
         default:
             LULU_PANICF("Unsupported zero type for ValueType(%i)", zero.literal_kind);
@@ -529,7 +510,7 @@ parser_assign(Parser *p, ExprList lhs_list)
     // exist.
     for (Expr &lhs : lhs_list) {
         if (!lhs.type) {
-            parser_error_at(p, "Undeclared variable", lhs.token);
+            parser_error_expr(p, "Undeclared variable", &lhs);
         }
     }
 
@@ -538,7 +519,7 @@ parser_assign(Parser *p, ExprList lhs_list)
     ExprList rhs_list = parser_expr_list(p);
     if (lhs_list.count != rhs_list.count) {
         Expr *tail = list_last_elem(rhs_list);
-        parser_error_at(p, "Mismatched number of expressions", tail->token);
+        parser_error_expr(p, "Mismatched number of expressions", tail);
     }
     compiler_assign(p->compiler, lhs_list, rhs_list);
 }
@@ -566,8 +547,8 @@ parser_ident_stmt(Parser *p)
         break;
     default:
         if (lhs_list.count != 1 || lhs_list->kind != Expr_Call) {
-            parser_error_at(p, "Expected a declaration, assignment, or function call",
-                lhs_list->token);
+            parser_error_expr(p, "Expected a declaration, assignment, or function call",
+                &*lhs_list);
         }
         break;
     }
@@ -606,13 +587,12 @@ parser_parse(lulu_State *L, ParserData *data)
     Compiler c;
 
     // parser init
-    p.L           = L;
-    p.compiler    = &c;
-    p.lexer.path  = data->path;
-    p.lexer.input = data->input;
-    p.lexer.line  = 1;
-    p.lexer.col   = 1;
-    p.scratch     = &data->scratch;
+    p.L              = L;
+    p.compiler       = &c;
+    p.lexer.path     = data->path;
+    p.lexer.input    = data->input;
+    p.lexer.curr_pos = Pos {1, 1};
+    p.scratch        = &data->scratch;
     
     // compiler init
     c.L        = L;

@@ -3,7 +3,6 @@
 #include "lulu.h"
 #include "internal.hpp"
 #include "strings.hpp"
-#include "option.hpp"
 
 // Although we wish to implement a typed version of Lua, the base types
 // themsleves are not keywords and can be re-assigned. This is similar to how
@@ -77,36 +76,48 @@ enum TokenKind : u8 {
 #undef X
 };
 
+struct Pos {
+    i32 line = 0;
+    i32 col  = 0;
+};
+
+struct Loc {
+    // String view into the source code.
+    String view;
+
+    // Line and column information of said string view.
+    Pos pos;
+};
+
 struct Token {
     TokenKind kind = Token_None;
-
-    // String view into the source code.
-    String lexeme;
-
-    // Position information.
-    i32 line = 0, col = 0;
+    Loc       loc;
+    union {
+        intr  integer = 0;
+        real  floating;
+    };
 };
 
 struct Lexer {
     // File name and contents.
     String path, input;
 
-    // Lexeme's starting position in `input`.
-    usize start = 0;
+    // Lexeme's starting offset in `input`.
+    usize prev_offset = 0;
 
-    // Current view position in `input`. Must be `>= start`.
-    usize cursor = 0;
+    // Current view offset in `input`. Must be `>= start`.
+    usize curr_offset = 0;
 
     // Position information.
-    i32 line = 0, col = 0;
+    Pos prev_pos, curr_pos;
 };
 
 enum LexerError : u8 {
     Lexer_Ok,
     Lexer_Unexpected_Character,
-    Lexer_Invalid_Number,
-    Lexer_Invalid_Base_Prefix,
-    Lexer_Invalid_Base_Digit,
+    Lexer_Invalid_Base,
+    Lexer_Invalid_Digit,
+    Lexer_Invalid_Exponent,
     Lexer_Excess_Underscores,
     Lexer_Unterminated_String,
 };
@@ -119,10 +130,4 @@ lexer_error_string(LexerError err);
 
 LULU_INTERNAL_FUNC LexerError
 lexer_scan_token(Lexer *x, Token *out);
-
-LULU_INTERNAL_FUNC Result<intr, LexerError>
-lexer_parse_int(String s);
-
-LULU_INTERNAL_FUNC Result<real, LexerError>
-lexer_parse_real(String s);
 

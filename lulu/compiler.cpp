@@ -32,7 +32,7 @@ compiler_finish(Compiler *c)
 [[noreturn]] static void
 compiler_error(Compiler *c, char const *info, Expr const *e)
 {
-    parser_error_at(c->parser, info, e->token);
+    parser_error_expr(c->parser, info, e);
 }
 
 static i32
@@ -48,18 +48,18 @@ static u32
 compiler_add_constant(Compiler *c, TValue tv)
 {
     Chunk *chunk = c->chunk;
-    auto  &K     = chunk->constants;
+    auto   K     = chunk->constants;
     u32    n     = cast(u32)len(K);
 
     // Try to reuse an existing value.
     for (u32 i = 0; i < n; i++) {
         if (tv == K[i]) {
-            // LULU_LOGF("Reused constant index %u", i);
+            LULU_LOGF("Reused constant index %u / %u", i, n);
             return i;
         }
     }
-    // LULU_LOGF("Added constant index %u", n);
-    mem_append_dynamic(c->L, &K, tv);
+    mem_append_dynamic(c->L, &chunk->constants, tv);
+    LULU_LOGF("Added constant index %u / %zu", n, len(chunk->constants));
     return n;
 }
 
@@ -236,7 +236,7 @@ compiler_cast(Compiler *c, Expr *restrict t, Expr *restrict arg)
     }
 
     // Report the bad type, not the variable?
-    arg->token = t->token;
+    arg->loc = t->loc;
     compiler_error(c, "Cannot cast to type", arg);
 }
 
@@ -496,7 +496,7 @@ static CompilerBinaryResult
 compiler_arithi(Compiler *c, OpCode iop, Expr *restrict lhs, Expr *restrict rhs)
 {
     auto r = checker_fix_arithi(&iop, lhs, rhs);
-    if (!r.ok) {
+    if (r.ok) {
         /*
          Assumes any of the following forms:
          1) x +   imm
@@ -667,7 +667,7 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
 {
     switch (checker_fold_binary(op, lhs, rhs)) {
     case Checker_Ok:
-        lhs->token = rhs->token;
+        lhs->loc = rhs->loc;
         return;
     case Checker_Cannot_Fold:
         break;
@@ -692,7 +692,7 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
         if (immr.ok) {
             if (!immr.swapped) {
                 // Propagate this change because we won't do it any place else.
-                lhs->token = rhs->token;
+                lhs->loc = rhs->loc;
             }
             return;
         }
@@ -706,7 +706,7 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
         auto kr = compiler_binaryk(c, r.op, lhs, rhs, k);
         if (kr.ok) {
             if (!kr.swapped) {
-                lhs->token = rhs->token;
+                lhs->loc = rhs->loc;
             }
             return;
         }
@@ -732,12 +732,12 @@ compiler_binary(Compiler *c, Token const &op, Expr *restrict lhs, Expr *restrict
          1 = proceed label(true) if     result else goto label(false)
          */
         lhs->type  = basic_type_get(Value_bool);
-        lhs->token = rhs->token;
+        lhs->loc = rhs->loc;
 
         // R(A) is not a destination register here!
         lhs->set_compare(compiler_code_vABC(c, r.op, r1, r2, 0, k));
     } else {
-        lhs->token = rhs->token;
+        lhs->loc = rhs->loc;
         lhs->set_pending(compiler_code_ABC(c, r.op, REG_NONE, r1, r2));
     }
 }
@@ -804,8 +804,8 @@ compiler_declare_local(Compiler *c, ExprList lhs_list)
 
         // Reset the type to indicate we don't know it (yet).
         lhs.type = nullptr;
-        active_locals[reg++] = {
-            /*name          =*/lhs.token,
+        active_locals[reg++] = VarInfo{
+            /*loc           =*/lhs.loc,
             /*type          =*/nullptr,
             /*scope         =*/-1,
             /*reg_info_index=*/cast(u32)(len(*reg_info) - 1),

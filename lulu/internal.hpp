@@ -49,6 +49,7 @@
 
 #else
 
+
 #define LULU_LOGF(fmt, ...)   cast(void)0
 
 #endif // LULU_LOGF
@@ -157,3 +158,87 @@ num_mod(real a, real b)
 template<class T> static inline bool num_eq (T a, T b) { return a == b; }
 template<class T> static inline bool num_lt (T a, T b) { return a <  b; }
 template<class T> static inline bool num_leq(T a, T b) { return a <= b; }
+
+template<class T>
+struct Some {
+    T value;
+
+    explicit constexpr
+    Some(T value) : value{value} {}
+};
+
+struct None {};
+
+template<class T>
+class Option {
+    bool some;
+    T    value;
+
+public:
+    using Some = Some<T>;
+    using None = None;
+
+    Option(Some some) : some{true}, value{some.value} {}
+    Option(None)      : some{false} {}
+
+    bool
+    is_some() { return this->some;}
+
+    template<class F> bool
+    is_some_and(F f) { return this->is_some() && f(this->value); }
+
+    bool
+    is_none() { return !this->is_some(); }
+
+    template<class F> bool
+    is_none_or(F f) { return this->is_none() || f(this->value); }
+
+    template<class F, class U>
+    U
+    map_or_else(F f, U def) {
+        return this->is_some() ? f(this->value) : def;
+    }
+
+    T
+    unwrap() { return this->value; }
+
+    T
+    unwrap_or(T default_value) { return this->is_some() ? this->value : default_value; }
+};
+
+template<class T>
+struct Ok {
+    T value;
+
+    explicit constexpr
+    Ok(T value) : value{value} {}
+};
+
+template<class E>
+struct Err {
+    E error;
+
+    explicit constexpr
+    Err(E error) : error{error} {}
+};
+
+template<class T, class E>
+class Result {
+    bool ok;
+    union {
+        T value;
+        E error;
+    };
+
+public:
+    using Ok  = Ok<T>;
+    using Err = Err<E>;
+
+    Result(Ok  ok)  : ok{true},  value{ok.value} {}
+    Result(Err err) : ok{false}, error{err.error} {}
+
+    bool is_ok     () { return this->ok; }
+    bool is_err    () { return !this->is_ok(); }
+    T    unwrap    () { return this->value;    }
+    E    unwrap_err() { return this->error; }
+};

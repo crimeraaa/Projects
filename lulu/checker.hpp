@@ -5,7 +5,6 @@
 #include "opcode.hpp"
 #include "expr.hpp"
 #include "lexer.hpp"
-#include "option.hpp"
 
 enum CheckerError {
     Checker_Ok,

@@ -33,18 +33,18 @@ checker_try_get_int(Expr *e, intr min, intr max)
         // Conversion results in data loss?
         imm = cast(intr)r;
         if (cast(real)imm != r) {
-            return false;
+            return None{};
         }
         break;
     }
     default:
-        return false;
+        return None{};
     }
 
     if (min <= imm && imm <= max) {
-        return imm;
+        return Some(imm);
     } else {
-        return false;
+        return None{};
     }
 }
 
@@ -196,7 +196,7 @@ template<class T>
 static inline void
 checker_arith(T (*op)(T a, T b), Expr *restrict lhs, Expr *restrict rhs)
 {
-    auto res = (*op)(lhs->get_literal<T>(), lhs->get_literal<T>());
+    auto res = (*op)(lhs->get_literal<T>(), rhs->get_literal<T>());
     lhs->set_literal(res);
 }
 

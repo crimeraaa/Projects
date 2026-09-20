@@ -13,7 +13,7 @@
     Represents the meta-information about a named register.
  */
 struct VarInfo {
-    Token       token;
+    Loc         loc;
     Type const *type;
     int         scope; // 0 indicates global scope.
     u32         reg_info_index;

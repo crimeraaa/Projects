@@ -4,7 +4,6 @@
 #include "internal.hpp"
 #include "strings.hpp"
 #include "value.hpp"
-#include "option.hpp"
 
 /*
  Description:

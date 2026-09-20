@@ -22,7 +22,7 @@ enum ExprKind : u8 {
 struct Expr {
     ExprKind    kind         = Expr_None;
     ValueKind   literal_kind = Value_nil; // Helps reduce pointer dereferencing.
-    Token       token;
+    Loc         loc;
     Type const *type         = nullptr;
     union {
         Value literal = {0};
@@ -37,9 +37,9 @@ struct Expr {
     make(ExprKind kind, Type const *type, Token const &token)
     {
         Expr e;
-        e.kind  = kind;
-        e.type  = type;
-        e.token = token;
+        e.kind = kind;
+        e.type = type;
+        e.loc  = token.loc;
         return e;
     }
 

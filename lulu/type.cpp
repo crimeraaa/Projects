@@ -3,7 +3,6 @@
 #include "state.hpp"
 #include "mem.hpp"
 #include "strings.hpp"
-#include "option.hpp"
 
 #define type_size_of(T) offsetof(Type, basic) + sizeof(T)
 #define type_new(L, T)  cast(Type *)mem_arena_alloc_bytes(L, type_size_of(T))
@@ -113,7 +112,13 @@ type_get(lulu_State *L, String key)
     TypeEnv *env  = &L->types;
     u32      hash = string_hash(key);
     LULU_ASSERT(len(env->entries) > 0);
-    return type_find_entry(env->entries, key, hash)->type;
+
+    TypeEnv_Entry *e = type_find_entry(env->entries, key, hash);
+    if (e->key == key) {
+        return Some(e->type);
+    } else {
+        return None{};
+    }
 }
 
 LULU_INTERNAL_FUNC void
