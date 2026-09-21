@@ -29,7 +29,7 @@ Parser::parse(lulu_State *L, ParserData &data)
         p.simple_stmt();
     }
     p.expect(Token_Eof);
-    compiler_finish(&c);
+    c.finish();
     return c.chunk;
 }
 
@@ -85,7 +85,7 @@ Parser::return_stmt()
     this->advance();
 
     ExprList rets = this->expr_list();
-    compiler_return(this->compiler, rets);
+    this->compiler->explicit_return(rets);
 }
 
 
@@ -93,7 +93,7 @@ void
 Parser::decl(ExprList lhs_list)
 {
     Compiler *c = this->compiler;
-    compiler_declare_local(c, lhs_list);
+    c->declare_local(lhs_list);
 
     // If we have tokens in between ':' and '=', it must be a type.
     // Note that only one (1) type declaration is allowed, e.g. `x, y: int`
@@ -132,7 +132,7 @@ Parser::decl(ExprList lhs_list)
 
     // Temporary until we can figure out how to handle function calls.
     LULU_ASSERT(lhs_list.count == rhs_list.count);
-    compiler_define_local(c, lhs_list, rhs_list);
+    c->define_local(lhs_list, rhs_list);
 }
 
 void
@@ -150,10 +150,10 @@ Parser::assign(ExprList lhs_list)
     // targets and assigning expressions MUST match.
     ExprList rhs_list = this->expr_list();
     if (lhs_list.count != rhs_list.count) {
-        Expr *tail = list_last_elem(rhs_list);
+        Expr *tail = rhs_list.last_elem();
         this->error_at("Mismatched number of expressions", *tail);
     }
-    compiler_assign(this->compiler, lhs_list, rhs_list);
+    this->compiler->assign(lhs_list, rhs_list);
 }
 
 /*
@@ -167,8 +167,8 @@ Parser::primary_expr_list(bool is_lhs)
     Scratch    *x = this->scratch;
     ExprList    list;
     do {
-        Expr e = this->primary_expr(is_lhs);
-        list_append(L, &list, x, e);
+        Expr expr = this->primary_expr(is_lhs);
+        list.append(L, x, expr);
     } while (this->match(Token_Comma));
     return list;
 }
@@ -185,9 +185,9 @@ Parser::expr_list(bool is_lhs)
     Scratch    *x = this->scratch;
     ExprList    list;
     do {
-        Expr e = this->expr(is_lhs);
+        Expr expr = this->expr(is_lhs);
         // compiler_expr_next_reg(c, &e);
-        list_append(L, &list, x, e);
+        list.append(L, x, expr);
     } while (this->match(Token_Comma));
     return list;
 
@@ -248,7 +248,7 @@ Parser::expr(bool is_lhs, int prec_in)
 
         this->advance();
         if (!lhs.is_literal()) {
-            compiler_expr_any_reg(c, &lhs);
+            c->expr_any_reg(lhs);
         }
 
         /*
@@ -257,7 +257,7 @@ Parser::expr(bool is_lhs, int prec_in)
             exponentiation.
          */
         Expr rhs = this->expr(/*is_lhs=*/false, prec_out + 1);
-        compiler_binary(c, op, &lhs, &rhs);
+        c->binary(op, lhs, rhs);
     }
     this->recurse_pop();
     return lhs;
@@ -281,7 +281,7 @@ Parser::unary_expr(bool is_lhs)
         Expr type = this->type();
         this->expect(Token_Close_Paren);
         expr = this->expr(/*is_lhs=*/false, PREC_UNARY);
-        compiler_cast(this->compiler, &type, &expr);
+        this->compiler->explicit_cast(type, expr);
         break;
     }
     case Token_Tilde:
@@ -292,7 +292,7 @@ Parser::unary_expr(bool is_lhs)
         // is our current.
         this->advance();
         expr = this->expr(is_lhs, PREC_UNARY);
-        compiler_unary(this->compiler, op, &expr);
+        this->compiler->unary(op, expr);
         break;
     default:
         expr = this->primary_expr(is_lhs);
@@ -307,13 +307,13 @@ Expr
 Parser::primary_expr(bool is_lhs)
 {
     bool loop = true;
-    Expr e = this->operand(is_lhs);
+    Expr expr = this->operand(is_lhs);
     while (loop) {
         switch (this->token.kind) {
         case Token_Open_Paren:
             // Consume '('.
             this->advance();
-            this->call(&e);
+            this->call(expr);
             break;
         default:
             loop = false;
@@ -322,18 +322,18 @@ Parser::primary_expr(bool is_lhs)
         // After the first atom, we are no longer assignable.
         is_lhs = false;
     }
-    return e;
+    return expr;
 }
 
 void
-Parser::call(Expr *func)
+Parser::call(Expr &func)
 {
     Expr arg;
     if (!this->check(Token_Close_Paren)) {
         arg = this->expr();
     }
     this->expect(Token_Close_Paren);
-    compiler_call(this->compiler, func, &arg);
+    this->compiler->call(func, arg);
 }
 
 
@@ -429,11 +429,11 @@ Parser::find_variable(String name, u16 *out)
 {
     // Loop invariants.
     Compiler *     c      = this->compiler;
-    Slice<VarInfo> locals = slice_array(c->active_locals, 0, c->active_locals_len);
+    Slice<VarInfo> locals = c->slice_active_locals();
     for (VarInfo &v : reverse(locals)) {
         if (name == v.loc.view) {
             if (out) {
-                *out = cast(u16)(&v - raw_data(locals));
+                *out = cast(u16)(&v - locals.raw_data());
             }
             return &v;
         }
@@ -452,12 +452,12 @@ Parser::infer_types(ExprList lhs_list, ExprList rhs_list)
     // to infer *from*, e.g. `x:`.
     if (rhs_list.count == 0) {
         // Report the error at the *last* local variable name.
-        Expr *last = list_last_elem(lhs_list);
+        Expr *last = lhs_list.last_elem();
         this->error_at("Expected a type after ':'", *last);
     }
 
     if (lhs_list.count != rhs_list.count) {
-        Expr *last = list_last_elem(rhs_list);
+        Expr *last = rhs_list.last_elem();
         this->error_at("Mismatched number of expressions", *last);
     }
 
@@ -504,7 +504,7 @@ Parser::make_zero_values(Type const *type, int count)
 
     ExprList rhs_list;
     for (int i = 0; i < count; i++) {
-        list_append(this->L, &rhs_list, this->scratch, zero);
+        rhs_list.append(this->L, this->scratch, zero);
     }
     return rhs_list;
 }
@@ -557,11 +557,11 @@ parser_clamp_string(Slice<char> buf, String s)
 
     // The iteration range is exclusive, so we save the last index for the
     // nul character.
-    usize stop = min(len(s), len(buf) - 1);
+    usize stop = min(s.len(), buf.len() - 1);
 
     // Prefix "..." to indicate that the full string was truncated and that
     // you're seeing only the tail portion that fits.
-    if (len(s) > stop) {
+    if (s.len() > stop) {
         buf[it++] = '.';
         buf[it++] = '.';
         buf[it++] = '.';
@@ -571,7 +571,7 @@ parser_clamp_string(Slice<char> buf, String s)
         buf[it] = s[it];
     }
     buf[it] = 0;
-    return buf.data;
+    return buf.raw_data();
 }
 
 [[noreturn]] void

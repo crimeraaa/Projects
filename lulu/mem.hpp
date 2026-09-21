@@ -99,13 +99,6 @@ mem_heap_grow(lulu_State *L, T *mem, Z *count)
 
 template<class T>
 static inline void
-mem_zero_slice(Slice<T> s)
-{
-    std::memset(raw_data(s), 0, sizeof(T) * len(s));
-}
-
-template<class T>
-static inline void
 mem_heap_free(lulu_State *L, T *old_mem, usize old_count)
 {
     cast(void)mem_heap_resize<T>(L, old_mem, old_count, 0);
@@ -121,70 +114,78 @@ mem_alloc_slice(lulu_State *L, usize count)
 
 template<class T>
 static inline void
-mem_resize_slice(lulu_State *L, Slice<T> *s, usize count)
-{
-    s->data = mem_heap_resize(L, s->data, s->len, count);
-    s->len  = count;
-}
-
-template<class T>
-static inline void
-mem_grow_slice(lulu_State *L, Slice<T> *s)
-{
-    s->data = mem_heap_grow(L, s->data, &s->len);
-}
-
-template<class T>
-static inline void
 mem_free_slice(lulu_State *L, Slice<T> s)
 {
-    mem_heap_free(L, s.data, len(s));
+    mem_heap_free(L, s.raw_data(), s.len());
 }
 
 template<class T>
-struct Dynamic {
-    Slice<T> slice;
-    usize    cap = 0;
+class Dynamic {
+    Slice<T> m_slice;
+    usize    m_cap;
+
+public:
+    Dynamic() : m_slice{}, m_cap{0} {}
 
     // Defer to underlying Slice implementation.
-    template<class N> T &      operator[](N index)       { return this->slice[index]; }
-    template<class N> T const &operator[](N index) const { return this->slice[index]; }
-};
+    template<class N>
+    T &
+    operator[](N index)       { return this->m_slice[index]; }
 
-template<class T> static inline T *   raw_data (Dynamic<T> d) { return raw_data(d.slice); }
-template<class T> static inline usize len      (Dynamic<T> d) { return len(d.slice);      }
-template<class T> static inline usize cap      (Dynamic<T> d) { return d.cap;             }
-template<class T> static inline T *   begin    (Dynamic<T> d) { return begin(d.slice);    }
-template<class T> static inline T *   end      (Dynamic<T> d) { return end(d.slice);      }
+    template<class N>
+    T const &
+    operator[](N index) const { return this->m_slice[index]; }
 
-template<class T>
-static inline void
-mem_append_dynamic(lulu_State *L, Dynamic<T> *d, T const &value)
-{
-    if (len(*d) + 1 > cap(*d)) {
-        d->slice.data = mem_heap_grow(L, d->slice.data, &d->cap);
+    usize
+    len() const noexcept { return this->m_slice.len(); }
+
+    usize
+    cap() const noexcept { return this->m_cap; }
+
+    T *
+    raw_data()             { return this->m_slice.raw_data(); }
+
+    T *
+    begin()                { return this->m_slice.begin(); }
+
+    T *
+    end()                  { return this->m_slice.end(); }
+
+    T const *
+    begin() const noexcept { return this->m_slice.begin(); }
+
+    T const *
+    end()   const noexcept { return this->m_slice.end(); }
+
+    Slice<T>
+    slice() { return this->m_slice; }
+
+    void
+    append(lulu_State *L, T const &value)
+    {
+        if (this->len() + 1 > this->cap()) {
+            this->m_slice.m_data = mem_heap_grow(L, this->m_slice.m_data, &this->m_cap);
+        }
+
+        // Raw access because we assign to a (currently) out of bounds index.
+        // Only once the length is updated can we use operator[] again.
+        this->m_slice.m_data[this->m_slice.m_len++] = value;
     }
 
-    // Raw access because we assign to a (currently) out of bounds index.
-    // Only once the length is updated can we use operator[] again.
-    d->slice.data[d->slice.len++] = value;
-}
+    void
+    shrink(lulu_State *L)
+    {
+        usize n = this->len();
+        this->m_slice.m_data = mem_heap_resize(L, this->raw_data(), this->cap(), /*new_cap=*/n);
+        this->m_cap        = n;
+    }
 
-template<class T>
-static inline void
-mem_shrink_dynamic(lulu_State *L, Dynamic<T> *d)
-{
-    usize n       = d->slice.len;
-    d->slice.data = mem_heap_resize(L, d->slice.data, d->cap, n);
-    d->cap        = n;
-}
-
-template<class T>
-static inline void
-mem_free_dynamic(lulu_State *L, Dynamic<T> *d)
-{
-    mem_free_slice(L, d->slice);
-}
+    void
+    free(lulu_State *L)
+    {
+        mem_free_slice(L, this->m_slice);
+    }
+};
 
 template<class T>
 [[nodiscard]] static inline T *
@@ -197,5 +198,5 @@ template<class T>
 static inline RevSlice<T>
 reverse(Dynamic<T> d)
 {
-    return reverse(d.slice);
+    return reverse(d.slice());
 }

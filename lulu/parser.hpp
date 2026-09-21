@@ -60,6 +60,7 @@ public:
     {
         this->error_at(info, this->token.loc);
     }
+
 private:
     void
     simple_stmt();
@@ -92,7 +93,7 @@ private:
     primary_expr(bool is_lhs);
 
     void
-    call(Expr *func);
+    call(Expr &func);
 
     [[nodiscard]] Expr
     operand(bool is_lhs);

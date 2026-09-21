@@ -3,9 +3,26 @@
 #include "internal.hpp"
 
 template<class T>
-struct Slice {
-    T *   data = nullptr;
-    usize len  = 0;
+class Dynamic;
+
+template<class T>
+class Slice {
+protected:
+    // Forward declare instances of `Dynamic` as being able to access our
+    // protected members, but only if they're templated with the same type.
+    friend class Dynamic<T>;
+
+    T *   m_data;
+    usize m_len;
+
+public:
+    using Self = Slice<T>;
+
+    constexpr
+    Slice() : m_data{nullptr}, m_len{0} {}
+
+    constexpr
+    Slice(T *data, usize len) : m_data{data}, m_len{len} {}
 
     template<class N>
     T &
@@ -14,31 +31,87 @@ struct Slice {
         auto i = cast(usize)index;
         // You may opt to let ASAN help here to report the stack trace.
         // LULU_ASSERTF(i < this->len, "Out of bounds index %zu", i);
-        return this->data[i];
+        return this->m_data[i];
     }
 
     template<class N>
     T const &
     operator[](N index) const
     {
-        return (cast(Slice<T> *)this)->operator[](index);
+        return (cast(Self *)this)->operator[](index);
+    }
+
+    T *
+    raw_data()       noexcept { return this->m_data; }
+
+    T const *
+    raw_data() const noexcept { return this->m_data; }
+
+    usize
+    len()      const noexcept { return this->m_len; }
+
+    T *
+    begin()          noexcept { return this->raw_data(); }
+
+    T *
+    end()            noexcept { return this->begin() + this->len(); }
+
+    T const *
+    begin()    const noexcept { return this->m_data; }
+
+    T const *
+    end()      const noexcept { return this->begin() + this->len(); }
+
+    Self
+    slice(usize start, usize stop)
+    {
+        usize n = stop - start;
+        LULU_ASSERT(start <= stop);
+        LULU_ASSERT(stop  <= this->len());
+        return {&this->m_data[start], n};
+    }
+
+    Self
+    slice(usize start, usize stop) const
+    {
+        // If `T` is const to begin with, then `Slice<T>` is equivalent to
+        // `Slice<T const>`. The extra `const` is redundant.
+        return (cast(Self *)this)->slice(start, stop);
+    }
+
+    Self
+    slice_from(usize start) { return this->slice(start, this->len()); }
+
+    Self
+    slice_until(usize stop) { return this->slice(0, stop); }
+
+    bool
+    has_ptr(T const *ptr) const noexcept
+    {
+        // We assume that pointers are comparable regardless if they're related
+        // or not.
+        uintptr addr       = cast(uintptr)ptr;
+        uintptr start_addr = cast(uintptr)this->begin();
+        uintptr stop_addr  = cast(uintptr)this->end();
+        return start_addr <= addr && addr < stop_addr;
+    }
+
+    usize
+    index_ptr_unsafe(T *ptr) noexcept
+    {
+        return cast(usize)(ptr - this->raw_data());
+    }
+
+    Option<usize>
+    index_ptr(T *ptr) noexcept
+    {
+        if (this->has_ptr(ptr)) {
+            return Some(this->index_ptr(ptr));
+        } else {
+            return None{};
+        }
     }
 };
-
-template<class T> static inline T *   raw_data(Slice<T> s) { return s.data;            }
-template<class T> static inline usize len     (Slice<T> s) { return s.len;             }
-template<class T> static inline T *   begin   (Slice<T> s) { return raw_data(s);       }
-template<class T> static inline T *   end     (Slice<T> s) { return begin(s) + len(s); }
-
-template<class T>
-static inline Slice<T>
-slice(Slice<T> s, usize start, usize stop)
-{
-    usize n = stop - start;
-    LULU_ASSERT(start <= stop);
-    LULU_ASSERT(stop  <= len(s));
-    return {&s[start], n};
-}
 
 template<class T>
 static inline Slice<T>
@@ -47,34 +120,6 @@ slice_ptr(T *p, usize start, usize stop)
     usize n = stop - start;
     LULU_ASSERT(start <= stop);
     return {p[start], n};
-}
-
-template<class T>
-static inline bool
-slice_has_ptr(Slice<T> s, T *ptr)
-{
-    auto addr       = cast(uintptr)ptr;
-    auto start_addr = cast(uintptr)raw_data(s);
-    auto stop_addr  = cast(uintptr)end(s);
-    return start_addr <= addr && addr < stop_addr;
-}
-
-template<class T>
-static inline usize
-slice_index_ptr(Slice<T> s, T *ptr)
-{
-    return cast(usize)(ptr - begin(s));
-}
-
-template<class T>
-static inline bool
-slice_index_ptr_safe(Slice<T> s, T *ptr, usize *out)
-{
-    bool ok = slice_has_ptr(s, ptr);
-    if (ok) {
-        *out = slice_index_ptr(s, ptr);
-    }
-    return ok;
 }
 
 template<class T, usize N>
@@ -86,20 +131,6 @@ slice_array(T (&a)[N], usize start = 0, usize stop = N)
     LULU_ASSERT(stop  <= N);
     LULU_ASSERT(n <= N);
     return {&a[start], n};
-}
-
-template<class T>
-static inline Slice<T>
-slice_from(Slice<T> s, usize start)
-{
-    return slice(s, start, len(s));
-}
-
-template<class T>
-static inline Slice<T>
-slice_until(Slice<T> s, usize stop)
-{
-    return slice(s, 0, stop);
 }
 
 /*
@@ -123,7 +154,8 @@ struct RevIt {
         return *this->data;
     }
 
-    inline void operator++()
+    inline void
+    operator++()
     {
         this->data--;
     }
@@ -144,7 +176,7 @@ struct RevSlice {
     auto __stop = ::end(__rev);
     for (; __it != __stop; ++__it) { ... }
  */
-template<class T> inline RevSlice<T> reverse(Slice<T> s)    { return {s};                  }
-template<class T> inline RevIt<T>    begin  (RevSlice<T> r) { return {end(r.slice)   - 1}; }
-template<class T> inline RevIt<T>    end    (RevSlice<T> r) { return {begin(r.slice) - 1}; }
+template<class T> inline RevSlice<T> reverse(Slice<T> s)    { return {s};                   }
+template<class T> inline RevIt<T>    begin  (RevSlice<T> r) { return {r.slice.end()   - 1}; }
+template<class T> inline RevIt<T>    end    (RevSlice<T> r) { return {r.slice.begin() - 1}; }
 

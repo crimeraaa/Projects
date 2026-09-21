@@ -1,5 +1,4 @@
 #include "lexer.hpp"
-#include "slice.hpp"
 
 static String const
 TOKEN_KIND_STRINGS[] = {
@@ -17,7 +16,7 @@ token_kind_string(TokenKind k)
 LULU_INTERNAL_FUNC char const *
 token_kind_cstring(TokenKind k)
 {
-    return raw_data(TOKEN_KIND_STRINGS[k]);
+    return TOKEN_KIND_STRINGS[k].raw_data();
 }
 
 // Wrapper function. Call this manually only for multiline strings.
@@ -89,19 +88,19 @@ getkw_or_id(String s)
 {
     static constexpr auto
     check = [](String s, TokenKind kind, usize offset) -> TokenKind {
-        String kw = slice_from(token_kind_string(kind), offset);
-        String s2 = slice_from(s, offset);
+        String kw = token_kind_string(kind).slice_from(offset);
+        String s2 = s.slice_from(offset);
         return s2 == kw ? kind : Token_Ident;
     };
 
     // len("do") <= n <= len("function")
-    if (2 <= len(s) && len(s) <= 8) switch (s[0]) {
+    if (2 <= s.len() && s.len() <= 8) switch (s[0]) {
     case 'a':     return check(s, Token_and,   1);
     case 'b':     return check(s, Token_break, 1);
     case 'c':     return check(s, Token_cast,  1);
     case 'd':     return check(s, Token_do,    1);
     case 'e':
-        switch (len(s)) {
+        switch (s.len()) {
         case 3:   return check(s, Token_end,    1);
         case 4:   return check(s, Token_else,   1);
         case 6:   return check(s, Token_elseif, 1);
@@ -130,7 +129,7 @@ getkw_or_id(String s)
         break;
     case 'o':     return check(s, Token_or, 1);
     case 'r':
-        if (len(s) == 6 && s[1] == 'e') switch (s[2]) {
+        if (s.len() == 6 && s[1] == 'e') switch (s[2]) {
         case 'p': return check(s, Token_repeat, 2);
         case 't': return check(s, Token_return, 2);
         }
@@ -191,7 +190,7 @@ Lexer::parse_int(int base)
     bool sep_curr = false;
 
     // Work from the most significant to least significant digits.
-    for (char c : slice_from(this->input, this->curr_offset)) {
+    for (char c : this->input.slice_from(this->curr_offset)) {
         sep_prev = sep_curr;
         sep_curr = c == '_';
         if (!char_is_digit(c, base) && !sep_curr) {
@@ -227,7 +226,7 @@ Lexer::parse_fraction()
     bool sep_prev    = false;
     bool sep_curr    = false;
 
-    for (char c : slice_from(this->input, this->curr_offset)) {
+    for (char c : this->input.slice_from(this->curr_offset)) {
         if (!char_is_decimal(c) && c != '_') {
             break;
         }
@@ -380,7 +379,7 @@ Lexer::scan_string(char quote)
     Token t = this->make_token(Token_String);
 
     // Skip the quotes.
-    t.loc.view = slice(t.loc.view, 1, len(t.loc.view) - 1);
+    t.loc.view = t.loc.view.slice(1, t.loc.view.len() - 1);
     return Ok(t);
 }
 
@@ -478,7 +477,7 @@ Lexer::peek_at(usize offset) const noexcept
 {
     usize  i = this->curr_offset + offset;
     String s = this->input;
-    if (i < len(s)) {
+    if (i < s.len()) {
         return Some(s[i]);
     } else {
         return None{};
@@ -512,7 +511,7 @@ Lexer::match(char wanted) noexcept
 String
 Lexer::lexeme() const
 {
-    return slice(this->input, this->prev_offset, this->curr_offset);
+    return this->input.slice(this->prev_offset, this->curr_offset);
 }
 
 // Keep advancing while the character pointed to by the cursor

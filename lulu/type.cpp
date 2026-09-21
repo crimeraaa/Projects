@@ -60,7 +60,7 @@ static TypeEnv_Entry *
 type_find_entry(Slice<TypeEnv_Entry> entries, String key, u32 hash)
 {
     TypeEnv_Entry *tomb = nullptr;
-    usize const    wrap = len(entries) - 1;
+    usize const    wrap = entries.len() - 1;
     for (usize i = cast(usize)hash & wrap; /* empty */; i = (i + 1) & wrap) {
         TypeEnv_Entry *e = &entries[i];
         if (!e->type) {
@@ -111,7 +111,7 @@ type_get(lulu_State *L, String key)
 {
     TypeEnv *env  = &L->types;
     u32      hash = string_hash(key);
-    LULU_ASSERT(len(env->entries) > 0);
+    LULU_ASSERT(env->entries.len() > 0);
 
     TypeEnv_Entry *e = type_find_entry(env->entries, key, hash);
     if (e->key == key) {
@@ -129,8 +129,8 @@ type_set(lulu_State *L, String key, Type const *type)
     u32      const hash = string_hash(key);
 
     // We require at least 2 empty slots in order for the search to work.
-    if (env->used + 2 >= len(env->entries)) {
-        usize old_cap = len(env->entries);
+    if (env->used + 2 >= env->entries.len()) {
+        usize old_cap = env->entries.len();
         usize new_cap = max(old_cap * 2, usize(8));
         type_rehash(L, env, new_cap);
     }

@@ -85,7 +85,7 @@ debug_disassemble(Chunk const *c)
     usize n = 0;
 
     printf("======== DISASSEMBLY ========\n");
-    if (len(c->constants) > 0) {
+    if (c->constants.len() > 0) {
         printf(".values:\n");
         for (TValue k : c->constants) {
             printf("| ");
@@ -94,7 +94,7 @@ debug_disassemble(Chunk const *c)
         }
     }
 
-    if (len(c->reg_info) > 0) {
+    if (c->reg_info.len() > 0) {
         printf(".stack:\n");
         for (RegInfo r : c->reg_info) {
             printf("| R(%i): %s ; pc[%i, %i]\n",
@@ -103,7 +103,7 @@ debug_disassemble(Chunk const *c)
     }
 
     printf(".code:\n");
-    for (usize i = 0, n = len(c->code); i < n; i++) {
+    for (usize i = 0, n = c->code.len(); i < n; i++) {
         debug_disassemble_at(c, i);
     }
     printf("=============================\n");

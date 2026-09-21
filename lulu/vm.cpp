@@ -47,7 +47,7 @@ vm_dump_stack(Slice<Value> regs)
 {
     printf("===========================\n");
     for (Value &reg : regs) {
-        auto i = &reg - raw_data(regs);
+        auto i = &reg - regs.raw_data();
         printf("R(%ti) = {i = " LULU_INT_FMT ", f = " LULU_REAL_FMT ", p = 0x%p}\n",
             i, reg.i, reg.r, reg.p);
     }
@@ -63,9 +63,9 @@ LULU_INTERNAL_FUNC void
 vm_execute(lulu_State *L, Chunk *c)
 {
     Value        R[ARG_A.MAX];
-    Instruction *start_ip = raw_data(c->code);
+    Instruction *start_ip = c->code.begin();
     Instruction *ip       = start_ip;
-    TValue *     K        = raw_data(c->constants);
+    TValue *     K        = c->constants.raw_data();
     printf("======== EXECUTION ========\n");
     for (;;) {
         Instruction i  = *ip++;

@@ -28,7 +28,7 @@ string_make_cstring(char const *cstring)
 static inline bool
 operator==(String a, String b)
 {
-    return len(a) == len(b) && std::memcmp(a.data, b.data, b.len) == 0;
+    return a.len() == b.len() && std::memcmp(a.raw_data(), b.raw_data(), b.len()) == 0;
 }
 
 #define FNV32A_OFFSET  0x811c9dc5

@@ -90,7 +90,7 @@ state_parse_protected(lulu_State *L, String path, String input)
     ParserData data = {path, input, chunk, mem_scratch_begin(&L->arena)};
     lulu_Error err  = state_try(L, state_parse, &data);
     mem_scratch_free_all(&data.scratch);
-    mem_free_dynamic(L, &data.chunk.code);
-    mem_free_dynamic(L, &data.chunk.constants);
+    data.chunk.code.free(L);
+    data.chunk.constants.free(L);
     return err;
 }
