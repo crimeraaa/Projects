@@ -190,19 +190,19 @@ struct None {};
 
 template<class T>
 class Option {
-    bool some;
+    bool tag;
     T    value;
 
 public:
     using Some = Some<T>;
     using None = None;
 
-    Option(Some some) : some{true}, value{some.value} {}
-    Option(None) : some{false} {}
+    Option(Some some) : tag{true}, value{some.value} {}
+    Option(None)      : tag{false}                   {}
 
     /// Check whether we are currently of the `Some` variant or not.
     bool
-    is_some()        const noexcept { return this->some; }
+    is_some()        const noexcept { return this->tag; }
 
     /// Checks wheter we are currently of the `Some` variant and that the
     /// value thereof satisfies the given predicate callback function.
@@ -222,7 +222,7 @@ public:
 
     /// Passes the value of the `Some` variant through the given mapping function
     /// or returns the fallback value.
-    template<class F, class U>
+    template<class U, class F>
     U
     map_or_else(F f, U fallback) const noexcept
     {
@@ -264,6 +264,7 @@ struct Err {
 
 template<class T, class E>
 class Result {
+
     bool tag;
     union {
         T value;
@@ -274,10 +275,27 @@ public:
     using Ok  = Ok<T>;
     using Err = Err<E>;
 
-    Result(Ok  ok)  : tag{true},  value{ok.value} {}
+    Result(Ok  ok)  : tag{true},  value{ok.value}  {}
     Result(Err err) : tag{false}, error{err.error} {}
 
-    /// Cehcks whether we are currently of the `Ok` variant.
+    /// Control flow that maps some `Result<T, E>` to a new `Result<U, E>`.
+    ///
+    /// This uses the result of `f()` on the `Ok` variant's value, or propagates
+    /// the `Err` variant into the new result type. The mapping function must
+    /// return some `Result<U, E>`. This is because the mapping function can
+    /// also return another `Err` variant during its processing.
+    template<class U, class F>
+    Result<U, E>
+    and_then(F f) const noexcept
+    {
+        if (this->is_ok()){
+            return f(this->value);
+        } else {
+            return Err(this->error);
+        }
+    }
+
+    /// Checks whether we are currently of the `Ok` variant.
     bool
     is_ok () const noexcept { return this->tag;      }
 

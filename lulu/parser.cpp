@@ -48,7 +48,7 @@ parser_error_at(Parser *p, char const *info, Loc const &where)
     char name[80];
     char loc[80];
     fprintf(stderr, "%s:%i:%i: %s at '%s'\n",
-        parser_clamp_string({name, sizeof(name)}, p->lexer.path),
+        parser_clamp_string({name, sizeof(name)}, p->lexer.get_path()),
         where.pos.line, where.pos.col, info,
         parser_clamp_string({loc, sizeof(loc)}, where.view));
 
@@ -59,11 +59,13 @@ parser_error_at(Parser *p, char const *info, Loc const &where)
 static void
 parser_advance(Parser *p)
 {
-    LexerError err = lexer_scan_token(&p->lexer, &p->token);
+    LexerResult result = p->lexer.scan_token();
     // Nonzero error?
-    if (cast(bool)err) {
-        parser_error(p, lexer_error_string(err));
+    if (result.is_err()) {
+        LexerError err = result.unwrap_err();
+        parser_error_at(p, lexer_error_string(err.kind), err.loc);
     }
+    p->token = result.unwrap();
 }
 
 static bool
@@ -586,12 +588,10 @@ parser_parse(lulu_State *L, ParserData *data)
     Compiler c;
 
     // parser init
-    p.L              = L;
-    p.compiler       = &c;
-    p.lexer.path     = data->path;
-    p.lexer.input    = data->input;
-    p.lexer.curr_pos = Pos {1, 1};
-    p.scratch        = &data->scratch;
+    p.L        = L;
+    p.compiler = &c;
+    p.lexer    = Lexer::make(data->path, data->input);
+    p.scratch  = &data->scratch;
     
     // compiler init
     c.L        = L;
