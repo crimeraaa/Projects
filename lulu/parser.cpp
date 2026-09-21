@@ -10,228 +10,187 @@
 #include "strings.hpp"
 #include "type.hpp"
 
-/*
- Description:
-    Parses a single expression of the given precedence. By default, we parse
-    the basic precedence which is a good starting point.
- */
-static void
-parser_expr(Parser *p, Expr *out, bool is_lhs = false, int prec = 1);
-
-static char const *
-parser_clamp_string(Slice<char> buf, String s)
+Chunk *
+Parser::parse(lulu_State *L, ParserData &data)
 {
-    usize it = 0;
+    Parser   p;
+    Compiler c = Compiler(L, p, &data.chunk);
 
-    // The iteration range is exclusive, so we save the last index for the
-    // nul character.
-    usize stop = min(len(s), len(buf) - 1);
-
-    // Prefix "..." to indicate that the full string was truncated and that
-    // you're seeing only the tail portion that fits.
-    if (len(s) > stop) {
-        buf[it++] = '.';
-        buf[it++] = '.';
-        buf[it++] = '.';
+    // Parser init.
+    p.L          = L;
+    p.compiler   = &c;
+    p.path       = data.path;
+    p.lexer      = Lexer::make(data.input);
+    p.scratch    = &data.scratch;
+    p.recursions = 0;
+    
+    p.advance();
+    while (!p.check(Token_Eof)) {
+        p.simple_stmt();
     }
-
-    for (; it < stop; it++) {
-        buf[it] = s[it];
-    }
-    buf[it] = 0;
-    return buf.data;
+    p.expect(Token_Eof);
+    compiler_finish(&c);
+    return c.chunk;
 }
 
-[[noreturn]] LULU_INTERNAL_FUNC void
-parser_error_at(Parser *p, char const *info, Loc const &where)
+void
+Parser::simple_stmt()
 {
-    char name[80];
-    char loc[80];
-    fprintf(stderr, "%s:%i:%i: %s at '%s'\n",
-        parser_clamp_string({name, sizeof(name)}, p->lexer.get_path()),
-        where.pos.line, where.pos.col, info,
-        parser_clamp_string({loc, sizeof(loc)}, where.view));
-
-    state_throw(p->L, LULU_SYNTAX_ERROR);
-}
-
-// Scan a new current token.
-static void
-parser_advance(Parser *p)
-{
-    LexerResult result = p->lexer.scan_token();
-    // Nonzero error?
-    if (result.is_err()) {
-        LexerError err = result.unwrap_err();
-        parser_error_at(p, lexer_error_string(err.kind), err.loc);
-    }
-    p->token = result.unwrap();
-}
-
-static bool
-parser_check(Parser const *p, TokenKind k)
-{
-    return p->token.kind == k;
-}
-
-static bool
-parser_match(Parser *p, TokenKind k)
-{
-    bool found = parser_check(p, k);
-    if (found) {
-        parser_advance(p);
-    }
-    return found;
-}
-
-static void
-parser_expect(Parser *p, TokenKind k)
-{
-    if (!parser_match(p, k)) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "Expected '%s'", token_kind_cstring(k));
-        parser_error(p, buf);
-    }
-}
-
-/*
- TODO(2026-07-20): Add global lookup instead of worrying only about locals.
- */
-static VarInfo *
-parser_find_variable(Parser *p, String name, u16 *out)
-{
-    // Loop invariants.
-    Compiler *     c      = p->compiler;
-    Slice<VarInfo> locals = slice_array(c->active_locals, 0, c->active_locals_len);
-    for (VarInfo &v : reverse(locals)) {
-        if (name == v.loc.view) {
-            if (out) {
-                *out = cast(u16)(&v - raw_data(locals));
-            }
-            return &v;
-        }
-    }
-
-    if (out) {
-        *out = cast(u16)-1;
-    }
-    return nullptr;
-}
-
-
-/*
- Description:
-    'operand' refers to our most basic expression. These are literals,
-    identifiers, unary operations, and table constructors.
-
- Note (2026-07-03):
-    This is about the only place `lhs` is useful. It allows us to avoid
-    needlessly parsing a compound literal (in our case, a table) when in
-    declarations/assignments. See Odin's parser:
-
-    https://github.com/odin-lang/Odin/blob/1007ea278534e037fa586564c91113f5c925c286/src/parser.cpp#L2379
- */
-static void
-parser_operand(Parser *p, Expr *out, bool is_lhs)
-{
-    Token token = p->token;
-    parser_advance(p);
-    switch (token.kind) {
-    case Token_nil:     *out = Expr::make_nil (token);                 break;
-    case Token_false:   *out = Expr::make_bool(token, false);          break;
-    case Token_true:    *out = Expr::make_bool(token, true);           break;
-    case Token_Int:     *out = Expr::make_int (token, token.integer);  break;
-    case Token_Float:   *out = Expr::make_real(token, token.floating); break;
-    case Token_Open_Paren:
-        parser_expr(p, out, is_lhs);
-        parser_expect(p, Token_Close_Paren);
-        break;
-    case Token_Open_Curly:
-        if (is_lhs) {
-            parser_error_token(p, "Cannot assign to a compound literal", token);
-        } else {
-            parser_error_token(p, "Table constructors not yet supported", token);
-        }
-        break;
-    case Token_Ident: {
-        String ident = token.loc.view;
-        if (!type_get(p->L, ident)
-            .is_some_and([=](Type const *type) {
-                *out = Expr::make_type(token, type);
-                return true; }))
-        {
-            u16      i;
-            VarInfo *v = parser_find_variable(p, ident, &i);
-
-            /*
-             Ensures that, for rvalue expressions, we absolutely have a
-             variable to work with.
-
-             For lvalue expressions, however, we can be more lenient.
-             Especially for declarations since the variable referred to
-             the identifier may not yet exist.
-             */
-            if (!v && !is_lhs) {
-                parser_error_token(p, "Unknown identifier", token);
-            }
-            *out = Expr::make_local(token, (v) ? v->type : nullptr, i);
-        }
-        break;
-    }
+    switch (this->token.kind) {
+    case Token_Ident:  this->ident_stmt();  break;
+    case Token_return: this->return_stmt(); break;
     default:
-        parser_error_token(p, "Expected an operand", token);
+        this->error("Expected a statement");
         break;
     }
-}
 
-static void
-parser_call(Parser *p, Expr *func)
-{
-    Expr arg;
-    if (!parser_check(p, Token_Close_Paren)) {
-        parser_expr(p, &arg);
-    }
-    parser_expect(p, Token_Close_Paren);
-    compiler_call(p->compiler, func, &arg);
-}
-
-static void
-parser_primary_expr(Parser *p, Expr *out, bool is_lhs)
-{
-    bool loop = true;
-    parser_operand(p, out, is_lhs);
-    while (loop) {
-        switch (p->token.kind) {
-        case Token_Open_Paren:
-            // Consume '('.
-            parser_advance(p);
-            parser_call(p, out);
-            break;
-        default:
-            loop = false;
-            break;
-        }
-        // After the first atom, we are no longer assignable.
-        is_lhs = false;
-    }
+    // Optional.
+    this->match(Token_Semicol);
 }
 
 /*
- Assumptions:
- 1) We are about to consume an identifier.
+ TODO(2026-09-05):
+    Allow multiple, comma-separated identifiers in a list?
+    E.g. `x, y: T` or `x, y, z := expr1, expr2, expr3`
+    or even `x, y, z := f()`.
  */
-static void
-parser_type(Parser *p, Expr *out)
+void
+Parser::ident_stmt()
 {
-    Token const token = p->token;
-    parser_expect(p, Token_Ident);
-    if (!type_get(p->L, token.loc.view)
-        .is_some_and([p, out, token](Type const *type) {
-            *out = Expr::make_type(token, type);
-            return true; }))
-    {
-        parser_error(p, "Unknown type name");
+    ExprList lhs_list = this->primary_expr_list(/*is_lhs=*/true);
+    switch (this->token.kind) {
+    case Token_Colon:
+        // Consume ':'
+        this->advance();
+        this->decl(lhs_list);
+        break;
+    case Token_Assign:
+        // Consume '='
+        this->advance();
+        this->assign(lhs_list);
+        break;
+    default:
+        if (lhs_list.count != 1 || lhs_list->kind != Expr_Call) {
+            this->error_at("Expected a declaration, assignment, or function call", *lhs_list);
+        }
+        break;
     }
+    mem_scratch_free_all(this->scratch);
+}
+
+void
+Parser::return_stmt()
+{
+    // Consume 'return'.
+    this->advance();
+
+    ExprList rets = this->expr_list();
+    compiler_return(this->compiler, rets);
+}
+
+
+void
+Parser::decl(ExprList lhs_list)
+{
+    Compiler *c = this->compiler;
+    compiler_declare_local(c, lhs_list);
+
+    // If we have tokens in between ':' and '=', it must be a type.
+    // Note that only one (1) type declaration is allowed, e.g. `x, y: int`
+    // and not `x, y: int, real`.
+    if (!this->check(Token_Assign)) {
+        // This should also catch invalid 'types', like `x: 1`.
+        Expr tmp = this->type();
+        for (Expr &lhs : lhs_list) {
+            lhs.type = tmp.type;
+        }
+    }
+
+    // `x := expr` or `x: T = expr`, but not `x: T`.
+    ExprList rhs_list;
+    if (this->match(Token_Assign)) {
+        rhs_list = this->expr_list();
+    }
+
+    // We don't have a type, so we need to infer it from the assigning
+    // expressions.
+    if (!lhs_list->type) {
+        this->infer_types(lhs_list, rhs_list);
+    } else if (rhs_list.count == 0) {
+        /*
+         We do have a type, but we don't have assigning expressions, e.g.
+         `x, y: int`. So we need to cough up an equal-length list of
+         zero-valued expressions of the appropriate type.
+
+         Note that, grammar-wise, we only allow one (1) type declaration. This
+         means that `x, y: int, int` is invalid and would error out before we
+         get to this point. So we can assume that all zero values will be of the
+         same type.
+         */
+        rhs_list = this->make_zero_values(lhs_list->type, lhs_list.count);
+    }
+
+    // Temporary until we can figure out how to handle function calls.
+    LULU_ASSERT(lhs_list.count == rhs_list.count);
+    compiler_define_local(c, lhs_list, rhs_list);
+}
+
+void
+Parser::assign(ExprList lhs_list)
+{
+    // Before anything else, ensure our assignment targets actually
+    // exist.
+    for (Expr &lhs : lhs_list) {
+        if (!lhs.type) {
+            this->error_at("Undeclared variable", lhs);
+        }
+    }
+
+    // Note that, unlike declaration-assignments, the number of assignment
+    // targets and assigning expressions MUST match.
+    ExprList rhs_list = this->expr_list();
+    if (lhs_list.count != rhs_list.count) {
+        Expr *tail = list_last_elem(rhs_list);
+        this->error_at("Mismatched number of expressions", *tail);
+    }
+    compiler_assign(this->compiler, lhs_list, rhs_list);
+}
+
+/*
+ Description:
+    Parses a list of comma-separated primary expressions.
+ */
+ExprList
+Parser::primary_expr_list(bool is_lhs)
+{
+    lulu_State *L = this->L;
+    Scratch    *x = this->scratch;
+    ExprList    list;
+    do {
+        Expr e = this->primary_expr(is_lhs);
+        list_append(L, &list, x, e);
+    } while (this->match(Token_Comma));
+    return list;
+}
+
+/*
+ Description:
+    Parses a list of comma-separated expressions.
+ */
+ExprList
+Parser::expr_list(bool is_lhs)
+{
+    lulu_State *L = this->L;
+    // Compiler   *c = p->compiler;
+    Scratch    *x = this->scratch;
+    ExprList    list;
+    do {
+        Expr e = this->expr(is_lhs);
+        // compiler_expr_next_reg(c, &e);
+        list_append(L, &list, x, e);
+    } while (this->match(Token_Comma));
+    return list;
+
 }
 
 // Must be higher than all other precedences in `parser_prec()`.
@@ -269,24 +228,60 @@ parser_prec(TokenKind k)
 }
 
 /*
+ Parses a single expression of the given precedence. By default, we parse
+ the basic precedence which is a good starting point.
+ */
+Expr
+Parser::expr(bool is_lhs, int prec_in)
+{
+    Compiler *c = this->compiler;
+
+    this->recurse_push();
+    Expr lhs = this->unary_expr(is_lhs);
+    for (;;) {
+        Token op       = this->token;
+        int   prec_out = parser_prec(op.kind);
+        // This also catches tokens that are not binary operators.
+        if (prec_out < prec_in) {
+            break;
+        }
+
+        this->advance();
+        if (!lhs.is_literal()) {
+            compiler_expr_any_reg(c, &lhs);
+        }
+
+        /*
+         Assumptions:
+         1) All binary operators are left-associative. We don't have
+            exponentiation.
+         */
+        Expr rhs = this->expr(/*is_lhs=*/false, prec_out + 1);
+        compiler_binary(c, op, &lhs, &rhs);
+    }
+    this->recurse_pop();
+    return lhs;
+}
+
+/*
  Assumptions:
  1) All unary operators are right-associative. I.e. `cast(bool)cast(int)x` is
     parsed as `cast(bool)(cast(int)x)` which is the same as `bool(int(x))`.
  */
-static void
-parser_unary_expr(Parser *p, Expr *out, bool is_lhs)
+Expr
+Parser::unary_expr(bool is_lhs)
 {
-    Token op = p->token;
+    Token op = this->token;
+    Expr expr;
     switch (op.kind) {
     case Token_cast: {
-        parser_advance(p);
-        parser_expect(p, Token_Open_Paren);
+        this->advance();
+        this->expect(Token_Open_Paren);
 
-        Expr type;
-        parser_type(p, &type);
-        parser_expect(p, Token_Close_Paren);
-        parser_expr(p, out, /*is_lhs=*/false, PREC_UNARY);
-        compiler_cast(p->compiler, &type, out);
+        Expr type = this->type();
+        this->expect(Token_Close_Paren);
+        expr = this->expr(/*is_lhs=*/false, PREC_UNARY);
+        compiler_cast(this->compiler, &type, &expr);
         break;
     }
     case Token_Tilde:
@@ -295,117 +290,175 @@ parser_unary_expr(Parser *p, Expr *out, bool is_lhs)
     case Token_not:
         // Skip the unary operand so the first token of the argument
         // is our current.
-        parser_advance(p);
-        parser_expr(p, out, is_lhs, PREC_UNARY);
-        compiler_unary(p->compiler, op, out);
+        this->advance();
+        expr = this->expr(is_lhs, PREC_UNARY);
+        compiler_unary(this->compiler, op, &expr);
         break;
     default:
-        parser_primary_expr(p, out, is_lhs);
+        expr = this->primary_expr(is_lhs);
         break;
     }
+    return expr;
 }
 
 #undef PREC_UNARY
 
-static void
-parser_recurse_push(Parser *p)
+Expr
+Parser::primary_expr(bool is_lhs)
 {
-    LULU_ASSERT(p->recursions + 1 < PARSER_MAX_RECURSIONS);
-    p->recursions++;
-}
-
-static void
-parser_recurse_pop(Parser *p)
-{
-    LULU_ASSERT(p->recursions - 1 >= 0);
-    p->recursions--;
-}
-
-static void
-parser_expr(Parser *p, Expr *out, bool is_lhs, int prec_in)
-{
-    Expr      rhs;
-    Compiler *c = p->compiler;
-
-    parser_recurse_push(p);
-    parser_unary_expr(p, out, is_lhs);
-    for (;;) {
-        Token op       = p->token;
-        int   prec_out = parser_prec(op.kind);
-        // This also catches tokens that are not binary operators.
-        if (prec_out < prec_in) {
+    bool loop = true;
+    Expr e = this->operand(is_lhs);
+    while (loop) {
+        switch (this->token.kind) {
+        case Token_Open_Paren:
+            // Consume '('.
+            this->advance();
+            this->call(&e);
+            break;
+        default:
+            loop = false;
             break;
         }
-
-        parser_advance(p);
-        if (!out->is_literal()) {
-            compiler_expr_any_reg(c, out);
-        }
-
-        /*
-         Assumptions:
-         1) All binary operators are left-associative. We don't have
-            exponentiation.
-         */
-        parser_expr(p, &rhs, /*is_lhs=*/false, prec_out + 1);
-        compiler_binary(c, op, out, &rhs);
+        // After the first atom, we are no longer assignable.
+        is_lhs = false;
     }
-    parser_recurse_pop(p);
+    return e;
 }
+
+void
+Parser::call(Expr *func)
+{
+    Expr arg;
+    if (!this->check(Token_Close_Paren)) {
+        arg = this->expr();
+    }
+    this->expect(Token_Close_Paren);
+    compiler_call(this->compiler, func, &arg);
+}
+
 
 /*
  Description:
-    Parses a list of comma-separated expressions.
- */
-static ExprList
-parser_expr_list(Parser *p, bool is_lhs = false)
-{
-    lulu_State *L = p->L;
-    // Compiler   *c = p->compiler;
-    Scratch    *x = p->scratch;
-    ExprList    list;
-    do {
-        Expr e;
-        parser_expr(p, &e, is_lhs);
-        // compiler_expr_next_reg(c, &e);
-        list_append(L, &list, x, e);
-    } while (parser_match(p, Token_Comma));
-    return list;
+    'operand' refers to our most basic expression. These are literals,
+    identifiers, unary operations, and table constructors.
 
+ Note (2026-07-03):
+    This is about the only place `lhs` is useful. It allows us to avoid
+    needlessly parsing a compound literal (in our case, a table) when in
+    declarations/assignments. See Odin's parser:
+
+    https://github.com/odin-lang/Odin/blob/1007ea278534e037fa586564c91113f5c925c286/src/parser.cpp#L2379
+ */
+Expr
+Parser::operand(bool is_lhs)
+{
+    Token token = this->token;
+    this->advance();
+    switch (token.kind) {
+    case Token_nil:     return Expr::make_nil (token);
+    case Token_false:   return Expr::make_bool(token, false);
+    case Token_true:    return Expr::make_bool(token, true);
+    case Token_Int:     return Expr::make_int (token, token.integer);
+    case Token_Float:   return Expr::make_real(token, token.floating);
+    case Token_Open_Paren:
+    {
+        Expr res = this->expr(is_lhs);
+        this->expect(Token_Close_Paren);
+        return res;
+    }
+    case Token_Open_Curly:
+        if (is_lhs) {
+            this->error_at("Cannot assign to a compound literal", token);
+        } else {
+            this->error_at("Table constructors not yet supported", token);
+        }
+        break;
+    case Token_Ident:
+    {
+        String ident = token.loc.view;
+        Option<Type const *> type = type_get(this->L, ident);
+        if (type.is_some()) {
+            return Expr::make_type(token, type.unwrap());
+        } else {
+            u16      i;
+            VarInfo *v = this->find_variable(ident, &i);
+
+            /*
+             Ensures that, for rvalue expressions, we absolutely have a
+             variable to work with.
+
+             For lvalue expressions, however, we can be more lenient.
+             Especially for declarations since the variable referred to
+             the identifier may not yet exist.
+             */
+            if (!v && !is_lhs) {
+                this->error_at("Unknown identifier", token);
+            }
+            return Expr::make_local(token, (v) ? v->type : nullptr, i);
+        }
+        break;
+    }
+    default:
+        this->error_at("Expected an operand", token);
+        break;
+    }
 }
 
 /*
- Description:
-    Parses a list of comma-separated primary expressions.
+ Assumptions:
+ 1) We are about to consume an identifier.
  */
-static ExprList
-parser_primary_expr_list(Parser *p, bool is_lhs)
+Expr
+Parser::type()
 {
-    lulu_State *L = p->L;
-    Scratch    *x = p->scratch;
-    ExprList    list;
-    do {
-        Expr e;
-        parser_primary_expr(p, &e, is_lhs);
-        list_append(L, &list, x, e);
-    } while (parser_match(p, Token_Comma));
-    return list;
+    Token const token = this->token;
+    this->expect(Token_Ident);
+
+    Option<Type const *> o = type_get(this->L, token.loc.view);
+    if (o.is_none()) {
+        this->error_at("Unknown type name", token);
+    }
+    return Expr::make_type(token, o.unwrap());
 }
 
-static void
-parser_infer_types(Parser *p, ExprList lhs_list, ExprList rhs_list)
+/*
+ TODO(2026-07-20): Add global lookup instead of worrying only about locals.
+ */
+VarInfo *
+Parser::find_variable(String name, u16 *out)
+{
+    // Loop invariants.
+    Compiler *     c      = this->compiler;
+    Slice<VarInfo> locals = slice_array(c->active_locals, 0, c->active_locals_len);
+    for (VarInfo &v : reverse(locals)) {
+        if (name == v.loc.view) {
+            if (out) {
+                *out = cast(u16)(&v - raw_data(locals));
+            }
+            return &v;
+        }
+    }
+
+    if (out) {
+        *out = cast(u16)-1;
+    }
+    return nullptr;
+}
+
+void
+Parser::infer_types(ExprList lhs_list, ExprList rhs_list)
 {
     // We want to infer the type but we literally don't have anything
     // to infer *from*, e.g. `x:`.
     if (rhs_list.count == 0) {
         // Report the error at the *last* local variable name.
         Expr *last = list_last_elem(lhs_list);
-        parser_error_expr(p, "Expected a type after ':'", last);
+        this->error_at("Expected a type after ':'", *last);
     }
 
     if (lhs_list.count != rhs_list.count) {
         Expr *last = list_last_elem(rhs_list);
-        parser_error_expr(p, "Mismatched number of expressions", last);
+        this->error_at("Mismatched number of expressions", *last);
     }
 
     // Copy over all assigning expression types to the targets so the
@@ -417,15 +470,15 @@ parser_infer_types(Parser *p, ExprList lhs_list, ExprList rhs_list)
     }
 }
 
-static ExprList
-parser_make_zero_values(Parser *p, Type const *t, int count)
+ExprList
+Parser::make_zero_values(Type const *type, int count)
 {
     Expr zero;
-    switch (t->kind) {
+    switch (type->kind) {
     case TypeKind_Basic:
         zero.kind         = Expr_Literal;
-        zero.literal_kind = t->basic.kind;
-        zero.type         = t;
+        zero.literal_kind = type->basic.kind;
+        zero.type         = type;
         switch (zero.literal_kind) {
         case Value_bool:
             zero.set_bool(false);
@@ -445,164 +498,106 @@ parser_make_zero_values(Parser *p, Type const *t, int count)
         }
         break;
     default:
-        LULU_PANICF("Unsupported zero type for TypeKind(%i)", t->kind);
+        LULU_PANICF("Unsupported zero type for TypeKind(%i)", type->kind);
         break;
     }
 
     ExprList rhs_list;
     for (int i = 0; i < count; i++) {
-        list_append(p->L, &rhs_list, p->scratch, zero);
+        list_append(this->L, &rhs_list, this->scratch, zero);
     }
     return rhs_list;
 }
 
-static void
-parser_decl(Parser *p, ExprList lhs_list)
+
+// Scan a new current token.
+void
+Parser::advance()
 {
-    Compiler *c = p->compiler;
-    compiler_declare_local(c, lhs_list);
-
-    // If we have tokens in between ':' and '=', it must be a type.
-    // Note that only one (1) type declaration is allowed, e.g. `x, y: int`
-    // and not `x, y: int, real`.
-    if (!parser_check(p, Token_Assign)) {
-        Expr tmp;
-        // This should also catch invalid 'types', like `x: 1`.
-        parser_type(p, &tmp);
-        for (Expr &lhs : lhs_list) {
-            lhs.type = tmp.type;
-        }
+    LexerResult result = this->lexer.scan_token();
+    // Nonzero error?
+    if (result.is_err()) {
+        LexerError err = result.unwrap_err();
+        this->error_at(lexer_error_string(err.kind), err.loc);
     }
-
-    // `x := expr` or `x: T = expr`, but not `x: T`.
-    ExprList rhs_list;
-    if (parser_match(p, Token_Assign)) {
-        rhs_list = parser_expr_list(p);
-    }
-
-    // We don't have a type, so we need to infer it from the assigning
-    // expressions.
-    if (!lhs_list->type) {
-        parser_infer_types(p, lhs_list, rhs_list);
-    }
-    else if (rhs_list.count == 0) {
-        /*
-         We do have a type, but we don't have assigning expressions, e.g.
-         `x, y: int`. So we need to cough up an equal-length list of
-         zero-valued expressions of the appropriate type.
-
-         Note that, grammar-wise, we only allow one (1) type declaration. This
-         means that `x, y: int, int` is invalid and would error out before we
-         get to this point. So we can assume that all zero values will be of the
-         same type.
-         */
-        rhs_list = parser_make_zero_values(p, lhs_list->type, lhs_list.count);
-    }
-
-    // Temporary until we can figure out how to handle function calls.
-    LULU_ASSERT(lhs_list.count == rhs_list.count);
-    compiler_define_local(c, lhs_list, rhs_list);
+    this->token = result.unwrap();
 }
 
-static void
-parser_assign(Parser *p, ExprList lhs_list)
-{
-    // Before anything else, ensure our assignment targets actually
-    // exist.
-    for (Expr &lhs : lhs_list) {
-        if (!lhs.type) {
-            parser_error_expr(p, "Undeclared variable", &lhs);
-        }
-    }
 
-    // Note that, unlike declaration-assignments, the number of assignment
-    // targets and assigning expressions MUST match.
-    ExprList rhs_list = parser_expr_list(p);
-    if (lhs_list.count != rhs_list.count) {
-        Expr *tail = list_last_elem(rhs_list);
-        parser_error_expr(p, "Mismatched number of expressions", tail);
-    }
-    compiler_assign(p->compiler, lhs_list, rhs_list);
+bool
+Parser::check(TokenKind wanted) const noexcept
+{
+    return this->token.kind == wanted;
 }
 
-/*
- TODO(2026-09-05):
-    Allow multiple, comma-separated identifiers in a list?
-    E.g. `x, y: T` or `x, y, z := expr1, expr2, expr3`
-    or even `x, y, z := f()`.
- */
-static void
-parser_ident_stmt(Parser *p)
+bool
+Parser::match(TokenKind wanted) noexcept
 {
-    ExprList lhs_list = parser_primary_expr_list(p, /*is_lhs=*/true);
-    switch (p->token.kind) {
-    case Token_Colon:
-        // Consume ':'
-        parser_advance(p);
-        parser_decl(p, lhs_list);
-        break;
-    case Token_Assign:
-        // Consume '='
-        parser_advance(p);
-        parser_assign(p, lhs_list);
-        break;
-    default:
-        if (lhs_list.count != 1 || lhs_list->kind != Expr_Call) {
-            parser_error_expr(p, "Expected a declaration, assignment, or function call",
-                &*lhs_list);
-        }
-        break;
+    bool found = this->check(wanted);
+    if (found) {
+        this->advance();
     }
-    mem_scratch_free_all(p->scratch);
+    return found;
 }
 
-static void
-parser_return_stmt(Parser *p)
+void
+Parser::expect(TokenKind expected)
 {
-    // Consume 'return'.
-    parser_advance(p);
-
-    ExprList rets = parser_expr_list(p);
-    compiler_return(p->compiler, rets);
+    if (!this->match(expected)) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "Expected '%s'", token_kind_cstring(expected));
+        this->error(buf);
+    }
 }
 
-static void
-parser_simple_stmt(Parser *p)
+static char const *
+parser_clamp_string(Slice<char> buf, String s)
 {
-    switch (p->token.kind) {
-    case Token_Ident:  parser_ident_stmt(p);  break;
-    case Token_return: parser_return_stmt(p); break;
-    default:
-        parser_error(p, "Expected a statement");
-        break;
+    usize it = 0;
+
+    // The iteration range is exclusive, so we save the last index for the
+    // nul character.
+    usize stop = min(len(s), len(buf) - 1);
+
+    // Prefix "..." to indicate that the full string was truncated and that
+    // you're seeing only the tail portion that fits.
+    if (len(s) > stop) {
+        buf[it++] = '.';
+        buf[it++] = '.';
+        buf[it++] = '.';
     }
 
-    // Optional.
-    parser_match(p, Token_Semicol);
+    for (; it < stop; it++) {
+        buf[it] = s[it];
+    }
+    buf[it] = 0;
+    return buf.data;
 }
 
-LULU_INTERNAL_FUNC Chunk *
-parser_parse(lulu_State *L, ParserData *data)
+[[noreturn]] void
+Parser::error_at(char const *info, Loc const &where)
 {
-    Parser   p;
-    Compiler c;
+    char name[80];
+    char loc[80];
+    fprintf(stderr, "%s:%i:%i: %s at '%s'\n",
+        parser_clamp_string({name, sizeof(name)}, this->path),
+        where.pos.line, where.pos.col, info,
+        parser_clamp_string({loc, sizeof(loc)}, where.view));
 
-    // parser init
-    p.L        = L;
-    p.compiler = &c;
-    p.lexer    = Lexer::make(data->path, data->input);
-    p.scratch  = &data->scratch;
-    
-    // compiler init
-    c.L        = L;
-    c.parser   = &p;
-    c.chunk    = &data->chunk;
-    parser_advance(&p);
-    while (!parser_check(&p, Token_Eof)) {
-        parser_simple_stmt(&p);
-    }
-    parser_expect(&p, Token_Eof);
-    compiler_finish(&c);
-    return c.chunk;
+    state_throw(this->L, LULU_SYNTAX_ERROR);
+}
+
+void
+Parser::recurse_push()
+{
+    LULU_ASSERT(this->recursions + 1 < PARSER_MAX_RECURSIONS);
+    this->recursions++;
+}
+
+void
+Parser::recurse_pop()
+{
+    LULU_ASSERT(this->recursions - 1 >= 0);
+    this->recursions--;
 }
 

@@ -5,7 +5,7 @@
 #include "mem.hpp"
 #include "type.hpp"
 
-struct lulu_Error_Handler;
+struct lulu_ErrorHandler;
 struct lulu_State {
     TypeEnv types;
 
@@ -13,7 +13,7 @@ struct lulu_State {
     Arena arena;
 
     // Error handlers only matter for `state_{try,throw}`.
-    lulu_Error_Handler *handler;
+    lulu_ErrorHandler *handler;
 };
 
 using Protected_Fn = void (*)(lulu_State *L, void *user_data);

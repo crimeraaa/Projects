@@ -21,11 +21,11 @@ struct VarInfo {
 
 struct Compiler {
     // Shared state.
-    lulu_State *L      = nullptr;
-    Parser *    parser = nullptr;
+    lulu_State *L;
+    Parser &    parser;
 
     // Compiler state.
-    Chunk *  chunk     = nullptr;
+    Chunk *  chunk;
     int      scope     = 0;
     i32      pc        = 0;
     u16      free_reg  = 0;
@@ -34,6 +34,12 @@ struct Compiler {
     // match the indices to be used here.
     u16      active_locals_len = 0;
     VarInfo  active_locals[LOCALS_MAX_COUNT];
+
+    Compiler(lulu_State *L, Parser &parser, Chunk *chunk)
+        : L{L}
+        , parser{parser}
+        , chunk{chunk}
+    {}
 };
 
 LULU_INTERNAL_FUNC void

@@ -1,7 +1,6 @@
 // standard
-#include <setjmp.h>
-#include <stdlib.h>
-#include <stdio.h>
+#include <cstdlib>
+#include <cstdio>
 
 #include "state.hpp"
 #include "parser.hpp"
@@ -9,10 +8,9 @@
 #include "debug.hpp"
 #include "vm.hpp"
 
-struct lulu_Error_Handler {
-    lulu_Error_Handler *prev;
-    volatile lulu_Error err;
-    jmp_buf             env;
+struct lulu_ErrorHandler {
+    lulu_ErrorHandler *prev;
+    lulu_Error         error;
 };
 
 // Wrap the initialization calls that may throw.
@@ -48,42 +46,39 @@ lulu_close(lulu_State *L)
 LULU_INTERNAL_FUNC lulu_Error
 state_try(lulu_State *L, Protected_Fn fn, void *user_data)
 {
-    lulu_Error_Handler handler;
-
     // Push new error handler.
-    handler.prev = L->handler;
-    handler.err  = LULU_OK;
-    L->handler   = &handler;
+    lulu_ErrorHandler handler{L->handler, LULU_OK};
+    L->handler = &handler;
 
     // Run the protected call. The first thrown error will go back here.
-    if (setjmp(handler.env) == 0) {
+    try {
         fn(L, user_data);
+    } catch (lulu_Error error) {
+        handler.error = error;
     }
 
     // Pop the error handler.
     L->handler = handler.prev;
-    return handler.err;
+    return handler.error;
 }
 
 LULU_INTERNAL_FUNC void
 state_throw(lulu_State *L, lulu_Error err)
 {
     if (L->handler) {
-        L->handler->err = err;
-        longjmp(L->handler->env, 1);
+        throw err;
     } else {
         char const *msg = lulu_error_string(err);
-        fprintf(stderr, "[FATAL] Unprotected call to Lulu API (%s)\n", msg);
-        exit(1);
+        std::fprintf(stderr, "[FATAL] Unprotected call to Lulu API (%s)\n", msg);
+        std::exit(1);
     }
 }
 
 static void
 state_parse(lulu_State *L, void *user_data)
 {
-    ParserData *data  = cast(ParserData *)user_data;
-    Chunk *     chunk = &data->chunk;
-    parser_parse(L, data);
+    ParserData &data  = *cast(ParserData *)user_data;
+    Chunk *     chunk = Parser::parse(L, data);
     debug_disassemble(chunk);
     vm_execute(L, chunk);
 }

@@ -296,10 +296,8 @@ Lexer::scan_number(char leader)
                     int extra = this->take_while(char_is_trailing);
                     if (extra == 0) {
                         return Ok(this->make_token_int(i));
-                    } else {
-                        return Err(this->make_error(LexerErrorKind::Invalid_Digit));
                     }
-                });
+                    return Err(this->make_error(LexerErrorKind::Invalid_Digit)); });
         }
     }
 

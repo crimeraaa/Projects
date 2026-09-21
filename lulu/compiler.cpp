@@ -32,7 +32,7 @@ compiler_finish(Compiler *c)
 [[noreturn]] static void
 compiler_error(Compiler *c, char const *info, Expr const *e)
 {
-    parser_error_expr(c->parser, info, e);
+    c->parser.error_at(info, *e);
 }
 
 static i32

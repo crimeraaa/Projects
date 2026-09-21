@@ -117,8 +117,8 @@ using LexerResult = Result<Token, LexerError>;
 
 
 class Lexer {
-    /// File name and contents.
-    String path, input;
+    /// User's source code input contents.
+    String input;
 
     /// Lexeme's starting offset in `input`.
     usize prev_offset;
@@ -131,10 +131,9 @@ class Lexer {
 
 public:
     static Lexer
-    make(String path, String input)
+    make(String input)
     {
         Lexer x;
-        x.path        = path;
         x.input       = input;
         x.prev_offset = 0;
         x.curr_offset = 0;
@@ -142,9 +141,6 @@ public:
         x.curr_pos    = Pos{1, 1};
         return x;
     }
-
-    String
-    get_path() const noexcept { return this->path; }
 
     LexerResult
     scan_token();
