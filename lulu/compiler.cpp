@@ -15,7 +15,7 @@ class Parser;
 
 /*
  Description:
-    Represents the meta-information about a named register.
+    Represents the compile-time, meta-information about a named register.
  */
 struct VarInfo {
     Loc         loc;
@@ -30,20 +30,21 @@ struct CompilerBinaryResult {
 };
 
 class Compiler {
-    // Shared state.
+    // Shared state. All nested compilers must share the same pointers/references
+    // to these.
     lulu_State *L;
     Parser &    parser;
 
-    // Compiler state.
-    Chunk &  chunk;
-    int      scope;
-    i32      pc;
-    u16      free_reg;
+    // Compiler state. These are local to the current compiler.
+    Chunk &     chunk;
+    int         scope;
+    i32         pc;
+    u16         free_reg;
 
     // Track the list of currently active local variables. Their registers
     // match the indices to be used here.
-    u16      active_locals_len;
-    VarInfo  active_locals[LOCALS_MAX_COUNT];
+    u16         active_locals_len;
+    VarInfo     active_locals[LOCALS_MAX_COUNT];
 
 public:
     Compiler(lulu_State *L, Parser &parser, Chunk &chunk)
@@ -218,8 +219,8 @@ Compiler::finish()
     Chunk &     chunk = this->chunk;
     this->implicit_return();
 
-    i32  pc       = this->pc;
-    auto reg_info = chunk.reg_info;
+    i32 const      pc       = this->pc;
+    Slice<RegInfo> reg_info = chunk.reg_info.slice();
     for (VarInfo v : this->slice_active_locals()) {
         reg_info[v.reg_info_index].pc_died = pc;
     }
@@ -788,10 +789,15 @@ Compiler::declare_local(ExprList lhs_list)
     lulu_State *L = this->L;
 
     // Declare from left to right.
-    i32   pc            = this->pc;
-    auto &reg_info      = this->chunk.reg_info;
-    auto  active_locals = this->slice_active_locals();
-    u16   reg           = this->active_locals_len;
+    i32   pc       = this->pc;
+    auto &reg_info = this->chunk.reg_info;
+
+    // Don't use a slice because we are going to write beyond the active length.
+    // This declares new locals but does not yet mark them as 'active' to prevent
+    // their identifiers from being evaluated as themselves in the assigning
+    // expression/s.
+    VarInfo *active_locals = this->active_locals;
+    u16      reg           = this->active_locals_len;
     for (Expr &lhs : lhs_list) {
         if (lhs.kind != Expr_Local) {
             this->error("Unassignable target", lhs);
@@ -826,10 +832,10 @@ Compiler::define_local(ExprList lhs_list, ExprList rhs_list)
 {
     LULU_ASSERT(lhs_list.count == rhs_list.count);
 
-    auto reg_info      = this->chunk.reg_info;
-    auto active_locals = this->slice_active_locals();
-    int  scope         = this->scope;
-    u16  reg           = cast(u16)active_locals.len();
+    Slice<RegInfo> reg_info      = this->chunk.reg_info.slice();
+    VarInfo *      active_locals = this->active_locals;
+    int            scope         = this->scope;
+    u16            reg           = this->active_locals_len;
     for (Expr &rhs : rhs_list) {
         Expr &lhs = *lhs_list++;
 
@@ -848,11 +854,11 @@ Compiler::define_local(ExprList lhs_list, ExprList rhs_list)
 
         LULU_ASSERT(rhs.type == lhs.type);
 
-        u16 tmp = this->expr_next_reg(rhs);
-        VarInfo *v = &active_locals[reg++];
-        v->scope   = scope;
-        v->type    = lhs.type;
-        reg_info[v->reg_info_index].type = lhs.type;
+        this->expr_next_reg(rhs);
+        VarInfo &v = active_locals[reg++];
+        v.scope    = scope;
+        v.type     = lhs.type;
+        reg_info[v.reg_info_index].type = lhs.type;
     }
 
     // The last register is the length.

@@ -559,7 +559,7 @@ Parser::find_variable(String name, u16 *out)
     for (VarInfo &v : reverse(locals)) {
         if (name == v.loc.view) {
             if (out) {
-                *out = cast(u16)(&v - locals.raw_data());
+                *out = cast(u16)locals.index_ptr_unsafe(&v);
             }
             return &v;
         }

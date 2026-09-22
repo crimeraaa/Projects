@@ -26,57 +26,35 @@ public:
 
     template<class N>
     T &
-    operator[](N index)
+    operator[](N index) const
     {
         auto i = cast(usize)index;
         // You may opt to let ASAN help here to report the stack trace.
-        // LULU_ASSERTF(i < this->len, "Out of bounds index %zu", i);
+        LULU_ASSERTF(i < this->len(), "Out of bounds index %zu / %zu", i, this->len());
         return this->m_data[i];
     }
 
-    template<class N>
-    T const &
-    operator[](N index) const
-    {
-        return (cast(Self *)this)->operator[](index);
-    }
-
     T *
-    raw_data()       noexcept { return this->m_data; }
-
-    T const *
     raw_data() const noexcept { return this->m_data; }
 
     usize
     len()      const noexcept { return this->m_len; }
 
     T *
-    begin()          noexcept { return this->raw_data(); }
-
-    T *
-    end()            noexcept { return this->begin() + this->len(); }
-
-    T const *
     begin()    const noexcept { return this->m_data; }
 
-    T const *
+    T *
     end()      const noexcept { return this->begin() + this->len(); }
-
-    Self
-    slice(usize start, usize stop)
-    {
-        usize n = stop - start;
-        LULU_ASSERT(start <= stop);
-        LULU_ASSERT(stop  <= this->len());
-        return {&this->m_data[start], n};
-    }
 
     Self
     slice(usize start, usize stop) const
     {
+        usize n = stop - start;
+        LULU_ASSERT(start <= stop);
+        LULU_ASSERT(stop  <= this->len());
         // If `T` is const to begin with, then `Slice<T>` is equivalent to
         // `Slice<T const>`. The extra `const` is redundant.
-        return (cast(Self *)this)->slice(start, stop);
+        return {&this->m_data[start], n};
     }
 
     Self
@@ -106,7 +84,7 @@ public:
     index_ptr(T *ptr) noexcept
     {
         if (this->has_ptr(ptr)) {
-            return Some(this->index_ptr(ptr));
+            return Some(this->index_ptr_unsafe(ptr));
         } else {
             return None{};
         }

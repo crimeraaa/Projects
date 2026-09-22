@@ -48,8 +48,8 @@ vm_dump_stack(Slice<Value> regs)
 {
     printf("===========================\n");
     for (Value &reg : regs) {
-        auto i = &reg - regs.raw_data();
-        printf("R(%ti) = {i = " LULU_INT_FMT ", f = " LULU_REAL_FMT ", p = 0x%p}\n",
+        usize i = regs.index_ptr_unsafe(&reg);
+        printf("R(%zu) = {i = " LULU_INT_FMT ", f = " LULU_REAL_FMT ", p = 0x%p}\n",
             i, reg.i, reg.r, reg.p);
     }
 }

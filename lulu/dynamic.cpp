@@ -16,35 +16,25 @@ public:
     // Defer to underlying Slice implementation.
     template<class N>
     T &
-    operator[](N index)       { return this->m_slice[index]; }
-
-    template<class N>
-    T const &
     operator[](N index) const { return this->m_slice[index]; }
 
     usize
-    len() const noexcept { return this->m_slice.len(); }
+    len()      const noexcept { return this->m_slice.len(); }
 
     usize
-    cap() const noexcept { return this->m_cap; }
+    cap()      const noexcept { return this->m_cap; }
 
     T *
-    raw_data()             { return this->m_slice.raw_data(); }
+    raw_data() const noexcept { return this->m_slice.raw_data(); }
 
     T *
-    begin()                { return this->m_slice.begin(); }
+    begin()    const noexcept { return this->m_slice.begin(); }
 
     T *
-    end()                  { return this->m_slice.end(); }
-
-    T const *
-    begin() const noexcept { return this->m_slice.begin(); }
-
-    T const *
-    end()   const noexcept { return this->m_slice.end(); }
+    end()      const noexcept { return this->m_slice.end(); }
 
     Slice<T>
-    slice() { return this->m_slice; }
+    slice()    const noexcept { return this->m_slice; }
 
     void
     append(lulu_State *L, T const &value)
@@ -63,7 +53,7 @@ public:
     {
         usize n = this->len();
         this->m_slice.m_data = mem_heap_resize(L, this->raw_data(), this->cap(), /*new_cap=*/n);
-        this->m_cap        = n;
+        this->m_cap           = n;
     }
 
     void

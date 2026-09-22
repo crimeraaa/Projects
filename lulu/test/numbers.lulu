@@ -1,5 +1,11 @@
-x := 9 + 10
-y := 6.7
+x, y := 9 + 10, 6.7
+
+-- Radians: pi and tau
 PI := 3.14159265
+TAU := PI * 2.0
+
+-- Gravitational acceleration constant
 G := -9.8067
+
+-- Avogrado's number
 N_a := 6.02214076e23
