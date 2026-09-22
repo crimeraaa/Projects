@@ -176,7 +176,15 @@ struct RevSlice {
     auto __stop = ::end(__rev);
     for (; __it != __stop; ++__it) { ... }
  */
-template<class T> inline RevSlice<T> reverse(Slice<T> s)    { return {s};                   }
-template<class T> inline RevIt<T>    begin  (RevSlice<T> r) { return {r.slice.end()   - 1}; }
-template<class T> inline RevIt<T>    end    (RevSlice<T> r) { return {r.slice.begin() - 1}; }
+template<class T>
+static inline RevSlice<T>
+reverse(Slice<T> s)  { return {s}; }
+
+template<class T>
+static inline RevIt<T>
+begin(RevSlice<T> r) { return {r.slice.end()   - 1}; }
+
+template<class T>
+static inline RevIt<T>
+end(RevSlice<T> r)   { return {r.slice.begin() - 1}; }
 

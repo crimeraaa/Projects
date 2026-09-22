@@ -1,10 +1,10 @@
 #pragma once
 
 #include "internal.hpp"
-#include "lexer.hpp"
-#include "type.hpp"
-#include "list.hpp"
-#include "value.hpp"
+#include "lexer.cpp"
+#include "type.cpp"
+#include "list.cpp"
+#include "value.cpp"
 
 enum ExprKind : u8 {
     Expr_None,

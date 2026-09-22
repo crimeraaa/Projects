@@ -5,7 +5,7 @@
 
 // local
 #include "internal.hpp"
-#include "slice.hpp"
+#include "slice.cpp"
 
 using String = Slice<char const>;
 

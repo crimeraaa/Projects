@@ -1,10 +1,12 @@
+#pragma once
+
 #include <limits.h> // CHAR_BIT
 #include <stdio.h>
 
-#include "debug.hpp"
-#include "opcode.hpp"
-#include "chunk.hpp"
-
+#include "opcode.cpp"
+#include "chunk.cpp"
+#include "value.cpp"
+#include "type.cpp"
 
 static void
 print_bool(bool b)
@@ -79,7 +81,40 @@ print_tvalue(TValue v)
     }
 }
 
-LULU_INTERNAL_FUNC void
+static char const *const
+OPCODE_CSTRINGS[] = {
+#define X(e, ...) #e,
+    OPCODE_KINDS(X)
+#undef X
+};
+
+void
+debug_disassemble_at(Chunk const *c, usize offset)
+{
+    Instruction i  = c->code[offset];
+    OpCode      op = i.Op();
+    u8          A  = i.A();
+
+    printf("[%zu] %-8s %-3u ", offset, OPCODE_CSTRINGS[op], A);
+    switch (opcode_info(op).FORMAT) {
+    case OpForm_ABC:
+        printf("%-3u %-7u", i.B(), i.C());
+        break;
+    case OpForm_ABx:
+        printf("%-11u", i.Bx());
+        break;
+    case OpForm_AsBx:
+        printf("%-11i", i.sBx());
+        break;
+    case OpForm_vABC:
+        printf("%-3u %-3u k=%u", i.B(), i.vC(), i.k());
+        break;
+    }
+
+    printf("\n");
+}
+
+void
 debug_disassemble(Chunk const *c)
 {
     usize n = 0;
@@ -109,34 +144,3 @@ debug_disassemble(Chunk const *c)
     printf("=============================\n");
 }
 
-static char const *const OPCODE_CSTRINGS[] = {
-#define X(e, ...) #e,
-    OPCODE_KINDS(X)
-#undef X
-};
-
-LULU_INTERNAL_FUNC void
-debug_disassemble_at(Chunk const *c, usize offset)
-{
-    Instruction i  = c->code[offset];
-    OpCode      op = i.Op();
-    u8          A  = i.A();
-
-    printf("[%zu] %-8s %-3u ", offset, OPCODE_CSTRINGS[op], A);
-    switch (opcode_info(op).FORMAT) {
-    case OpForm_ABC:
-        printf("%-3u %-7u", i.B(), i.C());
-        break;
-    case OpForm_ABx:
-        printf("%-11u", i.Bx());
-        break;
-    case OpForm_AsBx:
-        printf("%-11i", i.sBx());
-        break;
-    case OpForm_vABC:
-        printf("%-3u %-3u k=%u", i.B(), i.vC(), i.k());
-        break;
-    }
-
-    printf("\n");
-}

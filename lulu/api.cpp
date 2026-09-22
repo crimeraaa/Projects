@@ -1,17 +1,6 @@
 #include "lulu.h"
-#include "strings.hpp"
-
-#include "opcode.cpp"
-#include "mem.cpp"
+#include "strings.cpp"
 #include "state.cpp"
-#include "type.cpp"
-#include "lexer.cpp"
-#include "parser.cpp"
-#include "checker.cpp"
-#include "compiler.cpp"
-#include "value.cpp"
-#include "debug.cpp"
-#include "vm.cpp"
 
 LULU_API char const *
 lulu_error_string(lulu_Error err)

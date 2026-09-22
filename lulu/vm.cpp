@@ -1,7 +1,8 @@
-#include "vm.hpp"
-#include "opcode.hpp"
-#include "debug.hpp"
-#include "value.hpp"
+#pragma once
+
+#include "opcode.cpp"
+#include "value.cpp"
+#include "debug.cpp"
 
 template<class T> static inline void
 vm_arith1(T (*op)(T a), Value *RA, Value RB)
@@ -59,7 +60,7 @@ vm_dump_stack(Slice<Value> regs)
 #define KB(i)   K[(i).B()]
 #define KC(i)   K[(i).C()]
 
-LULU_INTERNAL_FUNC void
+void
 vm_execute(lulu_State *L, Chunk *c)
 {
     Value        R[ARG_A.MAX];

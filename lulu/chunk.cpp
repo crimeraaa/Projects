@@ -1,14 +1,15 @@
 #pragma once
 
 #include "internal.hpp"
-#include "opcode.hpp"
-#include "mem.hpp"
-#include "value.hpp"
-#include "type.hpp"
+#include "dynamic.cpp"
 
 #define CHUNK_MAX_CONSTANTS     ARG_MAX_Bx
 
 static inline i32 PC_NONE = -1;
+
+struct Type;
+struct Instruction;
+struct TValue;
 
 struct RegInfo {
     u8          reg;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mem.hpp"
+#include "mem.cpp"
 
 template<class T>
 struct ListNode {
@@ -43,10 +43,7 @@ public:
         to store lists of pointers.
      */
     T &
-    operator*()
-    {
-        return this->node->data;
-    }
+    operator*() { return this->node->data; }
 
     /*
      Description:
@@ -55,10 +52,7 @@ public:
         seem we *are* the underyling object.
      */
     T *
-    operator->()
-    {
-        return &this->node->data;
-    }
+    operator->() { return &this->node->data; }
 
     /*
      Description:
@@ -114,7 +108,7 @@ public:
             tail = &(cast(Node *)&elem)->next;
         }
 
-        *tail         = mem_scratch_alloc<Node>(L, x);
+        *tail         = x->alloc<Node>(L);
         (*tail)->data = data;
         (*tail)->next = nullptr;
         this->count++;

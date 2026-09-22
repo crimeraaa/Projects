@@ -1,35 +1,242 @@
+#pragma once
+
 #include "lulu.h"
 #include "internal.hpp"
-#include "mem.hpp"
-#include "value.hpp"
-#include "opcode.hpp"
-#include "type.hpp"
-#include "expr.hpp"
-#include "parser.hpp"
-#include "chunk.hpp"
-#include "compiler.hpp"
-#include "checker.hpp"
+#include "opcode.cpp"
+#include "value.cpp"
+#include "chunk.cpp"
+#include "type.cpp"
+#include "expr.cpp"
+#include "checker.cpp"
+
+#define LOCALS_MAX_COUNT 0x10
+
+class Parser;
+
+/*
+ Description:
+    Represents the meta-information about a named register.
+ */
+struct VarInfo {
+    Loc         loc;
+    Type const *type;
+    int         scope; // 0 indicates global scope.
+    u32         reg_info_index;
+};
+
+struct CompilerBinaryResult {
+    bool ok;      // Did we successfuly compile the binary expression?
+    bool swapped; // Did we need to swap the contents of the operands?
+};
+
+class Compiler {
+    // Shared state.
+    lulu_State *L;
+    Parser &    parser;
+
+    // Compiler state.
+    Chunk &  chunk;
+    int      scope;
+    i32      pc;
+    u16      free_reg;
+
+    // Track the list of currently active local variables. Their registers
+    // match the indices to be used here.
+    u16      active_locals_len;
+    VarInfo  active_locals[LOCALS_MAX_COUNT];
+
+public:
+    Compiler(lulu_State *L, Parser &parser, Chunk &chunk)
+        : L{L}
+        , parser{parser}
+        , chunk{chunk}
+        , scope{0}
+        , pc{0}
+        , free_reg{0}
+        , active_locals_len{0}
+    {}
+
+    void
+    finish();
+
+    Slice<VarInfo>
+    slice_active_locals()
+    {
+        return slice_array(this->active_locals, 0, this->active_locals_len);
+    }
+
+// HIGH-LEVEL EXPR MANIPULATION ============================================ {{{
+public:
+    void
+    explicit_cast(Expr &restrict t, Expr &restrict arg);
+
+private:
+    bool
+    cast_basic_type(Expr &e, ValueKind basic_kind);
+
+    bool
+    cast_bool(Expr &e);
+
+    bool
+    cast_int(Expr &e);
+
+    bool
+    cast_real(Expr &e);
+
+public:
+    void
+    call(Expr &restrict func, Expr &restrict arg);
+
+    void
+    unary(Token const &op, Expr &e);
+
+private:
+    bool
+    unary_dispatch(Token const &op, Expr &e);
+
+    bool
+    unary_bnot(Expr &e);
+
+    bool
+    unary_neg(Expr &e);
+
+    bool
+    unary_not(Expr &e);
+
+public:
+    void
+    binary(Token const &op, Expr &restrict lhs, Expr &restrict rhs);
+
+private:
+    // TODO(2026-09-22): Convert most of these to checker functions?
+    CompilerBinaryResult
+    binary_imm(OpCode op, Expr &restrict lhs, Expr &restrict rhs, bool k);
+
+    CompilerBinaryResult
+    arithi(OpCode iop, Expr &restrict lhs, Expr &restrict rhs);
+
+    CompilerBinaryResult
+    comparei(OpCode iop, Expr &restrict lhs, Expr &restrict rhs, bool k);
+
+    CompilerBinaryResult
+    binaryk(OpCode op, Expr &restrict lhs, Expr &restrict rhs, bool k);
+
+    CompilerBinaryResult
+    arithk(OpCode kop, Expr &restrict lhs, Expr &restrict rhs);
+
+    CompilerBinaryResult
+    comparek(OpCode kop, Expr &restrict lhs, Expr &restrict rhs, bool k);
+
+public:
+    void
+    explicit_return(ExprList list);
+
+    void
+    implicit_return() { this->explicit_return({}); }
+
+    void
+    declare_local(ExprList lhs_list);
+
+    void
+    define_local(ExprList lhs_list, ExprList rhs_list);
+
+    void
+    assign(ExprList lhs_list, ExprList rhs_list);
+
+// ========================================================================= }}}
+// LOW-LEVEL EXPR MANIPULATION ============================================= {{{
+public:
+    u16
+    expr_next_reg(Expr &e);
+
+    u16
+    expr_any_reg(Expr &e);
+
+    void
+    pop_expr(Expr &e);
+
+private:
+    u16
+    expr_to_reg(Expr &e, u16 reg);
+
+    void
+    discharge_vars(Expr &e);
+
+    void
+    discharge_reg(Expr &e, u16 reg);
+
+    void
+    load_bool(u16 reg, bool b, bool skip = false);
+
+    void
+    load_int(u16 reg, intr i);
+
+    void
+    load_real(u16 reg, real r);
+
+    void
+    push_reg(u16 reg_count);
+
+    bool
+    pop_reg(u16 reg);
+
+// ========================================================================= }}}
+// BYTECODE MANIPULATION =================================================== {{{
+private:
+    u32
+    add_constant(TValue tv);
+
+    i32
+    code_ABC(OpCode Op, u16 A, u16 B, u16 C);
+
+    i32
+    code_AB0(OpCode Op, u16 A, u16 B) { return this->code_ABC(Op, A, B, 0); }
+
+    i32
+    code_vABC(OpCode Op, u16 A, u16 B, u16 vC, bool k);
+
+    i32
+    code_ABx(OpCode Op, u16 A, u32 Bx);
+
+    i32
+    code_AsBx(OpCode Op, u16 A, i32 sBx);
+
+    i32
+    code(Instruction i);
+
+// ========================================================================= }}}
+private:
+    // Delegates error handling to the Parser.
+    [[noreturn]] void
+    error(char const *info, Expr const &e);
+}; // struct Compiler
 
 void
 Compiler::finish()
 {
     lulu_State *L     = this->L;
-    Chunk *     chunk = this->chunk;
+    Chunk &     chunk = this->chunk;
     this->implicit_return();
 
     i32  pc       = this->pc;
-    auto reg_info = chunk->reg_info;
+    auto reg_info = chunk.reg_info;
     for (VarInfo v : this->slice_active_locals()) {
         reg_info[v.reg_info_index].pc_died = pc;
     }
 
     // Shrink chunk to fit.
-    chunk->code.shrink(L);
-    chunk->constants.shrink(L);
-    chunk->reg_info.shrink(L);
+    chunk.code.shrink(L);
+    chunk.constants.shrink(L);
+    chunk.reg_info.shrink(L);
 }
 
+// HIGH-LEVEL EXPR MANIPULATION ============================================ {{{
 // CAST/CALL =============================================================== {{{
+
+/*
+ Description:
+    Emits the bytecode needed to perform `cast(t)e`.
+ */
 void
 Compiler::explicit_cast(Expr &restrict t, Expr &restrict arg)
 {   
@@ -75,7 +282,7 @@ Compiler::cast_basic_type(Expr &e, ValueKind basic_kind)
     case Expr_Compare:
     case Expr_Pending:
         this->expr_any_reg(e);
-        this->expr_pop(e);
+        this->pop_expr(e);
         break;
     case Expr_Discharged:
         break;
@@ -163,6 +370,10 @@ Compiler::cast_real(Expr &e)
     return false;
 }
 
+/*
+ Description:
+    Emits the bytecode needed to perform `func(arg)`.
+ */
 void
 Compiler::call(Expr &restrict func, Expr &restrict arg)
 {
@@ -179,6 +390,15 @@ Compiler::call(Expr &restrict func, Expr &restrict arg)
 
 // ========================================================================= }}}
 // UNARY =================================================================== {{{
+
+/*
+ Description:
+    Emits the bytecode for `op e`.
+
+ Arguments:
+    op [in]
+    e  [out]
+ */
 void
 Compiler::unary(Token const &op, Expr &e)
 {
@@ -246,7 +466,7 @@ Compiler::unary_not(Expr &e)
         return true;
     case Expr_Compare: {
         // E.g. `not (x == y)`
-        Instruction *ip = &this->chunk->code[e.pc];
+        Instruction *ip = &this->chunk.code[e.pc];
         bool const   k  = ip->k();
         ip->set_k(!k);
         return true;
@@ -264,10 +484,20 @@ Compiler::unary_not(Expr &e)
 }
 // ========================================================================= }}}
 // BINARY ================================================================== {{{
+
+/*
+ Description:
+    Emits the bytecode for `lhs op rhs`.
+
+ Arguments:
+    op  [in]
+    lhs [in, out] - The final output state (register or pc) goes here.
+    rhs [in, out] - May be transformed, but does not store the main output.
+ */
 void
 Compiler::binary(Token const &op, Expr &restrict lhs, Expr &restrict rhs)
 {
-    switch (checker_fold_binary(op, &lhs, &rhs)) {
+    switch (checker_fold_binary(op, lhs, rhs)) {
     case Checker_Ok:
         lhs.loc = rhs.loc;
         return;
@@ -278,7 +508,7 @@ Compiler::binary(Token const &op, Expr &restrict lhs, Expr &restrict rhs)
         break;
     }
 
-    auto r = checker_fix_binary(op, &lhs, &rhs);
+    auto r = checker_fix_binary(op, lhs, rhs);
     if (!r.ok) {
         // Leaky abstraction but who tf cares amirite
         if (r.op) {
@@ -317,11 +547,11 @@ Compiler::binary(Token const &op, Expr &restrict lhs, Expr &restrict rhs)
     u16 r1 = lhs.get_reg();
     u16 r2 = this->expr_any_reg(rhs);
     if (r1 > r2) {
-        this->expr_pop(lhs);
-        this->expr_pop(rhs);
+        this->pop_expr(lhs);
+        this->pop_expr(rhs);
     } else {
-        this->expr_pop(rhs);
-        this->expr_pop(lhs);
+        this->pop_expr(rhs);
+        this->pop_expr(lhs);
     }
 
     if (r.is_compare) {
@@ -381,7 +611,7 @@ Compiler::binary_imm(OpCode op, Expr &restrict lhs, Expr &restrict rhs, bool k)
 CompilerBinaryResult
 Compiler::arithi(OpCode iop, Expr &restrict lhs, Expr &restrict rhs)
 {
-    auto r = checker_fix_arithi(&iop, &lhs, &rhs);
+    auto r = checker_fix_arithi(iop, lhs, rhs);
     if (r.ok) {
         /*
          Assumes any of the following forms:
@@ -396,7 +626,7 @@ Compiler::arithi(OpCode iop, Expr &restrict lhs, Expr &restrict rhs)
          so we have to manually manage them.
          */
         u16 reg = this->expr_any_reg(lhs);
-        this->expr_pop(lhs);
+        this->pop_expr(lhs);
         lhs.set_pending(this->code_ABC(iop, REG_NONE, reg, cast(u16)r.imm));
     }
     return {r.ok, r.swapped};
@@ -405,10 +635,10 @@ Compiler::arithi(OpCode iop, Expr &restrict lhs, Expr &restrict rhs)
 CompilerBinaryResult
 Compiler::comparei(OpCode iop, Expr &restrict lhs, Expr &restrict rhs, bool k)
 {
-    auto r = checker_fix_comparei(&iop, &lhs, &rhs, &k);
+    auto r = checker_fix_comparei(iop, lhs, rhs, k);
     if (r.ok) {
         u16 reg = this->expr_any_reg(lhs);
-        this->expr_pop(lhs);
+        this->pop_expr(lhs);
 
         /*
          Consider the following forms:
@@ -465,11 +695,11 @@ Compiler::binaryk(OpCode op, Expr &restrict lhs, Expr &restrict rhs, bool k)
 CompilerBinaryResult
 Compiler::arithk(OpCode kop, Expr &restrict lhs, Expr &restrict rhs)
 {
-    auto r = checker_fix_arithk(&kop, &lhs, &rhs);
+    auto r = checker_fix_arithk(kop, lhs, rhs);
     if (r.ok) {
         // May be a temporary register.
         u16 reg = this->expr_any_reg(lhs);
-        this->expr_pop(lhs);
+        this->pop_expr(lhs);
 
         u32 i = this->add_constant(r.constant);
         // TODO(2026-09-13): Handle resolving their registers later on?
@@ -487,10 +717,10 @@ Compiler::arithk(OpCode kop, Expr &restrict lhs, Expr &restrict rhs)
 CompilerBinaryResult
 Compiler::comparek(OpCode kop, Expr &restrict lhs, Expr &restrict rhs, bool k)
 {
-    auto r = checker_fix_comparek(&kop, &lhs, &rhs, &k);
+    auto r = checker_fix_comparek(&kop, lhs, rhs, &k);
     if (r.ok) {
         u16 reg = this->expr_any_reg(lhs);
-        this->expr_pop(lhs);
+        this->pop_expr(lhs);
 
         u32 i = this->add_constant(r.constant);
         // TODO(2026-09-13): Handle resolving their registers later on?
@@ -507,6 +737,10 @@ Compiler::comparek(OpCode kop, Expr &restrict lhs, Expr &restrict rhs, bool k)
 }
 // ========================================================================= }}}
 
+/*
+ Description:
+    Emits the bytecode for `return a, b, ...x`.
+ */
 void
 Compiler::explicit_return(ExprList list)
 {
@@ -535,10 +769,19 @@ Compiler::explicit_return(ExprList list)
 
     // The range is exclusive, so the actual last register is off-by-one.
     for (u16 reg = stop_reg; reg-- >= start_reg;) {
-        reg_pop(reg);
+        pop_reg(reg);
     }
 }
 
+/*
+ Description:
+    Creating new local variables is defined into two (2) steps, and this is
+    the first. We simply mark the existence of this local variable but don't
+    consider it 'active'.
+
+ Arguments:
+    lhs [in, out] - Must contain the identifiers we wish to use.
+ */
 void
 Compiler::declare_local(ExprList lhs_list)
 {
@@ -546,7 +789,7 @@ Compiler::declare_local(ExprList lhs_list)
 
     // Declare from left to right.
     i32   pc            = this->pc;
-    auto *reg_info      = &this->chunk->reg_info;
+    auto &reg_info      = this->chunk.reg_info;
     auto  active_locals = this->slice_active_locals();
     u16   reg           = this->active_locals_len;
     for (Expr &lhs : lhs_list) {
@@ -560,7 +803,7 @@ Compiler::declare_local(ExprList lhs_list)
             this->error("Shadowing of variable", lhs);
         }
 
-        reg_info->append(L, RegInfo{
+        reg_info.append(L, RegInfo{
             /*reg    =*/cast(u8)reg,
             /*pc_born=*/pc,
             /*pc_died=*/PC_NONE,
@@ -573,7 +816,7 @@ Compiler::declare_local(ExprList lhs_list)
             /*loc           =*/lhs.loc,
             /*type          =*/nullptr,
             /*scope         =*/-1,
-            /*reg_info_index=*/cast(u32)(reg_info->len() - 1),
+            /*reg_info_index=*/cast(u32)(reg_info.len() - 1),
         };
     }
 }
@@ -583,7 +826,7 @@ Compiler::define_local(ExprList lhs_list, ExprList rhs_list)
 {
     LULU_ASSERT(lhs_list.count == rhs_list.count);
 
-    auto reg_info      = this->chunk->reg_info;
+    auto reg_info      = this->chunk.reg_info;
     auto active_locals = this->slice_active_locals();
     int  scope         = this->scope;
     u16  reg           = cast(u16)active_locals.len();
@@ -598,7 +841,7 @@ Compiler::define_local(ExprList lhs_list, ExprList rhs_list)
         if (lhs.type != rhs.type) {
             // Only literals that can be implicitly converted to the destination
             // type without any loss of data will pass this check.
-            if (!checker_coerce_rhs(&lhs, &rhs)) {
+            if (!checker_coerce_rhs(lhs, rhs)) {
                 this->error("Invalid implicit cast", rhs);
             }
         }
@@ -616,6 +859,11 @@ Compiler::define_local(ExprList lhs_list, ExprList rhs_list)
     this->active_locals_len = reg;
 }
 
+/*
+ Description:
+    Does the equivalent of `lhs = rhs`, with very rudimentary type-coercion
+    and strict type-checking.
+ */
 void
 Compiler::assign(ExprList lhs_list, ExprList rhs_list)
 {
@@ -623,7 +871,7 @@ Compiler::assign(ExprList lhs_list, ExprList rhs_list)
     for (Expr &lhs : lhs_list) {
         Expr &rhs = *rhs_list++;
         if (lhs.type != rhs.type){
-            if (!checker_coerce_rhs(&lhs, &rhs)) {
+            if (!checker_coerce_rhs(lhs, rhs)) {
                 this->error("Invalid implicit cast", rhs);
             }
         }
@@ -640,10 +888,11 @@ Compiler::assign(ExprList lhs_list, ExprList rhs_list)
     }
 }
 
+// ========================================================================= }}}
 // LOW-LEVEL EXPR MANIPULATION ============================================= {{{
 
 bool
-Compiler::reg_pop(u16 reg)
+Compiler::pop_reg(u16 reg)
 {
     if (reg >= this->active_locals_len) {
         return reg == --this->free_reg;
@@ -652,21 +901,30 @@ Compiler::reg_pop(u16 reg)
 }
 
 // Necessary so we can better report the location of assertions.
-#define reg_pop(reg)                                                          \
-    if (!(this->reg_pop)(reg)) {                                              \
+#define pop_reg(reg)                                                          \
+    if (!(this->pop_reg)(reg)) {                                              \
         LULU_PANICF("Expected free_reg = %u, got %u", reg, (this)->free_reg); \
     }
 
 void
-Compiler::reg_push(u16 reg_count)
+Compiler::push_reg(u16 reg_count)
 {
     // TODO(2026-07-07): Check stack size!
     this->free_reg += reg_count;
-    if (this->free_reg > cast(u16)this->chunk->stack_size) {
-        this->chunk->stack_size = cast(u8)this->free_reg;
+    if (this->free_reg > cast(u16)this->chunk.stack_size) {
+        this->chunk.stack_size = cast(u8)this->free_reg;
     }
 }
 
+/*
+ Description:
+    If the given expression already has a register, then it is reused.
+    Otherwise the expression is stored in the next available register.
+
+ Returns:
+    The register we stored the expression was stored in. Note that in the
+    case it doesn't already have a register, it is modified in-place.
+ */
 u16
 Compiler::expr_any_reg(Expr &e)
 {
@@ -679,21 +937,36 @@ Compiler::expr_any_reg(Expr &e)
     return this->expr_next_reg(e);
 }
 
+/*
+ Description:
+    Unconditionally pushes the given expression to the next available register,
+    erroring out if we exceed the maximum number of registers.
+
+ Returns:
+    The register we stored the expression in. Note that the expression is also
+    modified in-place.
+ */
 u16
 Compiler::expr_next_reg(Expr &e)
 {
     this->discharge_vars(e);
-    this->expr_pop(e);
-    this->reg_push(1);
+    this->pop_expr(e);
+    this->push_reg(1);
     return this->expr_to_reg(e, this->free_reg - 1);
 }
 
+/*
+ Description:
+    Frees the register used by the given expression. For simplicity, we require
+    stack-like semantics. So the most recent register is to be popped, followed
+    by the register right before that, etc.
+ */
 void
-Compiler::expr_pop(Expr &e)
+Compiler::pop_expr(Expr &e)
 {
     if (e.kind == Expr_Discharged) {
         u16 reg = e.get_reg();
-        reg_pop(reg);
+        pop_reg(reg);
     }
 }
 
@@ -755,7 +1028,7 @@ Compiler::discharge_reg(Expr &e, u16 reg)
         this->load_bool(reg, false);
         break;
     case Expr_Pending:
-        this->chunk->code[e.get_pc()].set_A(reg);
+        this->chunk.code[e.get_pc()].set_A(reg);
         break;
     default:
         LULU_ASSERTF(!e.kind, "Got ExprKind(%i)", e.kind);
@@ -796,8 +1069,8 @@ Compiler::load_real(u16 reg, real r)
 u32
 Compiler::add_constant(TValue tv)
 {
-    Chunk *chunk = this->chunk;
-    auto   K     = chunk->constants;
+    Chunk &chunk = this->chunk;
+    auto   K     = chunk.constants;
     u32    n     = cast(u32)K.len();
 
     // Try to reuse an existing value.
@@ -806,7 +1079,7 @@ Compiler::add_constant(TValue tv)
             return i;
         }
     }
-    chunk->constants.append(this->L, tv);
+    chunk.constants.append(this->L, tv);
     return n;
 }
 
@@ -851,9 +1124,9 @@ Compiler::code_AsBx(OpCode Op, u16 A, i32 sBx)
 i32
 Compiler::code(Instruction i)
 {
-    Chunk *chunk = this->chunk;
+    Chunk &chunk = this->chunk;
     i32    index = this->pc++;
-    chunk->code.append(this->L, i);
+    chunk.code.append(this->L, i);
     return index;
 }
 

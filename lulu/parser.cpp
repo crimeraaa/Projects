@@ -1,20 +1,146 @@
+#pragma once
+
 #include <stdio.h> // [f]printf
 
 #include "internal.hpp"
-#include "lexer.hpp"
-#include "slice.hpp"
-#include "state.hpp"
-#include "parser.hpp"
-#include "compiler.hpp"
-#include "expr.hpp"
-#include "strings.hpp"
-#include "type.hpp"
+#include "slice.cpp"
+#include "strings.cpp"
+#include "value.cpp"
+#include "chunk.cpp"
+#include "lexer.cpp"
+#include "compiler.cpp"
+#include "expr.cpp"
+#include "type.cpp"
+
+// If you exceed this, you should probably rethink what you did!
+#define PARSER_MAX_RECURSIONS   250
+
+struct ParserData {
+    String  path, input;
+    Chunk   chunk;
+    Scratch scratch;
+};
+
+class Parser {
+    // Shared state.
+    lulu_State *L;
+    Compiler *  compiler;
+    String      path;
+
+    // Parser state.
+    Lexer lexer;
+    Token token;
+
+    // Just in case we want to allocate a message.
+    Scratch *scratch = nullptr;
+
+    // Tracked to prevent stack overflow.
+    int recursions = 0;
+
+public:
+    [[nodiscard]] static Chunk *
+    parse(lulu_State *L, ParserData &data);
+
+    [[noreturn]] void
+    error_at(char const *info, Loc const &loc);
+
+    [[noreturn]] void
+    error_at(char const *info, Token const &token)
+    {
+        this->error_at(info, token.loc);
+    }
+
+    [[noreturn]] void
+    error_at(char const *info, Expr const &expr)
+    {
+        this->error_at(info, expr.loc);
+    }
+
+    [[noreturn]] void
+    error(char const *info)
+    {
+        this->error_at(info, this->token.loc);
+    }
+
+private:
+    void
+    simple_stmt();
+
+    void
+    ident_stmt();
+    
+    void
+    return_stmt();
+
+    void
+    decl(ExprList lhs_list);
+
+    void
+    assign(ExprList lhs_list);
+
+    [[nodiscard]] ExprList
+    primary_expr_list(bool is_lhs);
+
+    [[nodiscard]] ExprList
+    expr_list(bool is_lhs = false);
+
+    [[nodiscard]] Expr
+    expr(bool is_lhs = false, int prec_in = 1);
+
+    [[nodiscard]] Expr
+    unary_expr(bool is_lhs);
+
+    [[nodiscard]] Expr
+    primary_expr(bool is_lhs);
+
+    void
+    call(Expr &func);
+
+    [[nodiscard]] Expr
+    operand(bool is_lhs);
+
+    [[nodiscard]] Expr
+    type();
+
+    [[nodiscard]] VarInfo *
+    find_variable(String name, u16 *out);
+
+    void
+    infer_types(ExprList lhs_list, ExprList rhs_list);
+
+    [[nodiscard]] ExprList
+    make_zero_values(Type const *type, int count);
+
+    bool
+    check(TokenKind wanted) const noexcept;
+
+    bool
+    match(TokenKind wanted) noexcept;
+
+    void
+    expect(TokenKind expected);
+
+    void
+    advance();
+
+    void
+    recurse_push();
+
+    void
+    recurse_pop();
+}; // struct Parser
+
+[[noreturn]] void
+Compiler::error(char const *info, Expr const &e)
+{
+    this->parser.error_at(info, e);
+}
 
 Chunk *
 Parser::parse(lulu_State *L, ParserData &data)
 {
     Parser   p;
-    Compiler c = Compiler(L, p, &data.chunk);
+    Compiler c = Compiler(L, p, data.chunk);
 
     // Parser init.
     p.L          = L;
@@ -30,7 +156,7 @@ Parser::parse(lulu_State *L, ParserData &data)
     }
     p.expect(Token_Eof);
     c.finish();
-    return c.chunk;
+    return &data.chunk;
 }
 
 void
@@ -75,7 +201,7 @@ Parser::ident_stmt()
         }
         break;
     }
-    mem_scratch_free_all(this->scratch);
+    this->scratch->destroy();
 }
 
 void
@@ -509,13 +635,11 @@ Parser::make_zero_values(Type const *type, int count)
     return rhs_list;
 }
 
-
 // Scan a new current token.
 void
 Parser::advance()
 {
     LexerResult result = this->lexer.scan_token();
-    // Nonzero error?
     if (result.is_err()) {
         LexerError err = result.unwrap_err();
         this->error_at(lexer_error_string(err.kind), err.loc);
@@ -575,14 +699,14 @@ parser_clamp_string(Slice<char> buf, String s)
 }
 
 [[noreturn]] void
-Parser::error_at(char const *info, Loc const &where)
+Parser::error_at(char const *info, Loc const &loc)
 {
     char name[80];
-    char loc[80];
+    char loc_str[80];
     fprintf(stderr, "%s:%i:%i: %s at '%s'\n",
         parser_clamp_string({name, sizeof(name)}, this->path),
-        where.pos.line, where.pos.col, info,
-        parser_clamp_string({loc, sizeof(loc)}, where.view));
+        loc.pos.line, loc.pos.col, info,
+        parser_clamp_string({loc_str, sizeof(loc_str)}, loc.view));
 
     state_throw(this->L, LULU_SYNTAX_ERROR);
 }
