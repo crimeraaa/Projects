@@ -20,14 +20,16 @@ fn main() -> io::Result<()> {
         }
 
         let s = &buf[..n];
-        match run("stdin", s) {
-            Ok(n) => println!("[INFO ] {n}"),
+        let mut buf = [0 as u8; 4096];
+        match run("stdin", s, &mut buf) {
+            Ok(n)  => println!("[INFO ] {n}"),
             Err(e) => {
                 use parse::Error as E;
                 let msg = match e.error {
-                    E::Lex(e) => e.as_str(),
-                    E::ExpectedAnExpression => "Expected an expression",
-                    E::Expected(t) => &t.to_string(),
+                    E::Lex(e)           => e.as_str(),
+                    E::ArenaOutOfMemory => "Arena out of memory",
+                    E::ExpectedExpr     => "Expected an expression",
+                    E::ExpectedToken(t) => &format!("Expected '{}'", t.as_str()),
                 };
 
                 let file = e.file;
@@ -39,7 +41,7 @@ fn main() -> io::Result<()> {
     }
 }
 
-fn run<'s>(file_name: &'s str, input: &'s str) -> parse::Result<'s, f64> {
-    let program = parse::program(file_name, input)?;
+fn run<'s>(file_name: &'s str, input: &'s str, buf: &'s mut [u8]) -> parse::Result<'s, f64> {
+    let program = parse::program(file_name, input, buf)?;
     Ok(program.eval())
 }

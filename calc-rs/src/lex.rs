@@ -9,7 +9,14 @@ pub(crate) struct Lexer<'s> {
     /// Current index of our cursor. Often 1 past the last definite index
     /// of the potential token.
     curr_offset: usize,
+
+    /// Starting line and column of the potential token's lexeme.
+    /// It's useful to keep this around, especially for multi-line strings,
+    /// as we cannot guarantee that we can calculate the starting column when
+    /// multiple lines are involves.
     prev_pos: Pos,
+
+    /// Line and column of the current cursor index.
     curr_pos: Pos,
 }
 
@@ -77,6 +84,9 @@ pub(crate) enum Token {
     /// `( ) [ ] { }`
     OpenParen, CloseParen, OpenBracket, CloseBracket, OpenCurly, CloseCurly,
 
+    /// Terminals: Separators
+    Colon, Semicolon, Comma, Period,
+
     /// Terminals: arithmetic operators
     /// `+ - * / % ^`
     Plus, Minus, Asterisk, Slash, Percent, Caret,
@@ -98,12 +108,22 @@ impl Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
             Self::Eof          => "Eof(<eof>)",
+
+            // Terminals: Groupings
             Self::OpenParen    => "OpenParen('(')",
             Self::CloseParen   => "CloseParen(')')",
             Self::OpenBracket  => "OpenBracket('[')",
             Self::CloseBracket => "CloseBracket(']')",
             Self::OpenCurly    => "OpenCurly('{')",
             Self::CloseCurly   => "CloseCurly('}')",
+
+            // Terminals: Separators
+            Self::Colon        => "Colon(':')",
+            Self::Semicolon    => "Semicolon(';')",
+            Self::Comma        => "Comma(',')",
+            Self::Period       => "Period('.')",
+
+            // Terminals: Arithmetic operators
             Self::Plus         => "Plus('+')",
             Self::Minus        => "Minus('-')",
             Self::Asterisk     => "Asterisk('*')",
@@ -115,6 +135,37 @@ impl Display for Token {
         write!(f, "{s}")
     }
 } // impl Display for Token
+
+impl Token {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Eof          => "<eof>",
+
+            // Terminals: Groupings
+            Self::OpenParen    => "(",
+            Self::CloseParen   => ")",
+            Self::OpenBracket  => "[",
+            Self::CloseBracket => "]",
+            Self::OpenCurly    => "{",
+            Self::CloseCurly   => "}",
+
+            // Terminals: Separators
+            Self::Colon        => ":",
+            Self::Semicolon    => ";",
+            Self::Comma        => ",",
+            Self::Period       => ".",
+
+            // Terminals: Arithmetic operators
+            Self::Plus         => "+",
+            Self::Minus        => "-",
+            Self::Asterisk     => "*",
+            Self::Slash        => "/",
+            Self::Percent      => "%",
+            Self::Caret        => "^",
+            Self::Number(_)    => "<number>",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Lexeme<'s> {
@@ -148,7 +199,13 @@ impl<'s> Lexer<'s> {
     /// we are bound only to the input's lifetime or shorter.
     pub(crate) fn new(input: &'s str) -> Self {
         let pos = Pos{line: 1, col: 1};
-        Self {input, prev_offset: 0, curr_offset: 0, prev_pos: pos, curr_pos: pos}
+        Self {
+            input,
+            prev_offset: 0,
+            curr_offset: 0,
+            prev_pos:    pos,
+            curr_pos:    pos
+        }
     }
 
     pub(crate) fn scan_token(&mut self) -> Result<FatToken<'s>, FatError<'s>> {
@@ -169,22 +226,34 @@ impl<'s> Lexer<'s> {
         } else {
             self.advance();
             let token = match c {
+                // Terminals: Groupings
                 '(' => Token::OpenParen,
                 ')' => Token::CloseParen,
                 '[' => Token::OpenBracket,
                 ']' => Token::CloseBracket,
                 '{' => Token::OpenCurly,
                 '}' => Token::CloseCurly,
+
+                // Terminals: Separators
+                ':' => Token::Colon,
+                ';' => Token::Semicolon,
+                ',' => Token::Comma,
+                '.' =>
+                    if self.peek().is_some_and(|c| c.is_ascii_digit()) {
+                        self.scan_number(c)
+                            .map_err(|e| self.make_error(e))?
+                    } else {
+                        Token::Period
+                    }
+
+                // Terminals: Arithmetic Operators
                 '+' => Token::Plus,
                 '-' => Token::Minus,
                 '*' => Token::Asterisk,
                 '/' => Token::Slash,
                 '%' => Token::Percent,
                 '^' => Token::Caret,
-                '.' => self
-                    .scan_number(c)
-                    .map_err(|e| self.make_error(e))?,
-                _ => return Err(self.make_error(Error::UnexpectedCharacter)),
+                _ => return Err(self.make_error(Error::UnexpectedCharacter))
             };
             Ok(self.make_token(token))
         }

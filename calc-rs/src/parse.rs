@@ -1,11 +1,15 @@
 use std::hint::unreachable_unchecked;
 
-use crate::{expr::{Ast, FatExpr, Expr}, lex::{self, Lexer, Token, FatToken, Lexeme, Pos}};
+use crate::{
+    expr::{Ast, FatExpr, Expr, Arena},
+    lex::{self, Lexer, Token, FatToken, Lexeme, Pos}
+};
 
 pub(crate) struct Parser<'s> {
     file:  &'s str,
     lexer: Lexer<'s>,
-    t: FatToken<'s>,
+    t:     FatToken<'s>,
+    arena: Arena<'s>,
 }
 
 pub(crate) type Result<'s, T> = std::result::Result<T, FatError<'s>>;
@@ -18,29 +22,39 @@ pub(crate) struct FatError<'s> {
 
 pub(crate) enum Error {
     Lex(lex::Error),
-    ExpectedAnExpression,
-    Expected(Token),
+    ExpectedExpr,
+    ExpectedToken(Token),
+    ArenaOutOfMemory,
 }
 
-pub(crate) fn program<'s>(file: &'s str, input: &'s str) -> Result<'s, Ast<'s>> {
-    let mut p = Parser::new(file, input);
+pub(crate) fn program<'s>(
+    file:  &'s str,
+    input: &'s str,
+    buf:   &'s mut [u8],
+) -> Result<'s, Ast<'s>> {
+    let mut p = Parser::new(file, input, buf);
     p.next_token()?;
     p.parse_expr()
 }
 
 
 impl<'s> Parser<'s> {
-    fn new(file: &'s str, input: &'s str) -> Self {
+    fn new(
+        file:  &'s str,
+        input: &'s str,
+        buf:   &'s mut [u8]
+    ) -> Self {
         Self {
             file,
             lexer: Lexer::new(input),
             t: FatToken {
-                token: Token::Eof,
+                token:  Token::Eof,
                 lexeme: Lexeme {
                     view: "",
                     pos: Pos {line: 0, col: 0}
                 }
-            }
+            },
+            arena: Arena::new(buf),
         }
     }
 
@@ -57,20 +71,19 @@ impl<'s> Parser<'s> {
         loop {
             let t        = self.t;
             let lexeme   = t.lexeme;
-            let lhs_prec = match t.token {
-                Token::Plus | Token::Minus => 4,
-                Token::Asterisk | Token::Slash | Token::Percent => 5,
-                Token::Caret => 8,
+            let (lhs_prec, rhs_prec) = match t.token {
+                Token::Plus
+                    | Token::Minus => (4, 5),
+                Token::Asterisk
+                    | Token::Slash
+                    | Token::Percent => (5, 6),
+                Token::Caret => (8, 8),
                 _ => break,
             };
 
             if lhs_prec < prec {
                 break;
             }
-
-            // Enforce right-associativity for exponentiation. All other binary
-            // operations are left-associative.
-            let rhs_prec = if t.token == Token::Caret { lhs_prec } else {lhs_prec + 1 };
 
             // Skip the operand.
             self.next_token()?;
@@ -87,9 +100,8 @@ impl<'s> Parser<'s> {
                 _ => unsafe { unreachable_unchecked() },
             };
 
-            lhs = Ast::new(FatExpr {expr, lexeme});
+            lhs = self.alloc_expr(expr, lexeme)?;
         }
-
         Ok(lhs)
     }
 
@@ -97,44 +109,68 @@ impl<'s> Parser<'s> {
         let t      = self.t;
         let lexeme = t.lexeme;
 
-        // Skip the number, operator, or open grouping.
-        self.next_token()?;
         match t.token {
-            Token::Number(f) => Ok(Ast::new(FatExpr {expr: Expr::Number(f), lexeme})),
+            Token::Number(f) => {
+                // Skip the number.
+                self.next_token()?;
+                let expr = self.alloc_expr(Expr::Number(f), lexeme)?;
+                Ok(expr)
+            }
             Token::Plus => {
+                // Skip the unary '+' operator.
+                self.next_token()?;
                 let arg  = self.parse_unary()?;
-                let expr = Ast::new(FatExpr {expr: Expr::Plus(arg), lexeme});
+                let expr = self.alloc_expr(Expr::Plus(arg), lexeme)?;
                 Ok(expr)
             }
 
             Token::Minus => {
+                // Skip the unary '-' operator.
+                self.next_token()?;
                 let arg  = self.parse_unary()?;
-                let expr = Ast::new(FatExpr {expr: Expr::Neg(arg), lexeme});
+                let expr = self.alloc_expr(Expr::Neg(arg), lexeme)?;
                 Ok(expr)
             }
 
             Token::OpenParen => {
+                // Skip the opening '('.
+                self.next_token()?;
                 let expr = self.parse_expr()?;
                 self.expect_token(Token::CloseParen)?;
                 Ok(expr)
             }
 
             _ => Err(FatError {
-                error: Error::ExpectedAnExpression,
+                error: Error::ExpectedExpr,
                 file: self.file,
                 lexeme
             }),
         }
     }
 
+    fn alloc_expr(&mut self, expr: Expr<'s>, lexeme: Lexeme<'s>) -> Result<'s, Ast<'s>> {
+        let expr = FatExpr::new(expr, lexeme, &mut self.arena)
+            .map_err(|_| FatError {
+                error: Error::ArenaOutOfMemory,
+                file: self.file,
+                lexeme,
+            })?;
+        Ok(expr)
+    }
+
     fn expect_token(&mut self, expected: Token) -> Result<'s, ()> {
         if self.t.token == expected {
             self.next_token()
         } else {
+            let mut lexeme = self.t.lexeme;
+            if self.t.token == Token::Eof  {
+                lexeme.view = self.t.token.as_str();
+            }
+
             Err(FatError {
-                error:  Error::Expected(self.t.token),
+                error:  Error::ExpectedToken(expected),
                 file:   self.file,
-                lexeme: self.t.lexeme,
+                lexeme,
             })
         }
     }
@@ -151,4 +187,4 @@ impl<'s> Parser<'s> {
             })?;
         Ok(())
     }
-}
+} // impl Parser
