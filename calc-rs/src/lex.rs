@@ -1,4 +1,4 @@
-use std::{fmt::{self, Display}, num::TryFromIntError};
+use std::{io::Write, num::TryFromIntError};
 
 pub(crate) struct Lexer<'s> {
     input: &'s str,
@@ -32,32 +32,31 @@ pub(crate) struct FatError<'s> {
 }
 
 #[repr(u8)]
+#[derive(Clone, Copy)]
 pub(crate) enum Error {
     UnexpectedCharacter,
     InvalidBase,
-    InvalidBinaryDigit,
-    InvalidOctalDigit,
-    InvalidDecimalDigit,
-    InvalidDozenalDigit,
-    InvalidHexadecimalDigit,
+    InvalidDigit(Radix),
     IntegerOverflow,
     InvalidExponent,
     ExcessUnderscores,
 }
 
 impl Error {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub(crate) fn as_str<'s>(&self, mut buf: &'s mut [u8]) -> &'s str {
         match self {
-            Self::UnexpectedCharacter     => "Unexpected character",
-            Self::InvalidBase             => "Invalid integer base",
-            Self::InvalidBinaryDigit      => "Invalid binary (base-2) digit",
-            Self::InvalidOctalDigit       => "Invalid octal (base-8) digit",
-            Self::InvalidDecimalDigit     => "Invalid decimal (base-10) digit",
-            Self::InvalidDozenalDigit     => "Invalid dozenal (base-12) digit",
-            Self::InvalidHexadecimalDigit => "Invalid hexadecimal (base-16) digit",
-            Self::IntegerOverflow         => "Integer overflow",
-            Self::InvalidExponent         => "Invalid exponent digit",
-            Self::ExcessUnderscores       => "Excess underscores",
+            Self::UnexpectedCharacter => "Unexpected character",
+            Self::InvalidBase         => "Invalid integer base",
+            Self::InvalidDigit(radix) => {
+                let radix = *radix as u8;
+                let _ = write!(buf, "Invalid base-{radix} digit");
+
+                // SAFETY: The string is always ASCII.
+                unsafe { std::str::from_utf8_unchecked(buf) }
+            }
+            Self::IntegerOverflow     => "Integer overflow",
+            Self::InvalidExponent     => "Invalid exponent digit",
+            Self::ExcessUnderscores   => "Excess underscores",
         }
     }
 }
@@ -80,6 +79,9 @@ pub(crate) enum Token {
     /// and that there are no more tokens to get.
     Eof,
 
+    /// Terminals: Keywords
+    And, True, False, Not, Or,
+
     /// Terminals: Groupings
     /// `( ) [ ] { }`
     OpenParen, CloseParen, OpenBracket, CloseBracket, OpenCurly, CloseCurly,
@@ -96,7 +98,8 @@ pub(crate) enum Token {
 }
 
 #[derive(Clone, Copy)]
-enum Radix {
+#[repr(u8)]
+pub(crate) enum Radix {
     Binary      = 2,
     Octal       = 8,
     Decimal     = 10,
@@ -104,42 +107,16 @@ enum Radix {
     Hexadecimal = 16,
 }
 
-impl Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            Self::Eof          => "Eof(<eof>)",
-
-            // Terminals: Groupings
-            Self::OpenParen    => "OpenParen('(')",
-            Self::CloseParen   => "CloseParen(')')",
-            Self::OpenBracket  => "OpenBracket('[')",
-            Self::CloseBracket => "CloseBracket(']')",
-            Self::OpenCurly    => "OpenCurly('{')",
-            Self::CloseCurly   => "CloseCurly('}')",
-
-            // Terminals: Separators
-            Self::Colon        => "Colon(':')",
-            Self::Semicolon    => "Semicolon(';')",
-            Self::Comma        => "Comma(',')",
-            Self::Period       => "Period('.')",
-
-            // Terminals: Arithmetic operators
-            Self::Plus         => "Plus('+')",
-            Self::Minus        => "Minus('-')",
-            Self::Asterisk     => "Asterisk('*')",
-            Self::Slash        => "Slash('/')",
-            Self::Percent      => "Percent('%')",
-            Self::Caret        => "Caret('^')",
-            Self::Number(n)    => &format!("Number({n})"),
-        };
-        write!(f, "{s}")
-    }
-} // impl Display for Token
-
 impl Token {
     pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Eof          => "<eof>",
+            // Terminals: Keywords
+            Self::And          => "and",
+            Self::True         => "true",
+            Self::False        => "false",
+            Self::Not          => "not",
+            Self::Or           => "or",
 
             // Terminals: Groupings
             Self::OpenParen    => "(",
@@ -223,6 +200,25 @@ impl<'s> Lexer<'s> {
                 Ok(k)  => Ok(self.make_token(k)),
                 Err(e) => Err(self.make_error(e)),
             }
+        } else if c.is_ascii_alphabetic() {
+            for _ in
+                self.remaining()
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+            {
+                self.advance();
+            }
+
+            let view  = self.view();
+            let token = match view {
+                "and"   => Token::And,
+                "true"  => Token::True,
+                "false" => Token::False,
+                "not"   => Token::Not,
+                "or"    => Token::Or,
+                _ => return Err(self.make_error(Error::UnexpectedCharacter)),
+            };
+            Ok(self.make_token(token))
         } else {
             self.advance();
             let token = match c {
@@ -361,13 +357,7 @@ impl<'s> Lexer<'s> {
                     .and_then(|i| i.checked_add(digit as i64))
                     .ok_or(Error::IntegerOverflow)?;
             } else {
-                return Err(match radix {
-                    Radix::Binary      => Error::InvalidBinaryDigit,
-                    Radix::Octal       => Error::InvalidOctalDigit,
-                    Radix::Decimal     => Error::InvalidDecimalDigit,
-                    Radix::Dozenal     => Error::InvalidDozenalDigit,
-                    Radix::Hexadecimal => Error::InvalidHexadecimalDigit,
-                });
+                return Err(Error::InvalidDigit(radix));
             }
         };
         Ok(integer)
@@ -412,19 +402,31 @@ impl<'s> Lexer<'s> {
     }
 
     fn make_token(&self, token: Token) -> FatToken<'s> {
-        let view = &self.input[self.prev_offset..self.curr_offset];
-        let pos  = self.prev_pos;
+        let view   = self.view();
+        let pos    = self.prev_pos;
         let lexeme = Lexeme {pos, view};
         FatToken {token, lexeme}
     }
 
     fn make_error(&self, error: Error) -> FatError<'s> {
-        let view = &self.input[self.prev_offset..self.curr_offset];
-        let view = if view.len() == 0 { "<eof>" } else { view };
+        let view = self.view();
         let Pos{line, col} = self.curr_pos;
         let col = col - 1;
         let lexeme = Lexeme {pos: Pos {line, col}, view};
         FatError {error, lexeme}
+    }
+
+    /// Returns a read-only string view into the current lexeme
+    /// as specified by our input string offsets.
+    fn view(&self) -> &'s str {
+        let view = &self.input[self.prev_offset..self.curr_offset];
+        // We assume EOF is the only place we can receive a zero-sized
+        // lexeme.
+        if view.len() == 0 {
+            "<eof>"
+        } else {
+            view
+        }
     }
 
     /// # Assumptions
