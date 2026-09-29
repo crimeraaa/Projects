@@ -51,7 +51,7 @@ impl Error {
             Self::InvalidBase         => "Invalid integer base",
             Self::InvalidDigit(radix) => {
                 let radix = *radix as u8;
-                let _ = write!(f, "Invalid base-{radix} digit");
+                let _     = write!(f, "Invalid base-{radix} digit");
                 f.as_str()
             }
             Self::IntegerOverflow     => "Integer overflow",
@@ -190,9 +190,8 @@ impl<'s> Lexer<'s> {
 
         // Don't advance yet- when we scan numbers, we need to see the first
         // digit.
-        let c = match self.peek() {
-            None    => return Ok(self.make_token(Token::Eof)),
-            Some(c) => c,
+        let Some(c) = self.peek() else {
+            return Ok(self.make_token(Token::Eof));
         };
 
         if c.is_ascii_digit() {
@@ -202,14 +201,14 @@ impl<'s> Lexer<'s> {
             }
         } else if c.is_ascii_alphabetic() {
             for _ in
-                self.remaining()
+                self.full_view()
                     .chars()
                     .take_while(|c| c.is_alphanumeric() || *c == '_')
             {
                 self.advance();
             }
 
-            let view  = self.view();
+            let view  = self.curr_view();
             let token = match view {
                 "and"   => Token::And,
                 "true"  => Token::True,
@@ -261,9 +260,8 @@ impl<'s> Lexer<'s> {
             // anything meaningful other than indicating we *might* have a
             // prefixed integer.
             self.advance();
-            let prefix = match self.peek() {
-                None => return Ok(Token::Number(0.0)),
-                Some(c) => c,
+            let Some(prefix) = self.peek() else {
+                return Ok(Token::Number(0.0));
             };
 
             let radix = match prefix {
@@ -284,6 +282,22 @@ impl<'s> Lexer<'s> {
                 // of an explicit integer base. Its digit value is not used.
                 self.advance();
                 let i = self.scan_integer(radix)?;
+
+                // For prefixed integers, any trailing identifier-like characters
+                // are invalid digits.
+                let extra =
+                    self.full_view()
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_')
+                        .count();
+
+                if extra > 0 {
+                    // Necessary so that we can properly construct fat errors
+                    // later on.
+                    self.curr_offset += extra;
+                    return Err(Error::InvalidDigit(radix));
+                }
+
                 let f = f64_try_from_i64(i)?;
                 return Ok(Token::Number(f));
             }
@@ -323,12 +337,59 @@ impl<'s> Lexer<'s> {
         Ok(Token::Number(mantissa * exponent))
     }
 
+    /// Reads an integer sequence, of the given radix. Note that we consume
+    /// only exactly what we need- invalid trailing digits are not consumed
+    /// by us.
+    ///
+    /// # Returns
+    /// * `Ok`  - The parsed integer of the given radix.
+    /// * `Err` - What went wrong while parsing the integer.
     fn scan_integer(&mut self, radix: Radix) -> Result<i64, Error> {
         let mut integer: i64 = 0;
+        self.consume_radix(radix, |digit| {
+            // Perform `i = i*radix + digit`, checking for overflow on each
+            // operation.
+            //
+            // SAFETY: We assume the `as` casts are always safe because
+            // we go from smaller integer types to larger ones.
+            integer = integer
+                .checked_mul(radix as i64)
+                .and_then(|i| i.checked_add(digit as i64))
+                .ok_or(Error::IntegerOverflow)?;
+            Ok(())
+        })?;
+
+        Ok(integer)
+    }
+
+    /// Scans a base-10 fractional sequence.
+    ///
+    /// # Assumptions
+    /// -   We just consumed a '.' character.
+    fn scan_fraction(&mut self) -> Result<f64, Error> {
+        let radix           = Radix::Decimal;
+        let mut numerator   = 0.0;
+        let mut denominator = 1.0;
+        self.consume_radix(radix, |digit| {
+            // TODO(2026-09-27): Check for validity/overflow?
+            numerator   *= radix as u32 as f64;
+            numerator   += digit as f64;
+            denominator *= radix as u32 as f64;
+            Ok(())
+        })?;
+        Ok(numerator / denominator)
+    }
+
+    /// Consumes a number sequence of the given radix, applying the callback
+    /// function. This allows us to generalize the consumption loop.
+    fn consume_radix<F>(&mut self, radix: Radix, mut f: F) -> Result<(), Error>
+    where
+        F: FnMut(u32) -> Result<(), Error>
+    {
         let mut prev_have;
         let mut curr_have = false;
         for c in
-            self.remaining()
+            self.full_view()
                 .chars()
                 .take_while(|c| c.is_digit(radix as u32) || *c == '_')
         {
@@ -346,70 +407,26 @@ impl<'s> Lexer<'s> {
             // We end up relying on the Rust implementation of UTF-8, so the
             // iterator eagerly accepts many different kinds of numeric characters.
             // However we can only convert the ASCII range.
-            if let Some(digit) = c.to_digit(radix as u32) {
-                // Perform `i = i*radix + digit`, checking for overflow on each
-                // operation.
-                //
-                // SAFETY: We assume the `as` casts are always safe because
-                // we go from smaller integer types to larger ones.
-                integer = integer
-                    .checked_mul(radix as i64)
-                    .and_then(|i| i.checked_add(digit as i64))
-                    .ok_or(Error::IntegerOverflow)?;
-            } else {
-                return Err(Error::InvalidDigit(radix));
-            }
+            let digit = c.to_digit(radix as u32);
+
+            // SAFETY: We only see chars that fulfill the take while, and we
+            // already skipped underscores.
+            let digit = unsafe { digit.unwrap_unchecked() };
+            f(digit)?;
         };
-        Ok(integer)
+        Ok(())
     }
 
-    /// Scans a base-10 fractional sequence.
-    /// # Assumptions
-    /// -   We just consumed a '.' character.
-    fn scan_fraction(&mut self) -> Result<f64, Error> {
-        let radix = 10;
-        let mut numerator   = 0.0;
-        let mut denominator = 1.0;
-        let mut prev_have;
-        let mut curr_have = false;
-        for c in
-            self.remaining()
-                .chars()
-                .take_while(|c| c.is_ascii_digit() || *c == '_')
-        {
-            self.advance();
-            prev_have = curr_have;
-            curr_have = c == '_';
-            if curr_have {
-                if prev_have {
-                    return Err(Error::ExcessUnderscores);
-                } else {
-                    continue;
-                }
-            }
-
-            // SAFETY: The iterator takes only ASCII digits (i.e. '0'..='9') or
-            // underscores. We already checked for underscores, so the only
-            // remaining possibilities are the base-10 characters.
-            let digit = unsafe { c.to_digit(radix).unwrap_unchecked() };
-
-            // TODO(2026-09-27): Check for validity/overflow?
-            numerator   *= radix as f64;
-            numerator   += digit as f64;
-            denominator *= radix as f64;
-        }
-        Ok(numerator / denominator)
-    }
 
     fn make_token(&self, token: Token) -> FatToken<'s> {
-        let view   = self.view();
+        let view   = self.curr_view();
         let pos    = self.prev_pos;
         let lexeme = Lexeme {pos, view};
         FatToken {token, lexeme}
     }
 
     fn make_error(&self, error: Error) -> FatError<'s> {
-        let view = self.view();
+        let view = self.curr_view();
         let Pos{line, col} = self.curr_pos;
         let col = col - 1;
         let lexeme = Lexeme {pos: Pos {line, col}, view};
@@ -418,7 +435,7 @@ impl<'s> Lexer<'s> {
 
     /// Returns a read-only string view into the current lexeme
     /// as specified by our input string offsets.
-    fn view(&self) -> &'s str {
+    fn curr_view(&self) -> &'s str {
         let view = &self.input[self.prev_offset..self.curr_offset];
         // We assume EOF is the only place we can receive a zero-sized
         // lexeme.
@@ -433,19 +450,20 @@ impl<'s> Lexer<'s> {
     /// -   The current offset can be validly used to slice to the end of the
     ///     input string (i.e. it can be exactly the length).
     fn skip_whitespace(&mut self) {
-        for c in self.remaining().chars() {
-            if c.is_whitespace() {
-                if c == '\n' {
-                    self.curr_pos.line += 1;
-                    // Will be incremented to 1 on the advance.
-                    self.curr_pos.col = 0;
-                }
-                self.advance();
-                continue;
+        for c in
+            self.full_view()
+                .chars()
+                .take_while(|c| c.is_whitespace())
+        {
+            if c == '\n' {
+                self.curr_pos.line += 1;
+                // Will be incremented to 1 on the advance.
+                self.curr_pos.col = 0;
             }
-            break;
+            self.advance();
         }
 
+        //  Save the starting points of the current lexeme.
         self.prev_pos    = self.curr_pos;
         self.prev_offset = self.curr_offset;
     }
@@ -453,7 +471,7 @@ impl<'s> Lexer<'s> {
     /// Returns an immutable view into the remainder of the input string, starting
     /// at the current cursor offset. This is useful so we don't have to constantly
     /// check for EOF at every loop iteration.
-    fn remaining(&self) -> &'s str {
+    fn full_view(&self) -> &'s str {
         &self.input[self.curr_offset..]
     }
 
@@ -475,11 +493,13 @@ impl<'s> Lexer<'s> {
     }
 
     fn peek_at(&self, offset: usize) -> Option<char> {
-        let offset = self.curr_offset + offset;
-        if offset >= self.input.len() {
+        let s = self.input;
+        let i = self.curr_offset + offset;
+        let n = s.len();
+        if i >= n {
             None
         } else {
-            self.input[offset..].chars().next()
+            s[i..n].chars().next()
         }
     }
 } // impl Lexer

@@ -37,9 +37,6 @@ impl Error {
             Error::ExpectedExpr     => "Expected an expression",
             Error::ExpectedToken(t) => {
                 let s = t.as_str();
-
-                // NOTE: `io::Write` is implemented for borrowed byte
-                // slices, so this works.
                 let _ = write!(f, "Expected '{s}'\0");
                 f.as_str()
             }
@@ -66,7 +63,8 @@ impl<'a> FStr<'a> {
         let s = &self.buf[0..n];
 
         // SAFETY: We assume we only ever write ASCII strings. Since we sliced
-        // exactly the written bounds, this should never fail
+        // exactly the written bounds, this should never fail, also because
+        // we assume string formatting itself never fails.
         unsafe { str::from_utf8_unchecked(s) }
     }
 
@@ -74,7 +72,7 @@ impl<'a> FStr<'a> {
         self.written
     }
 
-    fn left(&self) -> usize {
+    fn cap(&self) -> usize {
         self.buf.len()
     }
 }
@@ -83,7 +81,7 @@ impl<'s> Write for FStr<'s> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         let start = self.used();
         let stop  = start + s.len();
-        if stop <= self.left() {
+        if stop <= self.cap() {
             let dst = &mut self.buf[start..stop];
             self.written = stop;
             dst.copy_from_slice(s.as_bytes());
@@ -249,7 +247,10 @@ impl<'s, 'a> Parser<'s, 'a> {
     fn next_token(&mut self) -> Result<'s, ()> {
         self.t = self.lexer
             .scan_token()
-            .map_err(|e| FatError {error:  Error::Lex(e.error), lexeme: e.lexeme})?;
+            .map_err(|e| FatError {
+                error:  Error::Lex(e.error),
+                lexeme: e.lexeme
+            })?;
         Ok(())
     }
 } // impl Parser
