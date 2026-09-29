@@ -7,7 +7,7 @@ mod lex;
 mod expr;
 mod parse;
 
-use crate::lex::Lexeme;
+use crate::{lex::Lexeme, mem::Arena, parse::FStr};
 
 struct FatError<'s> {
     error:  Error,
@@ -32,17 +32,15 @@ fn main() -> io::Result<()> {
             break Ok(());
         }
 
-        let s = &buf[..n];
-        let mut buf = [0 as u8; 4096];
+        let s    = &buf[..n];
         let file = "stdin";
+        // AST memory buffer, or error message buffer.
+        let mut buf = [0; 4096];
         match run(s, &mut buf) {
             Ok(n)  => println!("[INFO ] {n:?}"),
             Err(e) => {
-                // TODO(2026-09-28): Can we make it so that the first buffer
-                // can be re-used, as we know by now that all allocated ASTs
-                // will go unused?
-                let mut buf = [0 as u8; 256];
-                let msg = e.as_str(&mut buf);
+                let mut f = FStr::new(&mut buf);
+                let msg = e.as_str(&mut f);
                 let lex::Pos{line, col} = e.lexeme.pos;
                 let view = e.lexeme.view;
                 println!("[ERROR] {file}({line}:{col}): {msg} at '{view}'");
@@ -51,17 +49,21 @@ fn main() -> io::Result<()> {
     }
 }
 
-fn run<'s>(input: &'s str, buf: &'s mut [u8]) -> Result<expr::Value, FatError<'s>> {
-    let program = parse::program(input, buf)?;
+/// The buffer is only borrowed within the function. Once the function is over,
+/// we can reuse the buffer (e.g. for formatting error messages).
+fn run<'s>(input: &'s str, buf: &mut [u8]) -> Result<expr::Value, FatError<'s>> {
+    // TODO(2026-09-29): Make growable and deallocate only after eval?
+    let arena   = Arena::new(buf);
+    let program = parse::program(input, arena)?;
     let result  = program.eval()?;
     Ok(result)
 }
 
-impl<'s> FatError<'s> {
-    fn as_str(&self, buf: &'s mut [u8]) -> &'s str {
+impl<'a> FatError<'a> {
+    fn as_str(&self, f: &'a mut FStr<'a>) -> &'a str {
         match &self.error {
-            Error::Parse(p)   => p.as_str(buf),
-            Error::Runtime(r) => r.as_str(buf),
+            Error::Parse(p)   => p.as_str(f),
+            Error::Runtime(r) => r.as_str(f),
         }
     }
 }

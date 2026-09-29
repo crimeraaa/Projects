@@ -1,4 +1,4 @@
-use std::{io::Write, hint::unreachable_unchecked, str};
+use std::{fmt::{self, Write}, hint::unreachable_unchecked, str};
 
 use crate::{
     expr::{Ast, FatExpr, Expr, Unary, Binary},
@@ -6,10 +6,10 @@ use crate::{
     mem::{Arena},
 };
 
-pub(crate) struct Parser<'s> {
+struct Parser<'s, 'a> {
     lexer: Lexer<'s>,
     t:     FatToken<'s>,
-    arena: Arena<'s>,
+    arena: Arena<'a>,
 }
 
 pub(crate) type Result<'s, T> = std::result::Result<T, FatError<'s>>;
@@ -30,9 +30,9 @@ pub(crate) enum Error {
 }
 
 impl Error {
-    pub(crate) fn as_str<'s>(&self, mut buf: &'s mut [u8]) -> &'s str {
+    pub(crate) fn as_str<'a>(&self, f: &'a mut FStr<'a>) -> &'a str {
         match self {
-            Error::Lex(e)           => e.as_str(buf),
+            Error::Lex(e)           => e.as_str(f),
             Error::ArenaOutOfMemory => "Arena out of memory",
             Error::ExpectedExpr     => "Expected an expression",
             Error::ExpectedToken(t) => {
@@ -40,25 +40,72 @@ impl Error {
 
                 // NOTE: `io::Write` is implemented for borrowed byte
                 // slices, so this works.
-                let _ = write!(buf, "Expected '{s}'");
-
-                // SAFETY: We assume we only ever write ASCII strings,
-                // so this should never fail because all ASCII is valid
-                // UTF-8.
-                unsafe { str::from_utf8_unchecked(buf) }
+                let _ = write!(f, "Expected '{s}'\0");
+                f.as_str()
             }
         }
     }
 }
 
-pub(crate) fn program<'s>(input: &'s str, buf: &'s mut [u8]) -> Result<'s, Ast<'s>> {
-    let mut p = Parser::new(input, buf);
-    p.next_token()?;
-    p.parse_expr()
+pub(crate) struct FStr<'a> {
+    /// The underlying buffer we wish to write to.
+    /// Length thereof is our capacity.
+    buf: &'a mut [u8],
+
+    /// Number of bytes (not chars!) written so far.
+    written: usize,
 }
 
-impl<'s> Parser<'s> {
-    fn new(input: &'s str, buf: &'s mut [u8]) -> Self {
+impl<'a> FStr<'a> {
+    pub(crate) fn new(buf: &'a mut [u8]) -> Self {
+        Self {buf, written: 0}
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        let n = self.written;
+        let s = &self.buf[0..n];
+
+        // SAFETY: We assume we only ever write ASCII strings. Since we sliced
+        // exactly the written bounds, this should never fail
+        unsafe { str::from_utf8_unchecked(s) }
+    }
+
+    fn used(&self) -> usize {
+        self.written
+    }
+
+    fn left(&self) -> usize {
+        self.buf.len()
+    }
+}
+
+impl<'s> Write for FStr<'s> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let start = self.used();
+        let stop  = start + s.len();
+        if stop <= self.left() {
+            let dst = &mut self.buf[start..stop];
+            self.written = stop;
+            dst.copy_from_slice(s.as_bytes());
+            Ok(())
+        } else {
+            Err(fmt::Error)
+        }
+    }
+}
+
+/// Converts a source text to an AST. The AST is stored in the given arena.
+pub(crate) fn program<'s, 'a>(input: &'s str, arena: Arena<'a>) -> Result<'s, Ast<'s, 'a>> {
+    let mut p = Parser::new(input, arena);
+    p.next_token()?;
+
+    let tree = p.parse_expr()?;
+    p.expect_token(Token::Eof)?;
+    Ok(tree)
+}
+
+impl<'s, 'a> Parser<'s, 'a> {
+    fn new(input: &'s str, arena: Arena<'a>) -> Self {
         Self {
             lexer: Lexer::new(input),
             t: FatToken {
@@ -68,19 +115,19 @@ impl<'s> Parser<'s> {
                     pos: Pos {line: 0, col: 0}
                 }
             },
-            arena: Arena::new(buf),
+            arena,
         }
     }
 
-    fn parse_expr(&mut self) -> Result<'s, Ast<'s>> {
+    fn parse_expr(&mut self) -> Result<'s, Ast<'s, 'a>> {
         self.parse_prec(1)
     }
 
-    fn parse_unary(&mut self) -> Result<'s, Ast<'s>> {
+    fn parse_unary(&mut self) -> Result<'s, Ast<'s, 'a>> {
         self.parse_prec(9)
     }
 
-    fn parse_prec(&mut self, prec: i32) -> Result<'s, Ast<'s>> {
+    fn parse_prec(&mut self, prec: i32) -> Result<'s, Ast<'s, 'a>> {
         // Expressions are just binary trees. We always hold the
         // root of our current expression.
         let mut tree = self.parse_operand()?;
@@ -130,7 +177,7 @@ impl<'s> Parser<'s> {
         Ok(tree)
     }
 
-    fn parse_operand(&mut self) -> Result<'s, Ast<'s>> {
+    fn parse_operand(&mut self) -> Result<'s, Ast<'s, 'a>> {
         let t      = self.t;
         let lexeme = t.lexeme;
 
@@ -151,18 +198,11 @@ impl<'s> Parser<'s> {
                 self.alloc_expr(Expr::Number(f), lexeme)?
             }
 
-            Token::Plus => {
-                // Skip the unary '+' operator.
-                self.next_token()?;
-                let arg  = self.parse_unary()?;
-                self.alloc_expr(Expr::Unary {op: Unary::Plus, arg}, lexeme)?
-            }
-
             Token::Minus => {
                 // Skip the unary '-' operator.
                 self.next_token()?;
                 let arg  = self.parse_unary()?;
-                self.alloc_expr(Expr::Unary {op: Unary::Neg, arg}, lexeme)?
+                self.alloc_expr(Expr::Unary { op: Unary::Neg, arg }, lexeme)?
             }
 
             Token::Not => {
@@ -179,12 +219,12 @@ impl<'s> Parser<'s> {
                 expr
             }
 
-            _ => return Err(FatError {error: Error::ExpectedExpr, lexeme}),
+            _ => return Err(FatError { error: Error::ExpectedExpr, lexeme }),
         };
         Ok(expr)
     }
 
-    fn alloc_expr(&mut self, expr: Expr<'s>, lexeme: Lexeme<'s>) -> Result<'s, Ast<'s>> {
+    fn alloc_expr(&mut self, expr: Expr<'s, 'a>, lexeme: Lexeme<'s>) -> Result<'s, Ast<'s, 'a>> {
         let expr = FatExpr::new(expr, lexeme, &mut self.arena)
             .map_err(|_| FatError {
                 error: Error::ArenaOutOfMemory,

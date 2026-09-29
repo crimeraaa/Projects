@@ -1,4 +1,4 @@
-use std::{io::Write, num::TryFromIntError};
+use std::{fmt::Write, num::TryFromIntError};
 
 pub(crate) struct Lexer<'s> {
     input: &'s str,
@@ -42,17 +42,17 @@ pub(crate) enum Error {
     ExcessUnderscores,
 }
 
+use crate::parse::FStr;
+
 impl Error {
-    pub(crate) fn as_str<'s>(&self, mut buf: &'s mut [u8]) -> &'s str {
+    pub(crate) fn as_str<'a>(&self, f: &'a mut FStr<'a>) -> &'a str {
         match self {
             Self::UnexpectedCharacter => "Unexpected character",
             Self::InvalidBase         => "Invalid integer base",
             Self::InvalidDigit(radix) => {
                 let radix = *radix as u8;
-                let _ = write!(buf, "Invalid base-{radix} digit");
-
-                // SAFETY: The string is always ASCII.
-                unsafe { std::str::from_utf8_unchecked(buf) }
+                let _ = write!(f, "Invalid base-{radix} digit");
+                f.as_str()
             }
             Self::IntegerOverflow     => "Integer overflow",
             Self::InvalidExponent     => "Invalid exponent digit",
@@ -422,7 +422,7 @@ impl<'s> Lexer<'s> {
         let view = &self.input[self.prev_offset..self.curr_offset];
         // We assume EOF is the only place we can receive a zero-sized
         // lexeme.
-        if view.len() == 0 {
+        if view.is_empty() {
             "<eof>"
         } else {
             view
