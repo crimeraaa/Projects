@@ -441,16 +441,10 @@ checker_get_int(Expr &e, intr min, intr max)
     }
 }
 
-struct CheckerFixIResult {
-    bool ok;
-    bool swapped;
-    intr imm;
-};
-
-CheckerFixIResult
+Option<intr>
 checker_fix_arithi(OpCode &op, Expr &restrict lhs, Expr &restrict rhs)
 {
-    CheckerFixIResult r{};
+    bool swapped = false;
 
     /*
      Consider the following forms:
@@ -469,7 +463,7 @@ checker_fix_arithi(OpCode &op, Expr &restrict lhs, Expr &restrict rhs)
      */
     if (lhs.is_literal()) {
         if (op == Op_subi || op == Op_fsubi) {
-            return r;
+            return None{};
         }
 
         /*
@@ -478,45 +472,51 @@ checker_fix_arithi(OpCode &op, Expr &restrict lhs, Expr &restrict rhs)
             change to reflect to the caller and their parents as well.
          */
         swap(&lhs, &rhs);
-        r.swapped = true;
+        swapped = true;
     }
 
     Option<intr> o = checker_get_int(rhs, -cast(intr)ARG_C.MAX, ARG_C.MAX);
     if (o.is_none()) {
-        return r;
+        // Restore previous state so the next checker works properly.
+        if (swapped) {
+            swap(&lhs, &rhs);
+        }
+        return None{};
     }
 
-    r.imm = o.unwrap();
+    intr imm = o.unwrap();
     switch (op) {
     case Op_addi:
     case Op_faddi:
         // Assumes that the corresponding sub opcode is 1 above us.
-        if (r.imm < 0) {
-            r.imm = -r.imm;
+        if (imm < 0) {
+            imm = -imm;
             op    = op + 1;
         }
         break;
     case Op_subi:
     case Op_fsubi:
-        // Assumes that the corresponding add opcode is 1 below us.
-        if (r.imm < 0) {
-            r.imm = -r.imm;
+        // Assumes that the coesponding add opcode is 1 below us.
+        if (imm < 0) {
+            imm = -imm;
             op    = op - 1;
         }
         break;
     default:
         LULU_UNREACHABLE();
-        return r;
+        return None{};
     }
 
-    r.ok = true;
-    return r;
+    // On success, we'll early return from the main binary caller. So set the
+    // out parameter.
+    lhs.loc = rhs.loc;
+    return Some(imm);
 }
 
-CheckerFixIResult
+Option<intr>
 checker_fix_comparei(OpCode &op, Expr &restrict lhs, Expr &restrict rhs, bool &k)
 {
-    CheckerFixIResult r{};
+    bool swapped = false;
  
     /*
      Consider the following forms:
@@ -544,22 +544,28 @@ checker_fix_comparei(OpCode &op, Expr &restrict lhs, Expr &restrict rhs, bool &k
         default:
             LULU_PANICF("Invalid immediate comparison OpCode(%i)", op);
             LULU_UNREACHABLE();
-            return {};
+            return None{};
         }
         swap(&lhs, &rhs);
-        r.swapped = true;
+        swapped = true;
     }
 
-    if (rhs.is_literal_bool()) {
-        r.ok = true;
-    } else {
-        auto t = checker_get_int(rhs, 0, ARG_B.MAX);
-        r.ok = t.is_some();
-        if (r.ok) {
-            r.imm = t.unwrap();
+    intr imm = 0;
+    if (!rhs.is_literal_bool()) {
+        Option<intr> t = checker_get_int(rhs, 0, ARG_B.MAX);
+        if (!t.is_some_and([&imm](intr i) { imm = i; return true; })) {
+            // Restore previous state so the next checker works properly.
+            if (swapped) {
+                swap(&lhs, &rhs);
+            }
+            return None{};
         }
     }
-    return r;
+
+    // We'll eventually early return from the main binary checker, so update
+    // the out parameter.
+    lhs.loc = rhs.loc;
+    return Some(imm);
 }
 
 static TValue
@@ -577,16 +583,10 @@ checker_get_constant(Expr &rhs)
     return {};
 }
 
-struct CheckerFixKResult {
-    bool   ok;
-    bool   swapped;
-    TValue constant;
-};
-
-CheckerFixKResult
+Option<TValue>
 checker_fix_arithk(OpCode op, Expr &restrict lhs, Expr &restrict rhs)
 {
-    CheckerFixKResult r{};
+    bool swapped = false;
     /*
      Consider the following forms:
 
@@ -624,21 +624,21 @@ checker_fix_arithk(OpCode op, Expr &restrict lhs, Expr &restrict rhs)
         case Op_fmulk:
             break;
         default:
-            return r;
+            return None{};
         }
-        r.swapped = true;
+        swapped = true;
         swap(&lhs, &rhs);
     }
 
-    r.constant = checker_get_constant(rhs);
-    r.ok       = true;
-    return r;
+    auto constant = checker_get_constant(rhs);
+    lhs.loc = rhs.loc;
+    return Some(constant);
 }
 
-CheckerFixKResult
-checker_fix_comparek(OpCode *op, Expr &restrict lhs, Expr &restrict rhs, bool *k)
+Option<TValue>
+checker_fix_comparek(OpCode &op, Expr &restrict lhs, Expr &restrict rhs, bool &k)
 {
-    CheckerFixKResult r{};
+    bool swapped = false;
 
     /*
      Consider the following forms:
@@ -651,24 +651,24 @@ checker_fix_comparek(OpCode *op, Expr &restrict lhs, Expr &restrict rhs, bool *k
      5) k >  y <=>   y <  k  ; *op = Op_[f]ltk,  k = true
      */
     if (lhs.is_literal()) {
-        switch (*op) {
+        switch (op) {
         case Op_eqk:    break;
-        case Op_ltk:    *op = Op_leqk;  *k = !*k; break;
-        case Op_leqk:   *op = Op_ltk;   *k = !*k; break;
+        case Op_ltk:    op = Op_leqk;  k = !k; break;
+        case Op_leqk:   op = Op_ltk;   k = !k; break;
         case Op_feqk:   break;
-        case Op_fltk:   *op = Op_fleqk; *k = !*k; break;
-        case Op_fleqk:  *op = Op_fltk;  *k = !*k; break;
+        case Op_fltk:   op = Op_fleqk; k = !k; break;
+        case Op_fleqk:  op = Op_fltk;  k = !k; break;
         default:
             LULU_UNREACHABLE();
-            return r;
+            return None{};
         }
-        r.swapped = true;
+        swapped = true;
         swap(&lhs, &rhs);
     }
 
-    r.constant = checker_get_constant(rhs);
-    r.ok       = true;
-    return r;
+    TValue constant = checker_get_constant(rhs);
+    lhs.loc = rhs.loc;
+    return Some(constant);
 }
 
 // ========================================================================= }}}

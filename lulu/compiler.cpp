@@ -24,11 +24,6 @@ struct VarInfo {
     u32         reg_info_index;
 };
 
-struct CompilerBinaryResult {
-    bool ok;      // Did we successfuly compile the binary expression?
-    bool swapped; // Did we need to swap the contents of the operands?
-};
-
 class Compiler {
     // Shared state. All nested compilers must share the same pointers/references
     // to these.
@@ -110,22 +105,22 @@ public:
 
 private:
     // TODO(2026-09-22): Convert most of these to checker functions?
-    CompilerBinaryResult
+    bool
     binary_imm(OpCode op, Expr &restrict lhs, Expr &restrict rhs, bool k);
 
-    CompilerBinaryResult
+    bool
     arithi(OpCode iop, Expr &restrict lhs, Expr &restrict rhs);
 
-    CompilerBinaryResult
+    bool
     comparei(OpCode iop, Expr &restrict lhs, Expr &restrict rhs, bool k);
 
-    CompilerBinaryResult
+    bool
     binaryk(OpCode op, Expr &restrict lhs, Expr &restrict rhs, bool k);
 
-    CompilerBinaryResult
+    bool
     arithk(OpCode kop, Expr &restrict lhs, Expr &restrict rhs);
 
-    CompilerBinaryResult
+    bool
     comparek(OpCode kop, Expr &restrict lhs, Expr &restrict rhs, bool k);
 
 public:
@@ -521,26 +516,11 @@ Compiler::binary(Token const &op, Expr &restrict lhs, Expr &restrict rhs)
 
     bool k = !r.is_not;
     if (lhs.is_literal() || rhs.is_literal()) {
-        auto immr = this->binary_imm(r.op, lhs, rhs, k);
-        if (immr.ok) {
-            if (!immr.swapped) {
-                // Propagate this change because we won't do it any place else.
-                lhs.loc = rhs.loc;
-            }
+        if (this->binary_imm(r.op, lhs, rhs, k)) {
             return;
-        }
+        } 
 
-        // If we didn't emit an immediate-addressed opcode, ensure we reset the
-        // order of the operands to their original.
-        if (immr.swapped) {
-            swap(&lhs, &rhs);
-        }
-        
-        auto kr = this->binaryk(r.op, lhs, rhs, k);
-        if (kr.ok) {
-            if (!kr.swapped) {
-                lhs.loc = rhs.loc;
-            }
+        if (this->binaryk(r.op, lhs, rhs, k)) {
             return;
         }
     }
@@ -564,8 +544,8 @@ Compiler::binary(Token const &op, Expr &restrict lhs, Expr &restrict rhs)
          0 = proceed label(true) if not result else goto label(false)
          1 = proceed label(true) if     result else goto label(false)
          */
-        lhs.type  = basic_type_get(Value_bool);
-        lhs.loc = rhs.loc;
+        lhs.type = basic_type_get(Value_bool);
+        lhs.loc  = rhs.loc;
 
         // R(A) is not a destination register here!
         lhs.set_compare(this->code_vABC(r.op, r1, r2, 0, k));
@@ -583,7 +563,7 @@ Compiler::binary(Token const &op, Expr &restrict lhs, Expr &restrict rhs)
     I.e. `x op y` has the same effect as `y op x`, which is only true for some
     operations.
  */
-CompilerBinaryResult
+bool
 Compiler::binary_imm(OpCode op, Expr &restrict lhs, Expr &restrict rhs, bool k)
 {
     // If both are literals, then we should've folded them.
@@ -609,15 +589,15 @@ Compiler::binary_imm(OpCode op, Expr &restrict lhs, Expr &restrict rhs, bool k)
     }
 }
 
-CompilerBinaryResult
+bool
 Compiler::arithi(OpCode iop, Expr &restrict lhs, Expr &restrict rhs)
 {
-    auto r = checker_fix_arithi(iop, lhs, rhs);
-    if (r.ok) {
+    Option<intr> r = checker_fix_arithi(iop, lhs, rhs);
+    return r.is_some_and([this, iop, &lhs, &rhs](intr imm) {
         /*
-         Assumes any of the following forms:
-         1) x +   imm
-         2) x + (-imm) <=> x - |imm|
+           Assumes any of the following forms:
+           1) x +   imm
+           2 x + (-imm) <=> x - |imm|
          3) x -   imm
          4) x - (-imm) <=> x + |imm|
 
@@ -628,16 +608,16 @@ Compiler::arithi(OpCode iop, Expr &restrict lhs, Expr &restrict rhs)
          */
         u16 reg = this->expr_any_reg(lhs);
         this->pop_expr(lhs);
-        lhs.set_pending(this->code_ABC(iop, REG_NONE, reg, cast(u16)r.imm));
-    }
-    return {r.ok, r.swapped};
+        lhs.set_pending(this->code_ABC(iop, REG_NONE, reg, cast(u16)imm));
+        return true;
+    });
 }
 
-CompilerBinaryResult
+bool
 Compiler::comparei(OpCode iop, Expr &restrict lhs, Expr &restrict rhs, bool k)
 {
     auto r = checker_fix_comparei(iop, lhs, rhs, k);
-    if (r.ok) {
+    return r.is_some_and([this, iop, &lhs, &rhs, k](intr imm) {
         u16 reg = this->expr_any_reg(lhs);
         this->pop_expr(lhs);
 
@@ -659,13 +639,13 @@ Compiler::comparei(OpCode iop, Expr &restrict lhs, Expr &restrict rhs, bool k)
                 lhs.set_pending(this->code_ABC(Op_not, REG_NONE, reg, 0));
             }
         } else {
-            lhs.set_compare(this->code_vABC(iop, reg, cast(u16)r.imm, 0, k));
+            lhs.set_compare(this->code_vABC(iop, reg, cast(u16)imm, 0, k));
         }
-    }
-    return {r.ok, r.swapped};
+        return true;
+    });
 }
 
-CompilerBinaryResult
+bool
 Compiler::binaryk(OpCode op, Expr &restrict lhs, Expr &restrict rhs, bool k)
 {
     LULU_ASSERT(lhs.is_literal() != rhs.is_literal());
@@ -693,49 +673,50 @@ Compiler::binaryk(OpCode op, Expr &restrict lhs, Expr &restrict rhs, bool k)
     }
 }
 
-CompilerBinaryResult
+bool
 Compiler::arithk(OpCode kop, Expr &restrict lhs, Expr &restrict rhs)
 {
-    auto r = checker_fix_arithk(kop, lhs, rhs);
-    if (r.ok) {
+    Option<TValue> r = checker_fix_arithk(kop, lhs, rhs);
+    return r.is_some_and([this, kop, &lhs, &rhs](TValue v) {
         // May be a temporary register.
         u16 reg = this->expr_any_reg(lhs);
         this->pop_expr(lhs);
 
-        u32 i = this->add_constant(r.constant);
+        u32 i = this->add_constant(v);
         // TODO(2026-09-13): Handle resolving their registers later on?
         rhs.kind     = Expr_Constant;
         rhs.constant = i;
-
-        r.ok = (i <= ARG_C.MAX);
-        if (r.ok) {
+        if (i <= ARG_C.MAX) {
             lhs.set_pending(this->code_ABC(kop, REG_NONE, reg, cast(u16)i));
+        } else {
+            LULU_UNIMPLEMENTED();
         }
-    }
-    return {r.ok, r.swapped};
+        return true;
+    });
 }
 
-CompilerBinaryResult
+bool
 Compiler::comparek(OpCode kop, Expr &restrict lhs, Expr &restrict rhs, bool k)
 {
-    auto r = checker_fix_comparek(&kop, lhs, rhs, &k);
-    if (r.ok) {
+    Option<TValue> r = checker_fix_comparek(kop, lhs, rhs, k);
+    return r.is_some_and([this, kop, &lhs, &rhs, k](TValue v) {
         u16 reg = this->expr_any_reg(lhs);
         this->pop_expr(lhs);
 
-        u32 i = this->add_constant(r.constant);
+        u32 i = this->add_constant(v);
         // TODO(2026-09-13): Handle resolving their registers later on?
         rhs.kind     = Expr_Constant;
         rhs.constant = i;
 
-        r.ok = (i <= ARG_C.MAX);
-        if (r.ok) {
+        if (i <= ARG_C.MAX) {
             lhs.set_compare(this->code_vABC(kop, reg, cast(u16)i, 0, k));
+        } else {
+            LULU_UNIMPLEMENTED();
         }
-    }
-    return {r.ok, r.swapped};
-
+        return true;
+    });
 }
+
 // ========================================================================= }}}
 
 /*

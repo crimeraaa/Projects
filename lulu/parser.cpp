@@ -46,21 +46,15 @@ public:
 
     [[noreturn]] void
     error_at(char const *info, Token const &token)
-    {
-        this->error_at(info, token.loc);
-    }
+    { this->error_at(info, token.loc); }
 
     [[noreturn]] void
     error_at(char const *info, Expr const &expr)
-    {
-        this->error_at(info, expr.loc);
-    }
+    { this->error_at(info, expr.loc); }
 
     [[noreturn]] void
     error(char const *info)
-    {
-        this->error_at(info, this->token.loc);
-    }
+    { this->error_at(info, this->token.loc); }
 
 private:
     void

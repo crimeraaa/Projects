@@ -202,32 +202,34 @@ public:
 
     /// Check whether we are currently of the `Some` variant or not.
     bool
-    is_some()        const noexcept { return this->tag; }
+    is_some() const noexcept
+    { return this->tag; }
 
     /// Checks wheter we are currently of the `Some` variant and that the
     /// value thereof satisfies the given predicate callback function.
     template<class F>
     bool
-    is_some_and(F f) const noexcept { return this->is_some() && f(this->value); }
+    is_some_and(F f) const noexcept
+    { return this->is_some() && f(this->value); }
 
     /// Checks whether we are currently of the `None` variant or not.
     bool
-    is_none()        const noexcept { return !this->is_some(); }
+    is_none() const noexcept
+    { return !this->is_some(); }
 
     /// Checks whether we are currently of the `None` variant, or that the
     /// `Some` variant's value satisfies the given predicate callback function.
     template<class F>
     bool
-    is_none_or(F f)  const noexcept { return this->is_none() || f(this->value); }
+    is_none_or(F f) const noexcept
+    { return this->is_none() || f(this->value); }
 
     /// Passes the value of the `Some` variant through the given mapping function
     /// or returns the fallback value.
     template<class U, class F>
     U
     map_or_else(F f, U fallback) const noexcept
-    {
-        return this->is_some() ? f(this->value) : fallback;
-    }
+    { return this->is_some() ? f(this->value) : fallback; }
 
     /// Retrives the value of the `Some` variant. It is undefined behavior
     /// to call this when we are actually of the `None` variant.
@@ -241,9 +243,7 @@ public:
     /// Retrieves the value of the `Some` variant or uses the fallback value.
     T
     unwrap_or(T fallback) noexcept
-    {
-        return this->is_some() ? this->value : fallback;
-    }
+    { return this->is_some() ? this->value : fallback; }
 }; // class Option
 
 template<class T>
@@ -264,7 +264,6 @@ struct Err {
 
 template<class T, class E>
 class Result {
-
     bool tag;
     union {
         T value;
@@ -297,11 +296,13 @@ public:
 
     /// Checks whether we are currently of the `Ok` variant.
     bool
-    is_ok () const noexcept { return this->tag;      }
+    is_ok() const noexcept
+    { return this->tag; }
 
     /// Checks whether we are currently of the `Err` variant.
     bool
-    is_err() const noexcept { return !this->is_ok(); }
+    is_err() const noexcept
+    { return !this->is_ok(); }
 
     /// Converts ourselves to an `Option<T>`. Specifically, the `Ok` variant
     /// is wrapped in an `Option<T>::Some` and the `Err` variant is wrapped in

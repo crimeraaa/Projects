@@ -16,25 +16,44 @@ public:
     // Defer to underlying Slice implementation.
     template<class N>
     T &
-    operator[](N index) const { return this->m_slice[index]; }
+    operator[](N index) const
+    { return this->m_slice[index]; }
 
     usize
-    len()      const noexcept { return this->m_slice.len(); }
+    len() const noexcept
+    { return this->m_slice.len(); }
 
     usize
-    cap()      const noexcept { return this->m_cap; }
+    cap() const noexcept
+    { return this->m_cap; }
 
     T *
-    raw_data() const noexcept { return this->m_slice.raw_data(); }
+    raw_data() noexcept
+    { return this->m_slice.raw_data(); }
 
     T *
-    begin()    const noexcept { return this->m_slice.begin(); }
+    begin() noexcept
+    { return this->m_slice.begin(); }
 
     T *
-    end()      const noexcept { return this->m_slice.end(); }
+    end() noexcept
+    { return this->m_slice.end(); }
+
+    T const *
+    raw_data() const noexcept
+    { return this->m_slice.raw_data(); }
+
+    T const*
+    begin() const noexcept
+    { return this->m_slice.begin(); }
+
+    T const *
+    end() const noexcept
+    { return this->m_slice.end(); }
 
     Slice<T>
-    slice()    const noexcept { return this->m_slice; }
+    slice() const noexcept
+    { return this->m_slice; }
 
     void
     append(lulu_State *L, T const &value)

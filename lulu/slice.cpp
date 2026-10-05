@@ -35,16 +35,20 @@ public:
     }
 
     T *
-    raw_data() const noexcept { return this->m_data; }
+    raw_data() const noexcept
+    { return this->m_data; }
 
     usize
-    len()      const noexcept { return this->m_len; }
+    len()      const noexcept
+    { return this->m_len; }
 
     T *
-    begin()    const noexcept { return this->m_data; }
+    begin()    const noexcept
+    { return this->m_data; }
 
     T *
-    end()      const noexcept { return this->begin() + this->len(); }
+    end()      const noexcept
+    { return this->begin() + this->len(); }
 
     Self
     slice(usize start, usize stop) const
@@ -58,10 +62,12 @@ public:
     }
 
     Self
-    slice_from(usize start) { return this->slice(start, this->len()); }
+    slice_from(usize start)
+    { return this->slice(start, this->len()); }
 
     Self
-    slice_until(usize stop) { return this->slice(0, stop); }
+    slice_until(usize stop)
+    { return this->slice(0, stop); }
 
     bool
     has_ptr(T const *ptr) const noexcept
@@ -122,28 +128,19 @@ struct RevIt {
 
     inline bool
     operator!=(RevIt<T> other) const
-    {
-        return this->data != other.data;
-    }
+    { return this->data != other.data; }
 
     inline T &
     operator*()
-    {
-        return *this->data;
-    }
+    { return *this->data; }
 
     inline void
     operator++()
-    {
-        this->data--;
-    }
+    { this->data--; }
 };
 
 template<class T>
-struct RevSlice {
-    Slice<T> slice;
-};
-
+struct RevSlice { Slice<T> slice; };
 
 /*
  Usage in a range-based for loop, i.e. `for (T &e : reverse(s)) { ... }`
@@ -156,13 +153,16 @@ struct RevSlice {
  */
 template<class T>
 static inline RevSlice<T>
-reverse(Slice<T> s)  { return {s}; }
+reverse(Slice<T> s)
+{ return {s}; }
 
 template<class T>
 static inline RevIt<T>
-begin(RevSlice<T> r) { return {r.slice.end()   - 1}; }
+begin(RevSlice<T> r)
+{ return {r.slice.end()   - 1}; }
 
 template<class T>
 static inline RevIt<T>
-end(RevSlice<T> r)   { return {r.slice.begin() - 1}; }
+end(RevSlice<T> r)
+{ return {r.slice.begin() - 1}; }
 
