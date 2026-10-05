@@ -1,79 +1,72 @@
-use std::{
-    str::Chars,
-};
+use std::fmt::Write;
 
-pub struct Lexer<'a> {
-    input: &'a str,
+use crate::FStr;
+
+pub(crate) struct Lexer<'src> {
+    input: &'src str,
 
     /// Byte index, referring to the first index of the current lexeme.
-    start_offset: usize,
+    prev_offset: usize,
 
     /// Byte index, referring to the current index of the cursor.
     /// This can also be the last index of the current lexeme.
     curr_offset: usize,
 
-    /// We track the starting column of the lexeme to simplify token creation,
-    /// especially for multi-line strings.
-    start_col: i32,
+    /// Track the starting line/column of the lexeme. This helps greatly
+    /// simply token creation, particularly for multiline strings.
+    prev_pos: Position,
 
-    /// Track the current line/column information.
-    pos: Pos,
+    /// Track the current line/column of our current offset. This helps
+    /// us track where exactly in the file we are. It's also useful for
+    /// pinpointing the exact location of a lexing error.
+    curr_pos: Position,
+}
+
+/// A sort of fat token that instead contains the error code, which can be
+/// mapped to a static string for human readability.
+#[derive(Debug)]
+pub(crate) struct FatError<'src> {
+    pub kind:   Error,
+    pub lexeme: Lexeme<'src>,
 }
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Error {
+pub(crate) enum Error {
     UnexpectedCharacter,
     UnterminatedString,
     ExcessUnderscores,
     InvalidRadix,
-    InvalidDigit,
+    InvalidDigit(Radix),
     InvalidExponent,
 }
 
-impl Error {
-    pub fn as_str(self) -> &'static str {
-        use Error::*;
-        match self {
-            UnexpectedCharacter => "Unexpected character",
-            UnterminatedString  => "Unterminated string",
-            ExcessUnderscores   => "Excess underscores",
-            InvalidRadix        => "Invalid integer radix",
-            InvalidDigit        => "Invalid digit",
-            InvalidExponent     => "Invalid exponent",
-        }
-    }
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Radix {
+    Binary      = 2,
+    Octal       = 8,
+    Decimal     = 10,
+    Dozenal     = 12,
+    Hexadecimal = 16,
 }
 
-/// Technically, `TokenKind` is all we need to implement a working parser,
-/// and that could be just called `Token` instead. However, if we want to
-/// report meaningful errors, then we need to track the location information
-/// for each token.
+/// Combines a token kind (and associated data) and its source code lexeme.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Token<'a> {
-    pub kind:   TokenKind<'a>,
-
-    /// String view into the actual token as it appears in the input. This is
-    /// mainly useful for reporting errors, especially since many of the
-    /// terminals in `TokenKind` don't include a data payload for us to inspect.
-    pub lexeme: &'a str,
-
-    /// Like the lexeme, but instead tracks where the token occurs in the input.
-    /// This is useful to report line/column information so users can better
-    /// pinpoint where an error occurred.
-    pub pos: Pos,
+pub(crate) struct FatToken<'src> {
+    pub kind:   Token<'src>,
+    pub lexeme: Lexeme<'src>,
 }
 
+/// Describes sequences of characters, as they appear in the source code, which
+/// represents valid syntactic constructs in Lulu. Note that we don't include
+/// location information (i.e. the raw lexeme)- use the fat version instead.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub enum TokenKind<'a> {
+pub(crate) enum Token<'src> {
     /// End of input stream.
     #[default]
     Eof,
-
-    /// Contains the error code. We include this here, rather than using a
-    /// result type, because errors also need to know their locations.
-    Invalid(Error),
 
     /// Keywords
     And, Break, Do, Else, Elseif, End, False, For, Function, Local,
@@ -103,216 +96,279 @@ pub enum TokenKind<'a> {
     Float(f64),
 
     /// TODO(2026-09-14): Change to object pointer
-    String(&'a str),
-    Ident(&'a str),
+    String(&'src str),
+    Ident(&'src str),
 }
 
+/// Contains the position inforation and actual string view of a lexeme as it
+/// appears in the input.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Pos {
+pub struct Lexeme<'input> {
+    /// Tracks where the lexeme occurs in the input. This is useful to allow us
+    /// to report line/column information so users can better pinpoint where an
+    /// error occurred.
+    pub pos: Position,
+
+    /// String view into the actual token as it appears in the input. This is
+    /// mainly useful for reporting errors, especially since many of the
+    /// terminals in `TokenKind` don't include a data payload for us to inspect.
+    pub view: &'input str,
+}
+
+/// A 2D coordinate of the line and column numbers.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Position {
     /// 1-based line number.
     pub line: i32,
 
-    /// 1-based col number.
+    /// 1-based column number.
     pub col: i32,
 }
 
-impl<'a> Token<'a> {
-    pub fn as_str(&self) -> &str {
-        match self.kind {
-            // More often than not, EOF has an empty lexeme.
-            TokenKind::Eof => "<eof>",
+impl<'src> Lexeme<'src> {
+    fn new(pos: Position, view: &'src str) -> Self {
+        let view = if view.is_empty() { "<eof>" } else { view };
+        Self {pos, view}
+    }
+}
 
-            // String literals' lexemes include the quotes, so use the payload
-            // instead.
-            TokenKind::String(s) | TokenKind::Ident(s) => s,
-            _ => self.lexeme,
+impl Error {
+    pub fn as_str<'buf>(self, f: &'buf mut FStr<'buf>) -> &'buf str {
+        use Error as E;
+        match self {
+            E::UnexpectedCharacter => "Unexpected character",
+            E::UnterminatedString  => "Unterminated string",
+            E::ExcessUnderscores   => "Excess underscores",
+            E::InvalidRadix        => "Invalid integer radix",
+            E::InvalidDigit(radix) => {
+                let radix = radix as u32;
+                let _     = write!(f, "Invalid base-{radix} digit");
+                f.as_str()
+            }
+            E::InvalidExponent => "Invalid exponent",
         }
     }
 }
 
-impl<'a> Lexer<'a> {
-    pub fn new(input: &'a str) -> Self {
+impl<'src> Lexer<'src> {
+    pub fn new(input: &'src str) -> Self {
         Lexer {
             input,
-            start_offset: 0,
-            curr_offset:  0,
-            start_col:    0,
-            pos:          Pos {line: 1, col: 1}
+            prev_offset: 0,
+            curr_offset: 0,
+            prev_pos:    Position {line: 1, col: 1},
+            curr_pos:    Position {line: 1, col: 1}
         }
     }
 
-    pub fn scan_token(&mut self) -> Token<'a> {
+    pub fn scan_token(&mut self) -> Result<FatToken<'src>, FatError<'src>> {
         // EOF is not invalid at this point; it just signifies that there is
         // no more input to be found. However, if we reach it prematurely in
         // some of the below calls, *that* may be an error.
-        let c = match self.skip_whitespace() {
-            None    => return self.make_token(TokenKind::Eof),
-            Some(c) => self.next_char(c),
+        let Some(c) = self.take_whitespace() else {
+            return Ok(self.make_token(Token::Eof))
         };
 
         if c.is_alphabetic() || c == '_' {
-            self.scan_ident()
+            self.next_char(c);
+            Ok(self.take_ident())
         } else if c.is_numeric() {
-            match self.scan_number(c) {
-                Ok(tk) => self.make_token(tk),
-                Err(e) => self.make_error_token(e),
+            match self.take_some_number(c) {
+                Ok(k)  => Ok(self.make_token(k)),
+                Err(e) => Err(self.make_error(e)),
             }
         } else {
-            if let Some(t) = self.scan_char(c) {
-                self.make_token(t)
-            } else {
-                self.make_error_token(Error::UnexpectedCharacter)
+            self.next_char(c);
+            match self.take_char(c) {
+                Ok(k)  => Ok(self.make_token(k)),
+                Err(e) => Err(self.make_error(e)),
             }
         }
     }
 
-    fn scan_char(&mut self, c: char) -> Option<TokenKind<'a>> {
-        use TokenKind::*;
-        Some(match c {
-            '(' => OpenParen,
-            ')' => CloseParen,
+    fn take_char(&mut self, c: char) -> Result<Token<'src>, Error> {
+        use Token as T;
+        Ok(match c {
+            '(' => T::OpenParen,
+            ')' => T::CloseParen,
 
             // TODO(2026-09-14): Support multi-line strings, maybe
-            '[' => OpenBracket,
-            ']' => CloseBracket,
-            '{' => OpenCurly,
-            '}' => CloseCurly,
-            '&' => Ampersand,
-            ':' => Colon,
-            ';' => Semicol,
-            ',' => Comma,
-            '.' => if self.peek().is_digit(10) {
-                match self.scan_float(c) {
-                    Ok(f)  => f,
-                    Err(_) => return None,
-                }
+            '[' => T::OpenBracket,
+            ']' => T::CloseBracket,
+            '{' => T::OpenCurly,
+            '}' => T::CloseCurly,
+            '&' => T::Ampersand,
+            ':' => T::Colon,
+            ';' => T::Semicol,
+            ',' => T::Comma,
+            '.' =>
+                // We don't allow an underscore immediately after the period,
+                // as in Python. (try `print(._1234)`, for example)
+                if self.peek_curr().is_some_and(|c| c.is_digit(10)) {
+                    return self.take_number(c);
+                } else {
+                    T::Period
+                },
+            '|' => T::Pipe,
+            '^' => T::Caret,
+            '+' => T::Plus,
+            '-' => T::Minus,
+            '*' => T::Star,
+            '/' => T::Slash,
+            '%' => T::Percent,
+            '~' => if self.take_if('=') {
+                T::TildeEqual
             } else {
-                Period
-            },
-            '|' => Pipe,
-            '^' => Caret,
-            '+' => Plus,
-            '-' => Minus,
-            '*' => Star,
-            '/' => Slash,
-            '%' => Percent,
-            '~' => if self.eat('=') { TildeEqual   } else { return None; },
-            '=' => if self.eat('=') { EqualEqual   } else { Assign       },
-            '<' => if self.eat('=') { LessEqual    } else { LessThan     },
-            '>' => if self.eat('=') { GreaterEqual } else { GreaterThan  },
-            '"' | '\'' => self.scan_string(c),
-            _   => return None,
+                return Err(Error::UnexpectedCharacter);
+            }
+            '=' => if self.take_if('=') { T::EqualEqual   } else { T::Assign       },
+            '<' => if self.take_if('=') { T::LessEqual    } else { T::LessThan     },
+            '>' => if self.take_if('=') { T::GreaterEqual } else { T::GreaterThan  },
+            '"' | '\'' => self.take_string(c)?,
+            _   => return Err(Error::UnexpectedCharacter),
         })
     }
 
-    fn scan_ident(&mut self) -> Token<'a> {
-        use TokenKind::*;
+    fn take_ident(&mut self) -> FatToken<'src> {
+        use Token as T;
         self.next_while_alphanumeric();
 
         let s = self.lexeme();
         self.make_token(match s {
-            "and"      => And,
-            "break"    => Break,
-            "do"       => Do,
-            "else"     => Else,
-            "elseif"   => Elseif,
-            "end"      => End,
-            "false"    => False,
-            "for"      => For,
-            "function" => Function,
-            "if"       => If,
-            "in"       => In,
-            "local"    => Local,
-            "nil"      => Nil,
-            "not"      => Not,
-            "or"       => Or,
-            "return"   => Return,
-            "repeat"   => Repeat,
-            "then"     => Then,
-            "true"     => True,
-            "until"    => Until,
-            "while"    => While,
-            _          => Ident(s),
+            "and"      => T::And,
+            "break"    => T::Break,
+            "do"       => T::Do,
+            "else"     => T::Else,
+            "elseif"   => T::Elseif,
+            "end"      => T::End,
+            "false"    => T::False,
+            "for"      => T::For,
+            "function" => T::Function,
+            "if"       => T::If,
+            "in"       => T::In,
+            "local"    => T::Local,
+            "nil"      => T::Nil,
+            "not"      => T::Not,
+            "or"       => T::Or,
+            "return"   => T::Return,
+            "repeat"   => T::Repeat,
+            "then"     => T::Then,
+            "true"     => T::True,
+            "until"    => T::Until,
+            "while"    => T::While,
+            _          => T::Ident(s),
         })
     }
 
-    /// Assumes we already skipped the leader itself, meaning our current
-    /// offset is at the first potential digit.
-    fn scan_number(&mut self, leader: char) -> Result<TokenKind<'a>, Error> {
-        let prefix = self.peek();
+    /// Consumes either a prefixed integer, a non-prefixed integer literal,
+    /// or a float literal.
+    ///
+    /// Assumes we haven't necessarily skipped the leading character.
+    fn take_some_number(&mut self, leader: char) -> Result<Token<'src>, Error> {
         let radix = if leader == '0' {
-            match dbg!(prefix) {
+            // We can always safely skip '0' since it adds nothing to the
+            // whole portion of an integer or a float.
+            self.next_char(leader);
+
+            let Some(prefix) = self.peek_curr() else {
+                return Ok(Token::Integer(0));
+            };
+
+            let radix = match prefix {
                 '.' | '0'..='9' => None, // No prefix
-                'b' | 'B' => Some(2),  // Binary
-                'd' | 'D' => Some(10), // Decimal
-                'o' | 'O' => Some(8),  // Octal
-                'x' | 'X' => Some(16), // Hexadecimal
-                'z' | 'Z' => Some(12), // Dozenal
+                'b' | 'B' => Some(Radix::Binary),
+                'd' | 'D' => Some(Radix::Decimal),
+                'o' | 'O' => Some(Radix::Octal),
+                'x' | 'X' => Some(Radix::Hexadecimal),
+                'z' | 'Z' => Some(Radix::Dozenal),
                 _ => return Err(Error::InvalidRadix),
+            };
+
+            // If we have a radix, then skip the prefix character as it's not
+            // part of the integer value. Otherwise, we can't know for certain
+            // we need to skip it as it could be a significant digit.
+            if radix.is_some() {
+                self.next_char(prefix);
             }
+
+            radix
         } else {
             None
         };
 
         if let Some(radix) = radix {
-            // We already skipped '0', now skip the radix prefix.
-            self.next_char(prefix);
-            let i = self.scan_integer(None, radix)?;
+            let i = self.take_integer(radix)?;
+            // Any trailing characters?
             if self.next_while_alphanumeric() > 0 {
-                return Err(Error::InvalidDigit);
+                return Err(Error::InvalidDigit(radix));
             }
-            Ok(TokenKind::Integer(i))
+            Ok(Token::Integer(i))
         } else {
             // No radix also accounts for decimal literals starting with '0',
             // e.g. "01234", and float literals starting with "0.".
-            self.scan_float(leader)
+            self.take_number(leader)
         }
     }
 
     /// Assumes that our current offset is at the first digit, or a separator.
-    /// The grammar thereof is as follows:
-    ///
-    /// int-literal = dec-digits
-    ///     | "0b" SEP bin-digits
-    ///     | "0o" SEP oct-digits
-    ///     | "0d" SEP dec-digits
-    ///     | "0x" SEP hex-digits
-    ///     | "0z" SEP doz-digits
-    ///     ;
-    ///
-    /// bin-digits = BIN-DIGIT SEP bin-digits | "" ;
-    /// oct-digits = OCT-DIGIT SEP oct-digits | "" ;
-    /// dec-digits = DEC-DIGIT SEP dec-digits | "" ;
-    /// hex-digits = HEX-DIGIT SEP hex-digits | "" ;
-    /// doz-digits = DOZ-DIGIT SEP doz-digits | "" ;
-    ///
-    /// BIN-DIGIT  = '0' | '1' ;
-    /// OCT-DIGIT  = BIN-DIGIT | '2' | '3' | '4' | '5' | '6' | '7' ;
-    /// DEC-DIGIT  = OCT-DIGIT | '8' | '9' ;
-    /// DOZ-DIGIT  = DEC-DIGIT | A | B ;
-    /// HEX-DIGIT  = DOZ-DIGIT | C | D | E | F ;
-    ///
-    /// SEP = '_' | ""  ;
-    /// A   = 'A' | 'a' ;
-    /// B   = 'B' | 'b' ;
-    /// C   = 'C' | 'c' ;
-    /// D   = 'D' | 'd' ;
-    /// E   = 'E' | 'e' ;
-    /// F   = 'F' | 'f' ;
-    ///
-    fn scan_integer(&mut self, first: Option<char>, radix: u32) -> Result<i64, Error> {
-        let mut i = match first.unwrap_or('0').to_digit(radix) {
-            Some(i) => i as i64,
-            None    => return Err(Error::InvalidDigit),
-        };
+    fn take_integer(&mut self, radix: Radix) -> Result<i64, Error> {
+        let radix = radix as u32;
+        let mut i = 0;
 
         // Track if we have consecutive underscores, e.g. "1__2". For consistency
         // we'll disallow this.
+        let mut prev_have;
         let mut curr_have = false;
-        for c in self.peek_rest().take_while(|c| c.is_digit(radix) || *c == '_') {
+        for c in self.peek_while(|c| c.is_digit(radix) || c == '_') {
             self.next_char(c);
 
-            let prev_have = curr_have;
+            prev_have = curr_have;
+            curr_have = c == '_';
+            if curr_have {
+                if prev_have {
+                    return Err(Error::ExcessUnderscores);
+                } else {
+                    continue;
+                }
+            }
+
+            let digit = c.to_digit(radix);
+
+            // SAFETY: We only take digits of the specified radix OR underscores,
+            // and we just tossed out underscores.
+            let digit = unsafe { digit.unwrap_unchecked() };
+            i *= radix as i64;
+            i += digit as i64;
+        }
+        Ok(i)
+    }
+
+    fn take_fraction(&mut self, radix: Radix) -> Result<f64, Error> {
+        let mut numerator   = 0.0;
+        let mut denominator = 1.0;
+
+        self.take_while_radix(radix, |digit, radix| {
+            numerator   *= radix as f64;
+            numerator   += digit as f64;
+            denominator *= radix as f64;
+        })?;
+
+        Ok(numerator / denominator)
+    }
+
+    fn take_while_radix<F>(&mut self, radix: Radix, mut f: F) -> Result<(), Error>
+        where F: FnMut(u32, u32)
+    {
+        let radix = radix as u32;
+        let mut prev_have;
+        let mut curr_have = false;
+
+        // Don't call scan integer because there is a lot of custom
+        // handling we need to do.
+        for c in self.peek_while(|c| c.is_digit(radix) || c == '_') {
+            self.next_char(c);
+
+            prev_have = curr_have;
             curr_have = c == '_';
             if curr_have {
                 if prev_have {
@@ -321,81 +377,42 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
-            if let Some(d) = c.to_digit(radix) {
-                i *= radix as i64;
-                i += d as i64;
-            } else {
-                return Err(Error::InvalidDigit);
-            }
-        }
-        Ok(i)
+            let digit = c.to_digit(radix as u32);
+
+            // SAFETY: We only take digits of the specified radix OR underscores,
+            // and we just tossed out underscores.
+            let digit = unsafe { digit.unwrap_unchecked() };
+            f(digit, radix);
+        };
+        Ok(())
     }
 
-    /// The valid grammar for float literals is as follows.
-    ///
-    /// number    = digits fraction
-    ///           | fraction
-    ///           ;
-    ///
-    /// digits    = digit '_'? digits | "" ;
-    /// digit     = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' ;
-    /// fraction  = '.' digits exponent?
-    /// exponent  = Ee sign digits
-    /// Ee        = 'E' | 'e' ;
-    /// sign      = '+' | '-' | "" ;
-    ///
-    fn scan_float(&mut self, leader: char) -> Result<TokenKind<'a>, Error> {
-        let int_part = if leader != '.' {
-            Some(self.scan_integer(Some(leader), 10)?)
+    fn take_number(&mut self, leader: char) -> Result<Token<'src>, Error> {
+        let radix = Radix::Decimal;
+        let whole = if leader != '.' {
+            Some(self.take_integer(radix)?)
         } else {
             None
         };
 
         // TODO(2026-09-16): Determine if correct
-        let frac_part = if leader == '.' || self.eat('.') {
-            let mut numerator   = 0.0;
-            let mut denominator = 1.0;
-
-            let mut curr_have = false;
-
-            // Don't call scan integer because there is a lot of custom
-            // handling we need to do.
-            for c in self.peek_rest().take_while(|c| c.is_digit(10) || *c == '_') {
-                self.next_char(c);
-
-                let prev = curr_have;
-                curr_have = c == '_';
-                if curr_have {
-                    if prev {
-                        return Err(Error::ExcessUnderscores);
-                    }
-                    continue;
-                }
-
-                if let Some(digit) = c.to_digit(10) {
-                    denominator *= 10.0;
-                    numerator   *= 10.0;
-                    numerator   += digit as f64;
-                } else {
-                    return Err(Error::InvalidDigit)
-                }
-            }
-            Some(numerator / denominator)
+        let fraction = if leader == '.' || self.take_if('.') {
+            Some(self.take_fraction(radix)?)
         } else {
             None
         };
 
-        let exp_part = if self.eat('e') || self.eat('E') {
-            let have_plus  = self.eat('+');
-            let have_minus = self.eat('-');
+        let exponent = if self.take_if('e') || self.take_if('E') {
+            let have_plus  = self.take_if('+');
+            let have_minus = self.take_if('-');
             // Can have either or none, but not both!
             if have_plus && have_minus {
-                return Err(Error::UnexpectedCharacter);
+                return Err(Error::InvalidExponent);
             }
 
             // Use default first digit so we don't duplicate the actual
             // first digit.
-            match i32::try_from(self.scan_integer(None, 10)?) {
+            match i32::try_from(self.take_integer(radix)?) {
                 Ok(i)  => Some(if have_minus { -i } else { i }),
                 Err(_) => return Err(Error::InvalidExponent),
             }
@@ -403,49 +420,34 @@ impl<'a> Lexer<'a> {
             None
         };
 
-        Ok(match (int_part, frac_part, exp_part) {
-            (Some(i), None,    None)    => TokenKind::Integer(i),
-            (None,    Some(f), None)    => TokenKind::Float(f),
-            (Some(i), Some(f), None)    => TokenKind::Float((i as f64) + f),
-            // Can't have lone exponent, that would be parsed as an identifier.
+        // At this point, any trailing characters would mean we definitely have
+        // an invalid number.
+        if self.next_while_alphanumeric() > 0 {
+            return Err(Error::InvalidDigit(radix));
+        }
 
-            (Some(i), None,    Some(exp)) => {
-                let mantissa = i as f64;
-                let pow10    = 10f64.powi(exp);
-                TokenKind::Float(mantissa * pow10)
-            }
+        // Only special case are decimal literals without any trailing chars-
+        // e.g. "1234".
+        if let Some(i) = whole && fraction.is_none() && exponent.is_none() {
+            return Ok(Token::Integer(i));
+        }
 
-
-            (None,    Some(frac), Some(exp)) => {
-                let mantissa = frac;
-                let pow10    = 10f64.powi(exp);
-                TokenKind::Float(mantissa * pow10)
-            }
-
-
-            (Some(i), Some(frac), Some(exp)) => {
-                let mantissa = (i as f64) + frac;
-                let pow10    = 10f64.powi(exp);
-                TokenKind::Float(mantissa * pow10)
-            }
-
-            _ => todo!(),
-        })
+        let whole    = whole.unwrap_or(0) as f64;
+        let fraction = fraction.unwrap_or(0.0);
+        let exponent = exponent.map_or(1.0, |exp| 10f64.powi(exp));
+        Ok(Token::Float((whole + fraction) * exponent))
     }
 
-    fn scan_string(&mut self, quote: char) -> TokenKind<'a> {
+    fn take_string(&mut self, quote: char) -> Result<Token<'src>, Error> {
         let mut ok = false;
 
         // TODO(2026-09-14): Can we rewrite this using lambdas instead?
-        for c in self.peek_rest() {
-            // Don't consume the newline so we can better report the error.
-            if c == '\n' {
-                break;
-            }
-
+        // Don't consume the newline so we can better report the error.
+        for c in self.peek_while(|c| c != '\n') {
             // For everything else, consume everything, including the quotes,
             // as we need to know how much to trim off.
-            if self.next_char(c) == quote {
+            self.next_char(c);
+            if c == quote {
                 ok = true;
                 break;
             }
@@ -458,9 +460,9 @@ impl<'a> Lexer<'a> {
             let s = self.lexeme();
             let i = 1;
             let j = s.len() - i;
-            TokenKind::String(&s[i..j])
+            Ok(Token::String(&s[i..j]))
         } else {
-            TokenKind::Invalid(Error::UnterminatedString)
+            Err(Error::UnterminatedString)
         }
     }
 
@@ -468,49 +470,50 @@ impl<'a> Lexer<'a> {
         self.next_while(|c| c.is_alphanumeric() || c == '_')
     }
 
-    fn make_token(&mut self, kind: TokenKind<'a>) -> Token<'a> {
-        let lexeme = self.lexeme();
-        let line   = self.pos.line;
-        let col    = self.start_col;
-        Token {kind, lexeme, pos: Pos {line, col}}
+    fn make_token(&mut self, kind: Token<'src>) -> FatToken<'src> {
+        let pos    = self.prev_pos;
+        let lexeme = Lexeme::new(pos, self.lexeme());
+        FatToken {kind, lexeme}
     }
 
-    fn make_error_token(&mut self, err: Error) -> Token<'a> {
-        self.make_token(TokenKind::Invalid(err))
+    fn make_error(&mut self, err: Error) -> FatError<'src> {
+        let pos    = self.curr_pos;
+        let lexeme = Lexeme::new(pos, self.lexeme());
+        FatError {kind: err, lexeme}
     }
 
-    fn lexeme(&self) -> &'a str {
-        let (i, j) = (self.start_offset, self.curr_offset);
+    fn lexeme(&self) -> &'src str {
+        let (i, j) = (self.prev_offset, self.curr_offset);
         &self.input[i..j]
     }
 
-    /// Skips whitespaces and comments. Returns `Some(char)` if there was any
+    /// Skips whitespaces and comments. Returns a `Some` of the first
     /// non-whitespace and non-comment character found, otherwise `None`.
-    fn skip_whitespace(&mut self) -> Option<char> {
+    fn take_whitespace(&mut self) -> Option<char> {
         let mut res = None;
         for c in self.peek_rest() {
             // Don't advance yet because if we terminate early, then we want
             // the starting offset to refer to this non-whitespace,
             // non-comment character.
-            if !c.is_whitespace() && !self.skip_comment(c) {
+            if !c.is_whitespace() && !self.take_comment(c) {
                 res = Some(c);
                 break;
             }
 
             if c == '\n' {
-                self.pos.line += 1;
-                self.pos.col   = 0;
+                self.curr_pos.line += 1;
+                self.curr_pos.col   = 0;
             }
-            self.pos.col += 1;
+            self.curr_pos.col += 1;
             self.next_char(c);
         };
 
-        self.start_offset = self.curr_offset;
-        self.start_col    = self.pos.col;
+        self.prev_offset = self.curr_offset;
+        self.prev_pos    = self.curr_pos;
         res
     }
 
-    fn skip_comment(&mut self, c: char) -> bool {
+    fn take_comment(&mut self, c: char) -> bool {
         // Check to see if it's the start of a comment.
         if c == '-' && let Some(c) = self.peek_at(c.len_utf8()) {
             // We definitely have a comment of some kind?
@@ -530,7 +533,7 @@ impl<'a> Lexer<'a> {
     /// Advances the current offset as long as the given predicate for
     /// the current (iterated) character is satisfied.
     fn next_while<F>(&mut self, f: F) -> usize
-        where F: Fn(char) -> bool
+        where F: Fn(char) -> bool + 'src
     {
         let mut n = 0;
 
@@ -538,7 +541,7 @@ impl<'a> Lexer<'a> {
         // UTF-8 input. Otherwise, if we just count the number of chars
         // iterated over, we will likely undershoot the increment of the
         // current offset.
-        for c in self.peek_rest().take_while(|refc| f(*refc)) {
+        for c in self.peek_while(f) {
             self.next_char(c);
             n += 1;
         }
@@ -547,22 +550,22 @@ impl<'a> Lexer<'a> {
 
     /// Matches the charcter at the current offset with the expected one,
     /// advancing the current offset if the match is found.
-    fn eat(&mut self, want: char) -> bool {
-        let c  = self.peek();
-        let ok = c == want;
-        if ok {
-            self.next_char(c);
-        }
-        ok
+    fn take_if(&mut self, want: char) -> bool {
+        self.peek_curr()
+        .is_some_and(|c| {
+            let ok = c == want;
+            if ok {
+                self.next_char(c);
+            }
+            ok
+        })
     }
 
     /// Returns the character at the current offset. If the input was exhausted,
-    /// meaning we hit EOF, then the default value (i.e. `0 as char`) is returned
-    /// as a safeguard. For simplicity we assume that no valid UTF-8 character will
-    /// ever match the default value.
-    fn peek(&self) -> char {
+    /// meaning we hit EOF, then `None` is returned.
+    fn peek_curr(&self) -> Option<char> {
         // https://users.rust-lang.org/t/for-parsing-charindices-peek-with-offset-and-as-str/122299/2
-        self.peek_at(0).unwrap_or_default()
+        self.peek_at(0)
     }
 
     /// Returns the charater at 1 past the current offset.
@@ -578,17 +581,29 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Returns an iterator to the remaining input.
-    fn peek_rest(&self) -> Chars<'a> {
+    /// Returns a character-wise (NOT byte-wise) iterator to the remainder
+    /// of the string that satisfies the given predicate.
+    ///
+    /// The iterator will prematurely end at the first `false` it encounters,
+    /// otherwise it will end 'naturally' once the input string is exhausted.
+    fn peek_while<F>(&self, f: F) -> impl Iterator<Item = char> + 'src
+        where F: Fn(char) -> bool + 'src
+    {
+        // The returned iterator needs to take ownership of the closure.
+        self.peek_rest().take_while(move |refc| f(*refc))
+    }
+
+
+    /// Returns a character-wise (NOT byte-wise!) iterator to the remaining
+    /// input string.
+    fn peek_rest(&self) -> impl Iterator<Item = char> + 'src {
         self.input[self.curr_offset..].chars()
     }
 
     /// Advances the current offset by the UTF-8 length of the read character.
-    /// Returns the given character so you can keep using it.
-    fn next_char(&mut self, prev: char) -> char {
-        self.curr_offset += prev.len_utf8();
-        self.pos.col     += 1;
-        prev
+    fn next_char(&mut self, prev: char) {
+        self.curr_offset  += prev.len_utf8();
+        self.curr_pos.col += 1;
     }
 }
 
